@@ -1,0 +1,97 @@
+site_name: pyGAEB
+site_url: https://pygaeb.readthedocs.io
+site_description: Python parser for GAEB DA XML construction data exchange files
+repo_url: https://github.com/frameiq/pygaeb
+repo_name: frameiq/pygaeb
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          options:
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            docstring_style: google
+            merge_init_into_class: true
+            show_if_no_docstring: false
+            separate_signature: true
+            signature_crossrefs: true
+  - section-index
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+  - tables
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - getting-started/index.md
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quickstart.md
+  - Guides:
+    - guides/index.md
+    - Parsing: guides/parsing.md
+    - Validation: guides/validation.md
+    - LLM Classification: guides/classification.md
+    - Structured Extraction: guides/extraction.md
+    - Writing & Export: guides/writing.md
+    - Caching: guides/caching.md
+  - API Reference:
+    - reference/index.md
+    - GAEBParser: reference/parser.md
+    - Models: reference/models.md
+    - Classifier: reference/classifier.md
+    - Extractor: reference/extractor.md
+    - Writer & Export: reference/writer.md
+    - Cache: reference/cache.md
+    - Validation: reference/validation.md
+    - Configuration: reference/config.md
+    - Exceptions: reference/exceptions.md
+  - Changelog: changelog.md

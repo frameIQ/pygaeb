@@ -1,0 +1,87 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyGAEB"
+dynamic = ["version"]
+description = "Python parser for GAEB DA XML construction data exchange files, with LLM-powered item classification"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+keywords = [
+    "gaeb",
+    "construction",
+    "bim",
+    "bill-of-quantities",
+    "boq",
+    "ava",
+    "leistungsverzeichnis",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+dependencies = [
+    "lxml>=4.9",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "beautifulsoup4>=4.12",
+    "ftfy>=6.1",
+    "charset-normalizer>=3.0",
+]
+
+[project.optional-dependencies]
+llm = ["litellm>=1.40", "instructor>=1.0"]
+dev = [
+    "pytest",
+    "hypothesis",
+    "mypy",
+    "ruff",
+    "pytest-asyncio",
+    "xmldiff>=2.6",
+]
+docs = [
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.24",
+    "mkdocs-section-index>=0.3",
+]
+
+[project.urls]
+Homepage = "https://github.com/frameiq/pygaeb"
+Docs = "https://pygaeb.readthedocs.io"
+Changelog = "https://github.com/frameiq/pygaeb/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "pygaeb/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pygaeb"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PTH", "RUF", "T20"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
