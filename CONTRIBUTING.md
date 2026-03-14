@@ -1,46 +1,50 @@
 # Contributing to pyGAEB
 
-Thank you for considering contributing to pyGAEB!
+Thank you for considering contributing to pyGAEB! This guide will help you get started.
+
+## Licence Agreement
+
+By submitting a pull request you agree that your contributions are licensed under the MIT License and that the project maintainers retain the right to relicence the project under alternative terms.
 
 ## Development Setup
 
 ```bash
-# Clone the repository
 git clone https://github.com/frameiq/pygaeb.git
 cd pygaeb
-
-# Create a virtual environment
 python -m venv .venv
 source .venv/bin/activate
-
-# Install in development mode with all extras
-pip install -e ".[llm,dev]"
-
-# Run tests
-pytest
-
-# Run type checks
-mypy pygaeb
-
-# Run linter
-ruff check pygaeb
+pip install -e ".[dev,llm]"
 ```
 
-## Guidelines
+## Running Tests
 
-- All public API functions and classes must have type annotations
-- Use `Decimal` for all monetary and quantity values — never `float`
-- New parser features need corresponding test cases
-- Follow the existing code style (enforced by ruff)
-- Add entries to CHANGELOG.md for user-facing changes
+```bash
+pytest -v
+```
 
-## Test Corpus
+## Code Quality
 
-If you have access to real GAEB files, contributions to the test corpus are
-especially valuable. Please ensure files do not contain confidential project data
-before submitting.
+We enforce the following in CI — please run these locally before pushing:
 
-## Architecture
+```bash
+ruff check pygaeb/ tests/
+mypy pygaeb/
+```
 
-See `pygaeb_roadmap.md` for the complete development roadmap and architecture
-documentation.
+All code must pass ruff with the rules configured in `pyproject.toml` and mypy in strict mode.
+
+## Pull Request Guidelines
+
+1. **Create a branch** from `main` for your changes
+2. **Write tests** for any new functionality
+3. **Run the full suite** (`pytest -v`, `ruff check`, `mypy`) before opening a PR
+4. **Keep PRs focused** — one feature or fix per PR
+5. **Update documentation** if you change public API surface
+
+## Reporting Issues
+
+Open an issue on GitHub with:
+
+- A clear title and description
+- Minimal reproduction steps (ideally a sample GAEB file or XML snippet)
+- Python version and pyGAEB version (`python -c "import pygaeb; print(pygaeb.__version__)"`)
