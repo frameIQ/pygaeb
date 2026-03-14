@@ -30,12 +30,13 @@ logger = logging.getLogger("pygaeb.parser")
 class BaseV3Parser:
     """Shared parse logic for all DA XML 3.x versions."""
 
-    def __init__(self, route: ParseRoute) -> None:
+    def __init__(self, route: ParseRoute, keep_xml: bool = False) -> None:
         self.route = route
         self._ns: str | None = None
         self._ns_prefix: str = ""
         self._category_labels: dict[str, str] = {}
         self._bkdn: list[BoQBkdn] = []
+        self._keep_xml = keep_xml
 
     def parse(self, path: Path, text: str) -> GAEBDocument:
         root, recovery_warnings = parse_xml_safe(text, str(path))
@@ -54,6 +55,9 @@ class BaseV3Parser:
 
         doc.gaeb_info = self._parse_gaeb_info(root)
         doc.award = self._parse_award(root, doc)
+
+        if self._keep_xml:
+            doc.xml_root = root
 
         return doc
 
@@ -79,9 +83,12 @@ class BaseV3Parser:
 
     def _text(self, parent: etree._Element, *tags: str) -> str | None:
         el = self._find(parent, *tags)
-        if el is not None and el.text:
+        if el is None:
+            return None
+        if el.text and str(el.text).strip():
             return str(el.text).strip()
-        return None
+        full = "".join(str(t) for t in el.itertext()).strip()
+        return full or None
 
     def _detect_namespace(self, root: etree._Element) -> str | None:
         tag = str(root.tag)
@@ -102,6 +109,9 @@ class BaseV3Parser:
         date_str = self._text(gaeb_info_el, "Date")
         if date_str:
             info.date = _parse_date(date_str)
+
+        if self._keep_xml:
+            info.source_element = gaeb_info_el
 
         return info
 
@@ -124,11 +134,21 @@ class BaseV3Parser:
             if date_str:
                 award.date = _parse_date(date_str)
 
+        prj_info_el = self._find(root, "PrjInfo")
+        if prj_info_el is not None:
+            if not award.project_name:
+                award.project_name = self._text(prj_info_el, "NamePrj", "PrjName")
+            if not award.currency or award.currency == "EUR":
+                award.currency = self._text(prj_info_el, "Cur") or award.currency
+
         boq_el = self._find(award_el, "BoQ")
         if boq_el is not None:
             award.boq = self._parse_boq(boq_el, doc)
         else:
             doc.add_warning("No BoQ element found in Award")
+
+        if self._keep_xml:
+            award.source_element = award_el
 
         return award
 
@@ -163,24 +183,47 @@ class BaseV3Parser:
         info.name = self._text(info_el, "Name")
         info.lbl_boq = self._text(info_el, "LblBoQ")
 
-        bkdn_el = self._find(info_el, "BoQBkdn")
-        if bkdn_el is not None:
-            for level_el in bkdn_el:
-                tag = self._local_tag(level_el.tag)
-                length_str = level_el.get("Length", "0")
-                try:
-                    length = int(length_str)
-                except ValueError:
-                    length = 0
-
-                bkdn_type = _bkdn_type_from_tag(tag)
-                info.bkdn.append(BoQBkdn(
-                    bkdn_type=bkdn_type,
-                    length=length,
-                    key=level_el.get("Key", tag),
-                ))
+        bkdn_els = self._findall(info_el, "BoQBkdn")
+        if len(bkdn_els) > 1:
+            self._parse_bkdn_v32(bkdn_els, info)
+        elif len(bkdn_els) == 1:
+            self._parse_bkdn_v33(bkdn_els[0], info)
 
         return info
+
+    def _parse_bkdn_v33(self, bkdn_el: etree._Element, info: BoQInfo) -> None:
+        """v3.3 format: single <BoQBkdn> with <BoQLevel Length="2"/> children."""
+        for level_el in bkdn_el:
+            tag = self._local_tag(level_el.tag)
+            length_str = level_el.get("Length", "0")
+            try:
+                length = int(length_str)
+            except ValueError:
+                length = 0
+
+            bkdn_type = _bkdn_type_from_tag(tag)
+            info.bkdn.append(BoQBkdn(
+                bkdn_type=bkdn_type,
+                length=length,
+                key=level_el.get("Key", tag),
+            ))
+
+    def _parse_bkdn_v32(self, bkdn_els: list[Any], info: BoQInfo) -> None:
+        """v3.2 format: multiple <BoQBkdn> siblings, each with <Type>/<Length> children."""
+        for bkdn_el in bkdn_els:
+            type_text = self._text(bkdn_el, "Type") or "BoQLevel"
+            length_str = self._text(bkdn_el, "Length") or "0"
+            try:
+                length = int(length_str)
+            except ValueError:
+                length = 0
+
+            bkdn_type = _bkdn_type_from_tag(type_text)
+            info.bkdn.append(BoQBkdn(
+                bkdn_type=bkdn_type,
+                length=length,
+                key=type_text,
+            ))
 
     def _parse_boq_body(self, body_el: etree._Element, doc: GAEBDocument) -> BoQBody:
         body = BoQBody()
@@ -238,6 +281,9 @@ class BaseV3Parser:
             item = self._parse_item(it_el, doc, current_path, lot_label)
             ctgy.items.append(item)
 
+        if self._keep_xml:
+            ctgy.source_element = ctgy_el
+
         return ctgy
 
     def _parse_item(
@@ -255,16 +301,10 @@ class BaseV3Parser:
             lot_label=lot_label or None,
         )
 
-        item.short_text = self._text(item_el, "Qty", "ShortText", "Description") or ""
-        short_text_el = self._find(item_el, "Description")
-        if short_text_el is not None:
-            item.short_text = self._text(short_text_el, "CompleteText", "OutlineText") or ""
-            if not item.short_text:
-                item.short_text = short_text_el.text or "" if short_text_el.text else ""
-
         st = self._text(item_el, "ShortText")
-        if st:
-            item.short_text = st
+        if not st:
+            st = self._extract_outline_text(item_el)
+        item.short_text = st or ""
 
         qty_el = self._find(item_el, "Qty")
         if qty_el is not None:
@@ -305,6 +345,9 @@ class BaseV3Parser:
         co_el = self._find(item_el, "CONo")
         if co_el is not None:
             item.change_order_number = co_el.text.strip() if co_el.text else None
+
+        if self._keep_xml:
+            item.source_element = item_el
 
         return item
 
@@ -350,6 +393,39 @@ class BaseV3Parser:
             if qty is not None:
                 splits.append(QtySplit(label=label, qty=qty, unit=unit))
         return splits
+
+    def _extract_outline_text(self, item_el: etree._Element) -> str | None:
+        """Extract short text from Description/OutlineText structure.
+
+        Handles both flat and nested paths:
+          <Description>/<CompleteText>/<OutlineText>/<OutlTxt>/<TextOutlTxt>/<span>
+          <Description>/<OutlineText>/...
+        """
+        desc = self._find(item_el, "Description")
+        if desc is None:
+            return None
+
+        for outline in self._walk_to(desc, "OutlineText"):
+            txt = self._text(outline, "OutlTxt", "TextOutlTxt")
+            if txt:
+                return txt
+            full = "".join(str(t) for t in outline.itertext()).strip()
+            if full:
+                return full
+        return None
+
+    def _walk_to(
+        self, el: etree._Element, target_tag: str
+    ) -> list[Any]:
+        """Find target_tag at any depth below el (BFS one level of nesting)."""
+        direct = self._findall(el, target_tag)
+        if direct:
+            return direct
+        results: list[Any] = []
+        for child in el:
+            found = self._findall(child, target_tag)
+            results.extend(found)
+        return results
 
     def _has_lot_bkdn(self) -> bool:
         return any(b.bkdn_type == BkdnType.LOT for b in self._bkdn)

@@ -101,6 +101,23 @@ print(doc.exchange_phase)              # ExchangePhase.D83
 print(doc.exchange_phase.normalized()) # ExchangePhase.X83
 ```
 
+## Retaining Raw XML
+
+By default the lxml tree is discarded after parsing to conserve memory. Pass `keep_xml=True` to retain it, which enables **custom tag access** and **XPath queries**:
+
+```python
+doc = GAEBParser.parse("tender.X83", keep_xml=True)
+
+# XPath against the full tree (namespace prefix "g:" is auto-mapped)
+codes = doc.xpath("//g:VendorCostCode/text()")
+
+# Access the raw lxml element on any item
+for item in doc.award.boq.iter_items():
+    el = item.source_element  # lxml _Element or None
+```
+
+See the [Custom & Vendor Tags Guide](custom-tags.md) for full details.
+
 ## Unified Document Model
 
 Regardless of input version, you always get the same structure:

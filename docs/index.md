@@ -14,9 +14,11 @@ pyGAEB parses, validates, classifies, and writes GAEB DA XML files (versions 2.0
 
 - **Multi-version parsing** — DA XML 2.0 through 3.3, all producing the same `GAEBDocument` model
 - **Tolerant by default** — malformed real-world files are common; warnings not exceptions
+- **Version conversion** — convert between DA XML 2.0–3.3 with data-loss reports
 - **Full round-trip** — parse, modify, write back to valid GAEB DA XML
 - **LLM classification** — enrich items with semantic types (Door, Wall, Window...) via any LLM provider
 - **Structured extraction** — pull typed attributes into your own Pydantic schemas using LLMs
+- **Custom & vendor tag access** — opt-in raw XML retention, XPath queries, vendor extension extraction
 - **Pluggable caching** — in-memory default, opt-in SQLite persistence, or bring your own backend
 - **Export** — JSON (nested BoQ tree) and CSV (flat item table)
 - **Cross-phase validation** — compare tender vs. bid documents for compliance

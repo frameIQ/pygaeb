@@ -32,15 +32,20 @@ class GAEBParser:
         path: str | Path,
         validation: ValidationMode = ValidationMode.LENIENT,
         xsd_dir: str | None = None,
+        keep_xml: bool = False,
     ) -> GAEBDocument:
-        """Parse a GAEB file from disk and return a unified GAEBDocument."""
+        """Parse a GAEB file from disk and return a unified GAEBDocument.
+
+        Set *keep_xml* to ``True`` to retain raw lxml elements on every
+        model (``item.source_element``) and enable ``doc.xpath()``.
+        """
         path = Path(path)
         if not path.exists():
             raise GAEBParseError(f"File not found: {path}")
 
         raw = path.read_bytes()
         route = detect_version(path)
-        return _parse_core(raw, route, path, validation, xsd_dir)
+        return _parse_core(raw, route, path, validation, xsd_dir, keep_xml)
 
     @staticmethod
     def parse_bytes(
@@ -48,6 +53,7 @@ class GAEBParser:
         filename: str = "input.X83",
         validation: ValidationMode = ValidationMode.LENIENT,
         xsd_dir: str | None = None,
+        keep_xml: bool = False,
     ) -> GAEBDocument:
         """Parse GAEB data from bytes (useful for web uploads, S3 streams, etc.).
 
@@ -59,7 +65,9 @@ class GAEBParser:
             tmp_path = Path(tmp.name)
         try:
             route = detect_version(tmp_path)
-            return _parse_core(data, route, hint_path, validation, xsd_dir)
+            return _parse_core(
+                data, route, hint_path, validation, xsd_dir, keep_xml,
+            )
         finally:
             tmp_path.unlink(missing_ok=True)
 
@@ -69,13 +77,14 @@ class GAEBParser:
         filename: str = "input.X83",
         validation: ValidationMode = ValidationMode.LENIENT,
         xsd_dir: str | None = None,
+        keep_xml: bool = False,
     ) -> GAEBDocument:
         """Parse GAEB data from an XML string.
 
         The filename hint is used for version/phase detection from the extension.
         """
         return GAEBParser.parse_bytes(
-            xml_text.encode("utf-8"), filename, validation, xsd_dir
+            xml_text.encode("utf-8"), filename, validation, xsd_dir, keep_xml,
         )
 
 
@@ -85,6 +94,7 @@ def _parse_core(
     source_path: Path,
     validation: ValidationMode,
     xsd_dir: str | None,
+    keep_xml: bool = False,
 ) -> GAEBDocument:
     """Shared parsing pipeline for all entry points."""
     logger.debug(
@@ -100,7 +110,7 @@ def _parse_core(
     text, encoding_info = repair_encoding(raw, is_xml=is_xml)
     route.encoding_info = encoding_info
 
-    doc = _dispatch_parser(route, source_path, text)
+    doc = _dispatch_parser(route, source_path, text, keep_xml)
 
     if xsd_dir is None:
         xsd_dir = get_settings().xsd_dir
@@ -132,7 +142,9 @@ def _parse_core(
     return doc
 
 
-def _dispatch_parser(route: ParseRoute, path: Path, text: str) -> GAEBDocument:
+def _dispatch_parser(
+    route: ParseRoute, path: Path, text: str, keep_xml: bool = False,
+) -> GAEBDocument:
     """Route to the correct parser track based on detection result."""
     if route.track == ParserTrack.TRACK_C:
         raise GAEBParseError(
@@ -141,21 +153,21 @@ def _dispatch_parser(route: ParseRoute, path: Path, text: str) -> GAEBDocument:
 
     if route.track == ParserTrack.TRACK_A:
         from pygaeb.parser.xml_v2.v2_parser import V2Parser
-        parser = V2Parser(route)
+        parser = V2Parser(route, keep_xml=keep_xml)
         return parser.parse(path, text)
 
     if route.version == SourceVersion.DA_XML_30:
         from pygaeb.parser.xml_v3.v30_compat import V30Compat
-        parser = V30Compat(route)  # type: ignore[assignment]
+        parser = V30Compat(route, keep_xml=keep_xml)  # type: ignore[assignment]
     elif route.version == SourceVersion.DA_XML_31:
         from pygaeb.parser.xml_v3.v31_compat import V31Compat
-        parser = V31Compat(route)  # type: ignore[assignment]
+        parser = V31Compat(route, keep_xml=keep_xml)  # type: ignore[assignment]
     elif route.version == SourceVersion.DA_XML_33:
         from pygaeb.parser.xml_v3.v33_compat import V33Compat
-        parser = V33Compat(route)  # type: ignore[assignment]
+        parser = V33Compat(route, keep_xml=keep_xml)  # type: ignore[assignment]
     else:
         from pygaeb.parser.xml_v3.v32_compat import V32Compat
-        parser = V32Compat(route)  # type: ignore[assignment]
+        parser = V32Compat(route, keep_xml=keep_xml)  # type: ignore[assignment]
 
     return parser.parse(path, text)
 

@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
@@ -38,6 +38,9 @@ def __getattr__(name: str) -> object:
         # LLM (optional dep)
         "LLMClassifier": ("pygaeb.classifier", "LLMClassifier"),
         "StructuredExtractor": ("pygaeb.extractor", "StructuredExtractor"),
+        # Converter
+        "GAEBConverter": ("pygaeb.converter", "GAEBConverter"),
+        "ConversionReport": ("pygaeb.converter", "ConversionReport"),
         # Cache (only needed for opt-in persistence)
         "CacheBackend": ("pygaeb.cache", "CacheBackend"),
         "InMemoryCache": ("pygaeb.cache", "InMemoryCache"),
@@ -83,28 +86,24 @@ def __getattr__(name: str) -> object:
 
 __all__ = [
     "Attachment",
-    # Models (lazy — available but not prominent)
     "AwardInfo",
-    # Enums (lazy)
     "BkdnType",
     "BoQ",
     "BoQBkdn",
     "BoQBody",
     "BoQCtgy",
     "BoQInfo",
-    # Cache (lazy)
     "CacheBackend",
-    # Exceptions
     "ClassificationBackendError",
     "ClassificationFlag",
     "ClassificationResult",
+    "ConversionReport",
     "CostEstimate",
-    # Validation (lazy)
     "CrossPhaseValidator",
-    # Navigation (lazy)
     "DocumentAPI",
     "ExchangePhase",
     "ExtractionResult",
+    "GAEBConverter",
     "GAEBDocument",
     "GAEBInfo",
     "GAEBParseError",
@@ -114,11 +113,9 @@ __all__ = [
     "InMemoryCache",
     "Item",
     "ItemType",
-    # LLM (lazy)
     "LLMClassifier",
     "Lot",
     "PyGAEBError",
-    # Config (lazy)
     "PyGAEBSettings",
     "QtySplit",
     "RichText",
@@ -128,7 +125,6 @@ __all__ = [
     "ValidationMode",
     "ValidationResult",
     "ValidationSeverity",
-    # Core — the 80% API
     "__version__",
     "configure",
     "get_settings",

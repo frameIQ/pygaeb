@@ -107,6 +107,8 @@ class ExtractionResult(BaseModel):
 class Item(BaseModel):
     """A single item (position) in a Bill of Quantities."""
 
+    model_config = {"arbitrary_types_allowed": True}
+
     def __repr__(self) -> str:
         parts = [f"oz={self.oz!r}"]
         if self.short_text:
@@ -132,6 +134,7 @@ class Item(BaseModel):
     attachments: list[Attachment] = Field(default_factory=list)
     bim_guid: str | None = None
     change_order_number: str | None = None
+    source_element: Any = Field(default=None, exclude=True, repr=False)
     raw_data: dict[str, Any] | None = Field(default=None, exclude=True)
 
     @property

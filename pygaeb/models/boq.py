@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -40,11 +41,14 @@ class BoQInfo(BaseModel):
 class BoQCtgy(BaseModel):
     """A category (section) in the BoQ hierarchy, containing items and/or sub-categories."""
 
+    model_config = {"arbitrary_types_allowed": True}
+
     rno: str = ""
     label: str = ""
     items: list[Item] = Field(default_factory=list)
     subcategories: list[BoQCtgy] = Field(default_factory=list)
     lbl_tx: str | None = None
+    source_element: Any = Field(default=None, exclude=True, repr=False)
 
     def iter_items(self) -> Iterator[Item]:
         """Iterate all items in this category and its subcategories."""

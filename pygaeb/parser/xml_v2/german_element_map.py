@@ -73,3 +73,6 @@ GERMAN_TO_ENGLISH: dict[str, str] = {
 }
 
 ENGLISH_TO_GERMAN: dict[str, str] = {v: k for k, v in GERMAN_TO_ENGLISH.items()}
+# Resolve ambiguity: "Item" maps to both "Position" and "Teilposition".
+# In BoQ context (element tags), the correct German name is "Position".
+ENGLISH_TO_GERMAN["Item"] = "Position"

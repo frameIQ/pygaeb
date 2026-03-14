@@ -14,7 +14,7 @@ from pygaeb.models.enums import ItemType, SourceVersion
 from pygaeb.models.item import ClassificationResult, Item
 from pygaeb.parser import GAEBParser
 
-from .conftest import SAMPLE_V33_XML
+from .conftest import SAMPLE_V33_XML, SAMPLE_WITH_CUSTOM_TAGS
 
 
 class TestDocumentAPI:
@@ -218,6 +218,139 @@ class TestSQLiteCacheContextManager:
         cache2 = SQLiteCache(str(tmp_path))
         assert cache2.get("k") == "v"
         cache2.close()
+
+
+class TestKeepXml:
+    """Tests for keep_xml=True: source_element retention and xpath()."""
+
+    def test_default_no_source_elements(self):
+        doc = GAEBParser.parse_string(SAMPLE_V33_XML)
+        assert doc.xml_root is None
+        for item in doc.award.boq.iter_items():
+            assert item.source_element is None
+
+    def test_xpath_raises_without_keep_xml(self):
+        doc = GAEBParser.parse_string(SAMPLE_V33_XML)
+        import pytest
+        with pytest.raises(RuntimeError, match="keep_xml=True"):
+            doc.xpath("//Item")
+
+    def test_keep_xml_stores_root(self):
+        doc = GAEBParser.parse_string(SAMPLE_V33_XML, keep_xml=True)
+        assert doc.xml_root is not None
+
+    def test_keep_xml_stores_item_elements(self):
+        doc = GAEBParser.parse_string(SAMPLE_V33_XML, keep_xml=True)
+        items = list(doc.award.boq.iter_items())
+        assert len(items) == 3
+        for item in items:
+            assert item.source_element is not None
+            assert item.source_element.get("RNoPart") == item.oz
+
+    def test_keep_xml_stores_ctgy_elements(self):
+        doc = GAEBParser.parse_string(SAMPLE_V33_XML, keep_xml=True)
+        for _, _, ctgy in doc.award.boq.iter_hierarchy():
+            if ctgy is not None:
+                assert ctgy.source_element is not None
+                assert ctgy.source_element.get("RNoPart") == ctgy.rno
+
+    def test_keep_xml_stores_gaeb_info_element(self):
+        doc = GAEBParser.parse_string(SAMPLE_V33_XML, keep_xml=True)
+        assert doc.gaeb_info.source_element is not None
+
+    def test_keep_xml_stores_award_element(self):
+        doc = GAEBParser.parse_string(SAMPLE_V33_XML, keep_xml=True)
+        assert doc.award.source_element is not None
+
+    def test_xpath_with_namespace(self):
+        doc = GAEBParser.parse_string(SAMPLE_V33_XML, keep_xml=True)
+        results = doc.xpath("//g:Itemlist/g:Item")
+        assert len(results) == 3
+
+    def test_xpath_with_attribute_filter(self):
+        doc = GAEBParser.parse_string(SAMPLE_V33_XML, keep_xml=True)
+        results = doc.xpath("//g:Item[@RNoPart='0010']")
+        assert len(results) >= 1
+
+    def test_xpath_returns_text(self):
+        doc = GAEBParser.parse_string(SAMPLE_V33_XML, keep_xml=True)
+        results = doc.xpath("//g:AwardInfo/g:PrjName/text()")
+        assert results == ["Test Project"]
+
+    def test_custom_tag_extraction(self):
+        doc = GAEBParser.parse_string(
+            SAMPLE_WITH_CUSTOM_TAGS, keep_xml=True,
+        )
+        items = list(doc.award.boq.iter_items())
+        assert len(items) == 2
+
+        el0 = items[0].source_element
+        vendor_code = el0.find(
+            "{http://www.gaeb.de/GAEB_DA_XML/DA86/3.3}VendorCostCode"
+        )
+        assert vendor_code is not None
+        assert vendor_code.text == "RC-001"
+
+        el1 = items[1].source_element
+        vendor_code = el1.find(
+            "{http://www.gaeb.de/GAEB_DA_XML/DA86/3.3}VendorCostCode"
+        )
+        assert vendor_code is not None
+        assert vendor_code.text == "RC-002"
+
+    def test_custom_tag_via_xpath(self):
+        doc = GAEBParser.parse_string(
+            SAMPLE_WITH_CUSTOM_TAGS, keep_xml=True,
+        )
+        results = doc.xpath("//g:VendorCostCode/text()")
+        assert set(results) == {"RC-001", "RC-002"}
+
+    def test_custom_tag_missing_returns_none(self):
+        doc = GAEBParser.parse_string(
+            SAMPLE_WITH_CUSTOM_TAGS, keep_xml=True,
+        )
+        items = list(doc.award.boq.iter_items())
+        note = items[1].source_element.find(
+            "{http://www.gaeb.de/GAEB_DA_XML/DA86/3.3}CustomNote"
+        )
+        assert note is None
+
+    def test_document_api_xpath(self):
+        doc = GAEBParser.parse_string(
+            SAMPLE_WITH_CUSTOM_TAGS, keep_xml=True,
+        )
+        api = DocumentAPI(doc)
+        results = api.xpath("//g:VendorCostCode/text()")
+        assert len(results) == 2
+
+    def test_document_api_custom_tag(self):
+        doc = GAEBParser.parse_string(
+            SAMPLE_WITH_CUSTOM_TAGS, keep_xml=True,
+        )
+        api = DocumentAPI(doc)
+        items = list(api.iter_items())
+        ns = "{http://www.gaeb.de/GAEB_DA_XML/DA86/3.3}"
+        assert api.custom_tag(items[0], f"{ns}VendorCostCode") == "RC-001"
+        assert api.custom_tag(items[0], f"{ns}CustomNote") == "Priority item"
+        assert api.custom_tag(items[1], f"{ns}CustomNote") is None
+
+    def test_document_api_custom_tag_without_keep_xml(self):
+        doc = GAEBParser.parse_string(SAMPLE_WITH_CUSTOM_TAGS)
+        api = DocumentAPI(doc)
+        items = list(api.iter_items())
+        assert api.custom_tag(items[0], "VendorCostCode") is None
+
+    def test_source_element_excluded_from_json(self):
+        doc = GAEBParser.parse_string(SAMPLE_V33_XML, keep_xml=True)
+        json_str = to_json_string(doc)
+        assert "source_element" not in json_str
+
+    def test_keep_xml_with_parse_bytes(self):
+        raw = SAMPLE_V33_XML.encode("utf-8")
+        doc = GAEBParser.parse_bytes(raw, keep_xml=True)
+        assert doc.xml_root is not None
+        items = list(doc.award.boq.iter_items())
+        assert items[0].source_element is not None
 
 
 class TestToJsonString:

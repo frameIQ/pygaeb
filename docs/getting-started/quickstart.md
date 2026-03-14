@@ -138,9 +138,48 @@ for item in doc.award.boq.iter_items():
 
 See the [Classification Guide](../guides/classification.md) for details on the taxonomy, confidence flags, and caching.
 
+## Version Conversion
+
+Convert GAEB files between any DA XML version:
+
+```python
+from pygaeb import GAEBConverter, SourceVersion
+
+# Upgrade 2.x → 3.3
+report = GAEBConverter.convert("old.D83", "modern.X83")
+
+# Downgrade 3.3 → 3.2 for compatibility
+report = GAEBConverter.convert(
+    "tender.X83", "compat.X83",
+    target_version=SourceVersion.DA_XML_32,
+)
+print(f"Converted {report.items_converted} items, data loss: {report.has_data_loss}")
+```
+
+See the [Version Conversion Guide](../guides/conversion.md) for full details.
+
+## Custom & Vendor Tags
+
+Access vendor-specific XML elements that pyGAEB doesn't map to a model field:
+
+```python
+doc = GAEBParser.parse("vendor_file.X83", keep_xml=True)
+
+# XPath across the whole document
+codes = doc.xpath("//g:VendorCostCode/text()")
+
+# Per-item raw element access
+for item in doc.award.boq.iter_items():
+    el = item.source_element  # original lxml element
+```
+
+See the [Custom & Vendor Tags Guide](../guides/custom-tags.md) for full details.
+
 ## Next Steps
 
 - [Parsing Guide](../guides/parsing.md) — version detection, encoding repair, error recovery
+- [Version Conversion](../guides/conversion.md) — convert between DA XML 2.0–3.3, upgrade, downgrade
+- [Custom & Vendor Tags](../guides/custom-tags.md) — raw XML access, XPath queries, vendor extensions
 - [Classification Guide](../guides/classification.md) — LLM setup, taxonomy, confidence flags
 - [Extraction Guide](../guides/extraction.md) — custom Pydantic schemas for structured output
 - [API Reference](../reference/index.md) — full class and function documentation

@@ -116,6 +116,50 @@ SAMPLE_V20_XML = """\
 </GAEB>
 """
 
+SAMPLE_WITH_CUSTOM_TAGS = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<GAEB xmlns="http://www.gaeb.de/GAEB_DA_XML/DA86/3.3">
+  <GAEBInfo>
+    <Version>3.3</Version>
+    <ProgSystem>VendorAVA</ProgSystem>
+    <VendorBuildID>build-42</VendorBuildID>
+  </GAEBInfo>
+  <Award>
+    <AwardInfo>
+      <Prj>PRJ-CUSTOM</Prj>
+      <PrjName>Custom Tags Test</PrjName>
+      <Cur>EUR</Cur>
+    </AwardInfo>
+    <BoQ>
+      <BoQBody>
+        <BoQCtgy RNoPart="01">
+          <LblTx>Rohbau</LblTx>
+          <Itemlist>
+            <Item RNoPart="0010">
+              <ShortText>Mauerwerk KS 240mm</ShortText>
+              <Qty>100</Qty>
+              <QU>m2</QU>
+              <UP>45.50</UP>
+              <IT>4550.00</IT>
+              <VendorCostCode>RC-001</VendorCostCode>
+              <CustomNote>Priority item</CustomNote>
+            </Item>
+            <Item RNoPart="0020">
+              <ShortText>Beton C25/30</ShortText>
+              <Qty>50</Qty>
+              <QU>m3</QU>
+              <UP>180.00</UP>
+              <IT>9000.00</IT>
+              <VendorCostCode>RC-002</VendorCostCode>
+            </Item>
+          </Itemlist>
+        </BoQCtgy>
+      </BoQBody>
+    </BoQ>
+  </Award>
+</GAEB>
+"""
+
 MALFORMED_XML = """\
 <?xml version="1.0" encoding="UTF-8"?>
 <GAEB xmlns="http://www.gaeb.de/GAEB_DA_XML/DA86/3.3">

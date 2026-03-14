@@ -88,6 +88,25 @@ class DocumentAPI:
 
         return items
 
+    def xpath(self, expression: str) -> list[Any]:
+        """Run an XPath query against the raw XML tree.
+
+        Requires ``keep_xml=True`` at parse time.
+        """
+        return self._doc.xpath(expression)
+
+    def custom_tag(self, item: Item, tag: str) -> str | None:
+        """Get text content of a custom/vendor tag from an item's source element.
+
+        Returns None if the tag is not found or ``keep_xml`` was not enabled.
+        """
+        if item.source_element is None:
+            return None
+        el = item.source_element.find(tag)
+        if el is not None and el.text:
+            return str(el.text).strip()
+        return None
+
     def summary(self) -> dict[str, Any]:
         """Return a summary of the document."""
         items = list(self.boq.iter_items())

@@ -81,6 +81,8 @@ nav:
     - Validation: guides/validation.md
     - LLM Classification: guides/classification.md
     - Structured Extraction: guides/extraction.md
+    - Version Conversion: guides/conversion.md
+    - Custom & Vendor Tags: guides/custom-tags.md
     - Writing & Export: guides/writing.md
     - Caching: guides/caching.md
   - API Reference:
@@ -89,6 +91,7 @@ nav:
     - Models: reference/models.md
     - Classifier: reference/classifier.md
     - Extractor: reference/extractor.md
+    - Converter: reference/converter.md
     - Writer & Export: reference/writer.md
     - Cache: reference/cache.md
     - Validation: reference/validation.md
