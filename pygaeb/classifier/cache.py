@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from typing import Any
 
 from pygaeb.cache import CacheBackend, InMemoryCache
 from pygaeb.models.item import ClassificationResult
@@ -57,7 +58,7 @@ class ClassificationCache:
             is_override=True,
         )
 
-    def stats(self) -> list[dict]:
+    def stats(self) -> list[dict[str, Any]]:
         """Aggregate counts by prompt version."""
         counts: dict[str, dict[str, int]] = {}
         for key in self._backend.keys():  # noqa: SIM118

@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
 from lxml import etree
 
@@ -70,7 +71,7 @@ class BaseV3Parser:
                 return el
         return None
 
-    def _findall(self, parent: etree._Element, tag: str) -> list[etree._Element]:
+    def _findall(self, parent: etree._Element, tag: str) -> list[Any]:
         result = parent.findall(self._tag(tag))
         if not result:
             result = parent.findall(tag)
@@ -79,11 +80,11 @@ class BaseV3Parser:
     def _text(self, parent: etree._Element, *tags: str) -> str | None:
         el = self._find(parent, *tags)
         if el is not None and el.text:
-            return el.text.strip()
+            return str(el.text).strip()
         return None
 
     def _detect_namespace(self, root: etree._Element) -> str | None:
-        tag = root.tag
+        tag = str(root.tag)
         if tag.startswith("{"):
             return tag[1:].split("}", 1)[0]
         return None

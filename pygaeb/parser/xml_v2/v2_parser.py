@@ -29,7 +29,7 @@ def _translate_elements(xml_text: str) -> str:
 
     Handles both opening and closing tags, preserving attributes.
     """
-    def _replace_tag(match: re.Match) -> str:
+    def _replace_tag(match: re.Match[str]) -> str:
         slash = match.group(1) or ""
         tag_name = match.group(2)
         rest = match.group(3) or ""

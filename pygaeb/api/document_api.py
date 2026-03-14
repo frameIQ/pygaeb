@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from decimal import Decimal
-from typing import Callable
+from typing import Any, Callable
 
 from pygaeb.models.boq import BoQ, BoQCtgy, Lot
 from pygaeb.models.document import GAEBDocument
@@ -88,7 +88,7 @@ class DocumentAPI:
 
         return items
 
-    def summary(self) -> dict:
+    def summary(self) -> dict[str, Any]:
         """Return a summary of the document."""
         items = list(self.boq.iter_items())
         classified = [i for i in items if i.classification]

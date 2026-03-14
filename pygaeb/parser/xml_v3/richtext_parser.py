@@ -85,7 +85,7 @@ def _extract_tables(soup: BeautifulSoup) -> list[list[list[str]]]:
 
 def _extract_images(soup: BeautifulSoup) -> list[str]:
     return [
-        img.get("src", "")
+        str(img.get("src", ""))
         for img in soup.find_all("img")
         if img.get("src")
     ]

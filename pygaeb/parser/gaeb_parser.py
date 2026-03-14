@@ -8,8 +8,8 @@ from pathlib import Path
 
 from pygaeb.config import get_settings
 from pygaeb.detector.encoding_repair import repair_encoding
-from pygaeb.detector.format_detector import FormatFamily
-from pygaeb.detector.version_detector import ParseRoute, ParserTrack, detect_version
+from pygaeb.detector.format_detector import FormatFamily, ParserTrack
+from pygaeb.detector.version_detector import ParseRoute, detect_version
 from pygaeb.exceptions import GAEBParseError, GAEBValidationError
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import SourceVersion, ValidationMode, ValidationSeverity
@@ -189,7 +189,7 @@ def _run_xsd_validation(
         schema = etree.XMLSchema(schema_doc)
         xml_doc = etree.fromstring(text.encode("utf-8"))
         if not schema.validate(xml_doc):
-            for error in schema.error_log:
+            for error in schema.error_log:  # type: ignore[attr-defined]
                 doc.add_warning(
                     f"XSD validation: {error.message}",
                     xpath=f"line {error.line}",

@@ -18,7 +18,7 @@ from pygaeb.models.item import Item
 logger = logging.getLogger("pygaeb.writer")
 
 _GAEB_NS = "http://www.gaeb.de/GAEB_DA_XML/DA86/3.3"
-_NS_MAP = {None: _GAEB_NS}
+_NS_MAP: dict[str | None, str] = {None: _GAEB_NS}
 
 
 class GAEBWriter:
@@ -52,7 +52,7 @@ class GAEBWriter:
 
 
 def _build_xml(doc: GAEBDocument, phase: ExchangePhase) -> etree._Element:
-    root = etree.Element("GAEB", nsmap=_NS_MAP)
+    root = etree.Element("GAEB", nsmap=_NS_MAP)  # type: ignore[arg-type]
     root.set("xmlns", _GAEB_NS)
 
     _add_gaeb_info(root, doc.gaeb_info)

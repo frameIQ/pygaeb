@@ -156,4 +156,4 @@ class SQLiteCache:
     def __len__(self) -> int:
         conn = self._get_conn()
         cursor = conn.execute("SELECT COUNT(*) FROM kv_cache")
-        return cursor.fetchone()[0]
+        return int(cursor.fetchone()[0])

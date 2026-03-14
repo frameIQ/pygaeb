@@ -64,5 +64,5 @@ def _get_child_text(
     if el is None:
         el = parent.find(tag)
     if el is not None and el.text:
-        return el.text.strip()
+        return str(el.text).strip()
     return None

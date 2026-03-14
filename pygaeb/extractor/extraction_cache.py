@@ -44,7 +44,7 @@ class ExtractionCache:
         }
         self._backend.put(f"ext:{cache_key}", json.dumps(entry, default=str))
 
-    def stats(self) -> list[dict]:
+    def stats(self) -> list[dict[str, Any]]:
         """Aggregate counts by schema name and hash."""
         agg: dict[tuple[str, str], dict[str, Any]] = {}
         all_keys = self._backend.keys()

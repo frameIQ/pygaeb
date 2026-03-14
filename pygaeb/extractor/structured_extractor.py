@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, TypeVar, cast
 
 from pydantic import BaseModel
 
@@ -354,7 +354,7 @@ class StructuredExtractor:
                         {"role": "user", "content": user_message},
                     ],
                 )
-                return result
+                return cast(T, result)
             except Exception as e:
                 logger.warning("Extraction failed with model %s: %s", attempt_model, e)
                 last_error = e

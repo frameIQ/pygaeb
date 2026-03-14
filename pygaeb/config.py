@@ -40,7 +40,7 @@ def configure(
     """Override settings for the current session. Only supplied values are changed."""
     global _settings
     current = get_settings()
-    overrides: dict = {}
+    overrides: dict[str, str | int] = {}
     if default_model is not None:
         overrides["default_model"] = default_model
     if classifier_concurrency is not None:

@@ -33,9 +33,7 @@ def validate_items(doc: GAEBDocument) -> list[ValidationResult]:
                     xpath_location=f"Item[@RNoPart='{item.oz}']/QtySplit",
                 ))
 
-        if (item.item_type == ItemType.NORMAL
-                and item.qty is None
-                and item.item_type != ItemType.TEXT_ONLY):
+        if item.item_type == ItemType.NORMAL and item.qty is None:
             results.append(ValidationResult(
                 severity=ValidationSeverity.INFO,
                 message=f"Item {item.oz}: Normal item has no quantity",

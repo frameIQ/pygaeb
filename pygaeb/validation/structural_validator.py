@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import BkdnType, ValidationSeverity
 from pygaeb.models.item import ValidationResult
@@ -30,7 +32,7 @@ def validate_structure(doc: GAEBDocument) -> list[ValidationResult]:
     return results
 
 
-def _validate_bkdn(bkdn: list, context: str) -> list[ValidationResult]:
+def _validate_bkdn(bkdn: list[Any], context: str) -> list[ValidationResult]:
     results: list[ValidationResult] = []
 
     if not bkdn:
