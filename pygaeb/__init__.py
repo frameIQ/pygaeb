@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.5.0"
+__version__ = "1.7.0"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
@@ -50,8 +50,13 @@ def __getattr__(name: str) -> object:
         "PyGAEBSettings": ("pygaeb.config", "PyGAEBSettings"),
         "configure": ("pygaeb.config", "configure"),
         "get_settings": ("pygaeb.config", "get_settings"),
+        "reset_settings": ("pygaeb.config", "reset_settings"),
         # Validation
         "CrossPhaseValidator": ("pygaeb.validation.cross_phase_validator", "CrossPhaseValidator"),
+        "register_validator": ("pygaeb.validation", "register_validator"),
+        "clear_validators": ("pygaeb.validation", "clear_validators"),
+        # Prompt registration
+        "register_prompt": ("pygaeb.classifier.prompt_templates", "register_prompt"),
         # Models (advanced — most users access via doc.award.boq, not direct import)
         "AwardInfo": ("pygaeb.models.document", "AwardInfo"),
         "GAEBInfo": ("pygaeb.models.document", "GAEBInfo"),
@@ -218,6 +223,10 @@ __all__ = [
     "ValidationResult",
     "ValidationSeverity",
     "__version__",
+    "clear_validators",
     "configure",
     "get_settings",
+    "register_prompt",
+    "register_validator",
+    "reset_settings",
 ]

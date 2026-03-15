@@ -2,10 +2,23 @@
 
 **Python parser for GAEB DA XML construction data exchange files, with LLM-powered item classification.**
 
+[![PyPI version](https://img.shields.io/badge/version-1.7.0-blue.svg)](https://pypi.org/project/pyGAEB/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-pyGAEB parses, validates, classifies, and writes GAEB DA XML files (versions 2.0 through 3.3), producing a unified Pydantic v2 domain model from all inputs. An optional LLM classification layer enriches each item with a semantic construction element type via [LiteLLM](https://github.com/BerriAI/litellm) (100+ providers).
+pyGAEB parses, validates, classifies, and writes GAEB DA XML files (versions 2.0 through 3.3), producing a unified Pydantic v2 domain model from all inputs. It supports the full GAEB exchange phase spectrum — procurement (X80–X89), trade (X93–X97), cost & calculation (X50–X52), and quantity determination (X31).
+
+An optional LLM classification layer enriches each item with a semantic construction element type via [LiteLLM](https://github.com/BerriAI/litellm) (100+ providers), with pluggable caching and customisable taxonomy.
+
+## Highlights
+
+- **Multi-version** — DA XML 2.0, 2.1, 3.0, 3.1, 3.2, 3.3 auto-detected
+- **All exchange phases** — Procurement, Trade, Cost & Calculation, Quantity Determination
+- **Security-hardened** — XXE prevention, Billion Laughs protection, file size guards, recursion depth limits
+- **Extensible** — Custom validators, post-parse hooks, raw XML data collection, custom LLM taxonomy
+- **LLM classification** — 100+ provider support via LiteLLM with cost estimation and persistent caching
+- **Round-trip** — Parse → modify → write back to any DA XML version
+- **Version conversion** — Upgrade/downgrade between DA XML 2.0–3.3
 
 ## Installation
 
@@ -34,8 +47,10 @@ print(doc.grand_total)                  # Decimal("1234567.89")
 
 ### Iterate items
 
+Works for all document kinds — procurement, trade, cost, and quantity:
+
 ```python
-for item in doc.award.boq.iter_items():
+for item in doc.iter_items():
     print(item.oz)              # "01.02.0030"
     print(item.short_text)      # "Mauerwerk der Innenwand…"
     print(item.qty)             # Decimal("1170.000")
@@ -59,6 +74,35 @@ for issue in doc.validation_results:
 doc = GAEBParser.parse("tender.X83", validation=ValidationMode.STRICT)
 ```
 
+### Custom Validators
+
+Register project-specific validation rules:
+
+```python
+from pygaeb import register_validator, clear_validators
+from pygaeb.models.item import ValidationResult
+from pygaeb.models.enums import ValidationSeverity
+
+def require_unit(doc):
+    issues = []
+    for item in doc.iter_items():
+        if not item.unit:
+            issues.append(
+                ValidationResult(
+                    severity=ValidationSeverity.WARNING,
+                    message=f"{item.oz}: missing unit",
+                )
+            )
+    return issues
+
+register_validator(require_unit)
+doc = GAEBParser.parse("tender.X83")
+# require_unit results are now in doc.validation_results
+
+# Or per-call (not added to the global registry):
+doc = GAEBParser.parse("tender.X83", extra_validators=[require_unit])
+```
+
 ### Write / Round-trip
 
 ```python
@@ -72,6 +116,22 @@ item.unit_price = Decimal("48.00")
 GAEBWriter.write(doc, "bid.X84", phase=ExchangePhase.X84)
 ```
 
+### Version Conversion
+
+```python
+from pygaeb import GAEBConverter, SourceVersion
+
+# Upgrade 2.x → 3.3
+report = GAEBConverter.convert("old.D83", "modern.X83")
+
+# Downgrade 3.3 → 3.2 for compatibility
+report = GAEBConverter.convert(
+    "tender.X83", "compat.X83",
+    target_version=SourceVersion.DA_XML_32,
+)
+print(f"Converted {report.items_converted} items, data loss: {report.has_data_loss}")
+```
+
 ### Export to JSON / CSV
 
 ```python
@@ -79,6 +139,56 @@ from pygaeb.convert import to_json, to_csv
 
 to_json(doc, "boq.json")     # full nested BoQ tree
 to_csv(doc, "items.csv")     # flat item table with classification columns
+```
+
+### Trade Phases (X93–X97)
+
+```python
+doc = GAEBParser.parse("order.X96")
+print(doc.document_kind)    # DocumentKind.TRADE
+print(doc.is_trade)         # True
+
+for item in doc.order.items:
+    print(item.art_no, item.short_text, item.net_price)
+
+print(doc.order.supplier_info.address.name)
+```
+
+### Cost & Calculation Phases (X50–X52)
+
+```python
+doc = GAEBParser.parse("costing.X50")
+print(doc.document_kind)    # DocumentKind.COST
+
+for elem in doc.elemental_costing.body.iter_cost_elements():
+    print(elem.ele_no, elem.short_text, elem.total_cost)
+```
+
+### Quantity Determination (X31)
+
+```python
+doc = GAEBParser.parse("measurements.X31")
+print(doc.document_kind)    # DocumentKind.QUANTITY
+
+for item in doc.qty_determination.boq.iter_items():
+    print(item.oz, item.qty_determ_items)
+```
+
+### Financial Summaries & Project Info
+
+```python
+doc = GAEBParser.parse("tender.X86")
+
+# BoQ-level totals
+totals = doc.award.boq.info.totals
+print(totals.total_net, totals.total_gross, totals.vat_amount)
+
+# Per-VAT-rate breakdown
+for vp in totals.vat_parts:
+    print(f"{vp.vat_pcnt}%: net {vp.net_amount} → gross {vp.gross_amount}")
+
+# Project metadata
+print(doc.award.prj_id, doc.award.description, doc.award.currency_label)
 ```
 
 ### LLM Classification
@@ -93,7 +203,14 @@ classifier = LLMClassifier(model="anthropic/claude-sonnet-4-6")
 
 # Opt-in: persistent SQLite cache (survives across runs)
 from pygaeb import SQLiteCache
-classifier = LLMClassifier(model="anthropic/claude-sonnet-4-6", cache=SQLiteCache("~/.pygaeb/cache"))
+classifier = LLMClassifier(cache=SQLiteCache("~/.pygaeb/cache"))
+
+# Custom taxonomy and prompt
+classifier = LLMClassifier(
+    model="openai/gpt-4o",
+    taxonomy={"Electrical": {"Cable": ["Ladder", "Perforated"]}},
+    prompt_template="You are a specialist classifying MEP items...",
+)
 
 # Check cost before running
 estimate = await classifier.estimate_cost(doc)
@@ -105,7 +222,7 @@ await classifier.enrich(doc)
 # Or synchronous
 classifier.enrich_sync(doc)
 
-for item in doc.award.boq.iter_items():
+for item in doc.iter_items():
     if item.classification:
         print(item.oz, item.classification.element_type, item.classification.confidence)
 ```
@@ -143,21 +260,58 @@ doors = extractor.extract_sync(doc, schema=DoorSpec, element_type="Door")
 
 Built-in starter schemas: `DoorSpec`, `WindowSpec`, `WallSpec`, `PipeSpec` — or define your own.
 
+### Post-Parse Hook & Raw Data Collection
+
+Extract vendor-specific XML elements during parsing:
+
+```python
+def extract_vendor_codes(item, el):
+    if el is None:
+        return
+    ns = {"g": "http://www.gaeb.de/GAEB_DA_XML/DA86/3.3"}
+    codes = el.findall(".//g:VendorCostCode", ns)
+    if codes:
+        item.raw_data = item.raw_data or {}
+        item.raw_data["vendor_codes"] = [c.text for c in codes]
+
+doc = GAEBParser.parse("file.X83", post_parse_hook=extract_vendor_codes)
+```
+
+Or automatically collect all unknown XML elements:
+
+```python
+doc = GAEBParser.parse("file.X83", collect_raw_data=True)
+for item in doc.iter_items():
+    if item.raw_data:
+        print(f"{item.oz}: extra fields = {item.raw_data}")
+```
+
+### Custom & Vendor Tags (XPath)
+
+```python
+doc = GAEBParser.parse("vendor_file.X83", keep_xml=True)
+
+# XPath across the whole document
+codes = doc.xpath("//g:VendorCostCode/text()")
+
+# Per-item raw element access
+for item in doc.iter_items():
+    el = item.source_element  # original lxml element
+
+# Free memory when done
+doc.discard_xml()
+```
+
 ### Custom Cache Backend
 
 ```python
 from pygaeb import CacheBackend, InMemoryCache, SQLiteCache
 
-# Default: in-memory (no disk, session-scoped)
+# Default: in-memory (LRU-bounded, session-scoped)
 classifier = LLMClassifier()
 
 # Persistent: SQLite
 classifier = LLMClassifier(cache=SQLiteCache("~/.pygaeb/cache"))
-
-# Share one backend between classifier and extractor
-shared = SQLiteCache("/tmp/project-cache")
-classifier = LLMClassifier(cache=shared)
-extractor = StructuredExtractor(cache=shared)
 
 # Bring your own: implement CacheBackend protocol
 class RedisCache:
@@ -184,29 +338,71 @@ for issue in issues:
     print(issue.severity, issue.message)
 ```
 
-## Supported Versions
+## Supported Versions & Exchange Phases
 
 | Version | Parser Track | Status |
 |---------|-------------|--------|
-| DA XML 2.0 | Track A (German elements) | ✅ v1.0 |
-| DA XML 2.1 | Track A (German elements) | ✅ v1.0 |
-| DA XML 3.0 | Track B (English elements) | ✅ v1.0 |
-| DA XML 3.1 | Track B (English elements) | ✅ v1.0 |
-| DA XML 3.2 | Track B (English elements) | ✅ v1.0 |
-| DA XML 3.3 | Track B (English elements) | ✅ v1.0 |
-| GAEB 90 | Track C (fixed-width) | 🔜 v1.1 |
+| DA XML 2.0 | Track A (German elements) | v1.0 |
+| DA XML 2.1 | Track A (German elements) | v1.0 |
+| DA XML 3.0 | Track B (English elements) | v1.0 |
+| DA XML 3.1 | Track B (English elements) | v1.0 |
+| DA XML 3.2 | Track B (English elements) | v1.0 |
+| DA XML 3.3 | Track B (English elements) | v1.0 |
+| GAEB 90 | Track C (fixed-width) | Planned |
+
+| Phase | Description | Since |
+|-------|-------------|-------|
+| X31 | Quantity Determination | v1.4.0 |
+| X50, X51, X52 | Cost & Calculation | v1.3.0 |
+| X80–X89 | Procurement (tender, bid, award, invoice) | v1.0.0 |
+| X93, X94, X96, X97 | Trade (material ordering) | v1.2.0 |
 
 ## Configuration
 
+```python
+from pygaeb import configure
+
+configure(
+    default_model="ollama/llama3",        # LLM model for classification
+    classifier_concurrency=10,            # parallel LLM calls
+    xsd_dir="/opt/gaeb-schemas",          # optional XSD validation
+    log_level="DEBUG",                    # applied to pygaeb.* loggers
+    max_file_size_mb=200,                 # input file size limit
+)
+```
+
+Or via environment variables:
+
 ```bash
-# Environment variables
 export PYGAEB_DEFAULT_MODEL=ollama/llama3
 export PYGAEB_XSD_DIR=/opt/gaeb-schemas
-
-# Or programmatic
-from pygaeb import PyGAEBSettings
-settings = PyGAEBSettings(default_model="gpt-4o", classifier_concurrency=10)
+export PYGAEB_LOG_LEVEL=DEBUG
+export PYGAEB_MAX_FILE_SIZE_MB=200
 ```
+
+## Security
+
+pyGAEB includes security hardening since v1.6.0:
+
+- **XXE prevention** — All XML parsing uses hardened parsers with `resolve_entities=False` and `no_network=True`
+- **Billion Laughs protection** — Entity expansion bombs are blocked
+- **File size guard** — Configurable limit (default 100 MB) prevents memory exhaustion
+- **Recursion depth limits** — Hierarchy walkers cap at 50 levels to prevent stack overflow
+- **Bounded caching** — `InMemoryCache` uses LRU eviction (default 10,000 entries)
+
+## Documentation
+
+Full documentation is available at [Read the Docs](https://pygaeb.readthedocs.io/).
+
+- [Quick Start](https://pygaeb.readthedocs.io/getting-started/quickstart/)
+- [Parsing Guide](https://pygaeb.readthedocs.io/guides/parsing/)
+- [Trade Phases](https://pygaeb.readthedocs.io/guides/trade-phases/)
+- [Cost & Calculation](https://pygaeb.readthedocs.io/guides/cost-phases/)
+- [Quantity Determination](https://pygaeb.readthedocs.io/guides/quantity-phases/)
+- [Extensibility](https://pygaeb.readthedocs.io/guides/extensibility/)
+- [Classification](https://pygaeb.readthedocs.io/guides/classification/)
+- [Version Conversion](https://pygaeb.readthedocs.io/guides/conversion/)
+- [API Reference](https://pygaeb.readthedocs.io/reference/)
 
 ## License
 

@@ -236,3 +236,35 @@ for item in doc.iter_items():
 ```
 
 See the [Models Reference](../reference/models.md) for full details on every field.
+
+## Advanced Parsing Options
+
+### Post-parse hook
+
+Use `post_parse_hook` to inspect or mutate each item right after parsing:
+
+```python
+def extract_vendor_codes(item, el):
+    if el is None:
+        return
+    ns = {"g": "http://www.gaeb.de/GAEB_DA_XML/DA86/3.3"}
+    codes = el.findall(".//g:VendorCostCode", ns)
+    if codes:
+        item.raw_data = item.raw_data or {}
+        item.raw_data["vendor_codes"] = [c.text for c in codes]
+
+doc = GAEBParser.parse("file.X83", post_parse_hook=extract_vendor_codes)
+```
+
+### Collecting unknown XML elements
+
+Set `collect_raw_data=True` to automatically populate `item.raw_data` with child elements not consumed by the built-in parser:
+
+```python
+doc = GAEBParser.parse("file.X83", collect_raw_data=True)
+for item in doc.iter_items():
+    if item.raw_data:
+        print(f"{item.oz}: {item.raw_data}")
+```
+
+See the [Extensibility Guide](extensibility.md) for more extension points.

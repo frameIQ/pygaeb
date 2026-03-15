@@ -247,12 +247,41 @@ LLM classification, structured extraction, and all other features work on trade 
 
 See the [Trade Phases Guide](../guides/trade-phases.md) for full details.
 
+## Custom Validation
+
+Register project-specific rules that run alongside the built-in validators:
+
+```python
+from pygaeb import register_validator
+from pygaeb.models.item import ValidationResult
+from pygaeb.models.enums import ValidationSeverity
+
+def require_unit(doc):
+    issues = []
+    for item in doc.iter_items():
+        if not item.unit:
+            issues.append(
+                ValidationResult(
+                    severity=ValidationSeverity.WARNING,
+                    message=f"{item.oz}: missing unit",
+                )
+            )
+    return issues
+
+register_validator(require_unit)
+doc = GAEBParser.parse("tender.X83")
+# Your rule's results are merged into doc.validation_results
+```
+
+See the [Extensibility Guide](../guides/extensibility.md) for post-parse hooks, custom LLM taxonomy, and more.
+
 ## Next Steps
 
 - [Parsing Guide](../guides/parsing.md) — version detection, encoding repair, error recovery
 - [Trade Phases](../guides/trade-phases.md) — working with X93–X97 trade orders
 - [Version Conversion](../guides/conversion.md) — convert between DA XML 2.0–3.3, upgrade, downgrade
 - [Custom & Vendor Tags](../guides/custom-tags.md) — raw XML access, XPath queries, vendor extensions
+- [Extensibility](../guides/extensibility.md) — custom validators, hooks, LLM prompts, raw data
 - [Classification Guide](../guides/classification.md) — LLM setup, taxonomy, confidence flags
 - [Extraction Guide](../guides/extraction.md) — custom Pydantic schemas for structured output
 - [API Reference](../reference/index.md) — full class and function documentation

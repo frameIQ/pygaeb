@@ -49,12 +49,16 @@ class LLMClassifier:
         cache: CacheBackend | None = None,
         concurrency: int | None = None,
         prompt_version: str = CURRENT_PROMPT_VERSION,
+        taxonomy: dict[str, dict[str, list[str]]] | None = None,
+        prompt_template: str | None = None,
     ) -> None:
         settings = get_settings()
         self.model = model or settings.default_model
         self.fallbacks = fallbacks or []
         self.concurrency = concurrency or settings.classifier_concurrency
         self.prompt_version = prompt_version
+        self.taxonomy = taxonomy
+        self.prompt_template = prompt_template
         self.cache = ClassificationCache(cache)
 
     async def enrich(
@@ -205,6 +209,8 @@ class LLMClassifier:
             unit=item.unit or "",
             prompt_version=self.prompt_version,
             fallbacks=self.fallbacks,
+            prompt_template=self.prompt_template,
+            taxonomy=self.taxonomy,
         )
 
     def _estimate_cost_usd(self, input_tokens: int, output_tokens: int) -> float:

@@ -38,6 +38,19 @@ from pygaeb.parser.xml_v3.richtext_parser import parse_plaintext, parse_richtext
 
 logger = logging.getLogger("pygaeb.parser")
 
+KNOWN_ITEM_TAGS: frozenset[str] = frozenset({
+    "ShortText", "Qty", "QU", "UP", "IT",
+    "LongText", "Description", "CompleteText", "OutlineText",
+    "QtySplit", "ItemTag", "GUID", "BIMRef", "CONo",
+    "CostApproach", "UPComp1", "UPComp2", "UPComp3",
+    "UPComp4", "UPComp5", "UPComp6", "DiscountPcnt", "VAT",
+    "CtlgAssign", "Attachment", "ATTImage", "ATTBinary",
+    "LumpSumItem", "GlobItem", "AlternativeItem", "AltItem",
+    "ContingencyItem", "EventualItem", "TextItem",
+    "SurchargeItem", "SupplementItem", "IndexItem",
+    "Itemlist", "Item",
+})
+
 
 class BaseV3Parser:
     """Shared parse logic for all DA XML 3.x versions."""
