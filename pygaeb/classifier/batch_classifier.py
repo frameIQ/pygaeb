@@ -21,7 +21,7 @@ ProgressCallback = Callable[[int, int, str], None]
 
 def _item_label(item: Any) -> str:
     """Return a human-readable label for progress reporting."""
-    return (
+    return str(
         getattr(item, "oz", None)
         or getattr(item, "art_no", None)
         or getattr(item, "item_id", "")

@@ -131,7 +131,7 @@ class DocumentAPI:
         if min_total is not None:
             items = [
                 i for i in items
-                if _item_total(i) is not None and _item_total(i) >= min_total
+                if (t := _item_total(i)) is not None and t >= min_total
             ]
 
         if has_classification is not None:

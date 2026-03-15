@@ -252,7 +252,7 @@ class StructuredExtractor:
 
         async def _extract_one(item: Any) -> tuple[Any, T]:
             nonlocal completed
-            label = (
+            label = str(
                 getattr(item, "oz", None)
                 or getattr(item, "art_no", None)
                 or getattr(item, "item_id", "")

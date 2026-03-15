@@ -17,6 +17,7 @@ from pygaeb.models.enums import (
     ValidationSeverity,
 )
 from pygaeb.models.item import ValidationResult
+from pygaeb.models.order import TradeOrder
 
 
 class GAEBInfo(BaseModel):
@@ -62,7 +63,7 @@ class GAEBDocument(BaseModel):
     exchange_phase: ExchangePhase = ExchangePhase.X83
     gaeb_info: GAEBInfo = Field(default_factory=GAEBInfo)
     award: AwardInfo = Field(default_factory=AwardInfo)
-    order: Any = Field(default=None)
+    order: TradeOrder | None = Field(default=None)
     validation_results: list[ValidationResult] = Field(default_factory=list)
     source_file: str | None = None
     raw_namespace: str | None = None
@@ -137,7 +138,7 @@ class GAEBDocument(BaseModel):
     def memory_estimate_mb(self) -> float:
         """Approximate memory usage in MB (~1 KB per item + attachment sizes)."""
         if self.order is not None:
-            return self.order.item_count / 1024
+            return float(self.order.item_count) / 1024
         item_count = 0
         attach_bytes = 0
         for item in self.award.boq.iter_items():
