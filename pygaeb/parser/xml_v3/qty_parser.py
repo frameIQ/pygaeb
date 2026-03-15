@@ -16,12 +16,11 @@ from pathlib import Path
 from lxml import etree
 
 from pygaeb.models.boq import BoQBkdn
+from pygaeb.models.catalog import Catalog, CtlgAssign
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import BkdnType
 from pygaeb.models.order import Address
 from pygaeb.models.quantity import (
-    Catalog,
-    CtlgAssign,
     PrjInfoQD,
     QDetermItem,
     QTakeoffRow,

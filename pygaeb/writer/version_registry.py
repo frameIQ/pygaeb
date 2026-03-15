@@ -92,3 +92,18 @@ def qty_namespace(phase: ExchangePhase, version: SourceVersion) -> str:
     phase_num = phase.value.lstrip("X")
     ver = version.value
     return f"http://www.gaeb.de/GAEB_DA_XML/DA{phase_num}/{ver}"
+
+
+def procurement_namespace(phase: ExchangePhase, version: SourceVersion) -> str:
+    """Build the namespace URI for a procurement phase document (X80-X89).
+
+    For DA XML 3.0 and earlier the namespace is a fixed URI without phase.
+    For 3.1+ each phase has its own namespace (``DA83/3.3``, ``DA84/3.3``, etc.).
+    Falls back to ``DA86`` when the phase is not a known procurement phase.
+    """
+    meta = VERSION_REGISTRY.get(version)
+    if meta is not None and "200407" in meta.namespace:
+        return meta.namespace
+    phase_num = phase.value.lstrip("X") if phase.value.startswith("X") else "86"
+    ver = version.value
+    return f"http://www.gaeb.de/GAEB_DA_XML/DA{phase_num}/{ver}"

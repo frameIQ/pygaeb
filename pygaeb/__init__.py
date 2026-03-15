@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
@@ -96,8 +96,9 @@ def __getattr__(name: str) -> object:
         "CategoryElementRef": ("pygaeb.models.cost", "CategoryElementRef"),
         "ConsortiumMember": ("pygaeb.models.cost", "ConsortiumMember"),
         "ConsortiumMemberRef": ("pygaeb.models.cost", "ConsortiumMemberRef"),
-        # X52 cost approach
+        # X52 cost approach / markup
         "CostApproach": ("pygaeb.models.item", "CostApproach"),
+        "MarkupSubQty": ("pygaeb.models.item", "MarkupSubQty"),
         "CostType": ("pygaeb.models.boq", "CostType"),
         # Quantity determination models (X31)
         "QtyDetermination": ("pygaeb.models.quantity", "QtyDetermination"),
@@ -109,8 +110,8 @@ def __getattr__(name: str) -> object:
         "QDetermItem": ("pygaeb.models.quantity", "QDetermItem"),
         "QTakeoffRow": ("pygaeb.models.quantity", "QTakeoffRow"),
         "QtyAttachment": ("pygaeb.models.quantity", "QtyAttachment"),
-        "Catalog": ("pygaeb.models.quantity", "Catalog"),
-        "CtlgAssign": ("pygaeb.models.quantity", "CtlgAssign"),
+        "Catalog": ("pygaeb.models.catalog", "Catalog"),
+        "CtlgAssign": ("pygaeb.models.catalog", "CtlgAssign"),
         "PrjInfoQD": ("pygaeb.models.quantity", "PrjInfoQD"),
         # Enums (advanced)
         "BkdnType": ("pygaeb.models.enums", "BkdnType"),
@@ -185,6 +186,7 @@ __all__ = [
     "ItemType",
     "LLMClassifier",
     "Lot",
+    "MarkupSubQty",
     "OrderInfo",
     "OrderItem",
     "PlannerInfo",

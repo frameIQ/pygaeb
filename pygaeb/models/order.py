@@ -13,6 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from pygaeb.models.catalog import CtlgAssign
 from pygaeb.models.item import (
     ClassificationResult,
     ExtractionResult,
@@ -61,6 +62,9 @@ class OrderItem(BaseModel):
     item_type_tag: str | None = None
     delivery_chara: str | None = None
     is_service: bool = False
+
+    # --- catalog assignments (BIM, DIN 276, etc.) ---
+    ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
 
     # --- logistics ---
     delivery_date: datetime | None = None
@@ -115,6 +119,7 @@ class OrderInfo(BaseModel):
     delivery_date: datetime | None = None
     reference: str | None = None
     currency: str = "EUR"
+    ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
 
 
 class SupplierInfo(BaseModel):
@@ -164,6 +169,7 @@ class TradeOrder(BaseModel):
     planner_info: PlannerInfo | None = None
     invoice_info: InvoiceInfo | None = None
     items: list[OrderItem] = Field(default_factory=list)
+    ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
     source_element: Any = Field(default=None, exclude=True, repr=False)
 
     def iter_items(self) -> Iterator[OrderItem]:

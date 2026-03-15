@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from pygaeb.models.catalog import CtlgAssign
 from pygaeb.models.enums import BkdnType
 from pygaeb.models.item import Item
 
@@ -44,6 +45,7 @@ class BoQInfo(BaseModel):
     bkdn: list[BoQBkdn] = Field(default_factory=list)
     outline_complete: bool = False
     cost_types: list[CostType] = Field(default_factory=list)
+    ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
 
 
 class BoQCtgy(BaseModel):
@@ -56,6 +58,7 @@ class BoQCtgy(BaseModel):
     items: list[Item] = Field(default_factory=list)
     subcategories: list[BoQCtgy] = Field(default_factory=list)
     lbl_tx: str | None = None
+    ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
     source_element: Any = Field(default=None, exclude=True, repr=False)
 
     def iter_items(self) -> Iterator[Item]:

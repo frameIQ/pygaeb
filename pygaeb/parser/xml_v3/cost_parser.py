@@ -204,6 +204,8 @@ class CostParser(BaseV3Parser):
             if gross:
                 ctgy.totals_gross = _parse_decimal(gross)
 
+        ctgy.ctlg_assigns = self._parse_ctlg_assigns(el)
+
         if self._keep_xml:
             ctgy.source_element = el
 
@@ -276,6 +278,8 @@ class CostParser(BaseV3Parser):
 
         for child_el in self._findall(el, "CostElement"):
             ce.children.append(self._parse_cost_element(child_el, doc))
+
+        ce.ctlg_assigns = self._parse_ctlg_assigns(el)
 
         if self._keep_xml:
             ce.source_element = el

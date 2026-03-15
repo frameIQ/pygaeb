@@ -13,6 +13,7 @@ from typing import Any
 from lxml import etree
 
 from pygaeb.models.boq import BoQ, BoQBody, BoQCtgy, BoQInfo
+from pygaeb.models.catalog import Catalog, CtlgAssign
 from pygaeb.models.cost import (
     CategoryElement,
     CostElement,
@@ -25,12 +26,10 @@ from pygaeb.models.cost import (
     RefGroup,
 )
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
-from pygaeb.models.enums import BkdnType, ExchangePhase, SourceVersion
+from pygaeb.models.enums import BkdnType, ExchangePhase, ItemType, SourceVersion
 from pygaeb.models.item import CostApproach, Item
 from pygaeb.models.order import OrderItem, TradeOrder
 from pygaeb.models.quantity import (
-    Catalog,
-    CtlgAssign,
     QDetermItem,
     QtyAttachment,
     QtyBoQ,
@@ -45,6 +44,7 @@ from pygaeb.writer.version_registry import (
     WRITABLE_VERSIONS,
     VersionMeta,
     cost_namespace,
+    procurement_namespace,
     qty_namespace,
     trade_namespace,
 )
@@ -180,9 +180,10 @@ def _build_xml(
         _add_order(root, doc.order, phase, warnings)
         return root, warnings
 
-    ns_map = {None: meta.namespace}
+    ns = procurement_namespace(phase, SourceVersion(meta.version_tag))
+    ns_map = {None: ns}
     root = etree.Element("GAEB", nsmap=ns_map)  # type: ignore[arg-type]
-    root.set("xmlns", meta.namespace)
+    root.set("xmlns", ns)
 
     _add_gaeb_info(root, doc.gaeb_info, meta)
     _add_award(root, doc.award, phase, meta, warnings)
@@ -260,6 +261,9 @@ def _add_boq_info(parent: etree._Element, info: BoQInfo) -> None:
 
     _add_boq_info_cost_types(info_el, info)
 
+    for ca in info.ctlg_assigns:
+        _add_ctlg_assign(info_el, ca)
+
 
 def _add_body_categories(
     parent: etree._Element, body: BoQBody, phase: ExchangePhase,
@@ -279,6 +283,9 @@ def _add_ctgy(
     if ctgy.label:
         _add_text_el(ctgy_el, "LblTx", ctgy.label)
 
+    for ca in ctgy.ctlg_assigns:
+        _add_ctlg_assign(ctgy_el, ca)
+
     for sub in ctgy.subcategories:
         sub_body = etree.SubElement(ctgy_el, "BoQBody")
         _add_ctgy(sub_body, sub, phase, meta, warnings)
@@ -286,7 +293,10 @@ def _add_ctgy(
     if ctgy.items:
         itemlist = etree.SubElement(ctgy_el, "Itemlist")
         for item in ctgy.items:
-            _add_item(itemlist, item, phase, meta, warnings)
+            if item.item_type == ItemType.MARKUP:
+                _add_markup_item(itemlist, item)
+            else:
+                _add_item(itemlist, item, phase, meta, warnings)
 
 
 def _add_item(
@@ -357,6 +367,40 @@ def _add_item(
     if item.discount_pct is not None:
         _add_text_el(item_el, "DiscountPcnt", _fmt_decimal(item.discount_pct))
 
+    for ctlg in item.ctlg_assigns:
+        _add_ctlg_assign(item_el, ctlg)
+
+
+def _add_markup_item(parent: etree._Element, item: Item) -> None:
+    """Serialize a markup item as ``<MarkupItem>`` (X52)."""
+    mu_el = etree.SubElement(parent, "MarkupItem")
+    mu_el.set("RNoPart", item.oz)
+
+    if item.short_text:
+        _add_text_el(mu_el, "ShortText", item.short_text)
+
+    if item.markup_type:
+        _add_text_el(mu_el, "MarkupType", item.markup_type)
+
+    if item.unit_price is not None:
+        _add_text_el(mu_el, "Markup", _fmt_decimal(item.unit_price))
+
+    if item.total_price is not None:
+        _add_text_el(mu_el, "ITMarkup", _fmt_decimal(item.total_price))
+
+    if item.discount_pct is not None:
+        _add_text_el(mu_el, "DiscountPcnt", _fmt_decimal(item.discount_pct))
+
+    for sub in item.markup_sub_qtys:
+        sub_el = etree.SubElement(mu_el, "MarkupSubQty")
+        if sub.ref_rno:
+            _add_text_el(sub_el, "RefRNoPart", sub.ref_rno)
+        if sub.sub_qty is not None:
+            _add_text_el(sub_el, "SubQty", _fmt_decimal(sub.sub_qty))
+
+    for ca in item.ctlg_assigns:
+        _add_ctlg_assign(mu_el, ca)
+
 
 def _add_order(
     parent: etree._Element, order: TradeOrder,
@@ -377,6 +421,8 @@ def _add_order(
             _add_text_el(oi_el, "OrderDate", order.order_info.order_date.strftime("%Y-%m-%d"))
         if order.order_info.delivery_date:
             _add_text_el(oi_el, "DeliveryDate", order.order_info.delivery_date.strftime("%Y-%m-%d"))
+        for ctlg in order.order_info.ctlg_assigns:
+            _add_ctlg_assign(oi_el, ctlg)
 
     for info_name, tag_name in [
         ("supplier_info", "SupplierInfo"),
@@ -392,6 +438,9 @@ def _add_order(
 
     for item in order.items:
         _add_order_item(order_el, item, warnings)
+
+    for ctlg in order.ctlg_assigns:
+        _add_ctlg_assign(order_el, ctlg)
 
 
 def _add_address(parent: etree._Element, addr: Any) -> None:
@@ -456,6 +505,9 @@ def _add_order_item(
         _add_text_el(item_el, "ModeOfShipment", item.mode_of_shipment)
     if item.delivery_date:
         _add_text_el(item_el, "DeliveryDate", item.delivery_date.strftime("%Y-%m-%d"))
+
+    for ctlg in item.ctlg_assigns:
+        _add_ctlg_assign(item_el, ctlg)
 
 
 def _add_cost_approach(parent: etree._Element, ca: CostApproach) -> None:

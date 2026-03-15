@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from pygaeb.models.boq import BoQBkdn
+from pygaeb.models.catalog import Catalog, CtlgAssign
 from pygaeb.models.order import Address
 
 
@@ -50,23 +51,6 @@ class QtyAttachment(BaseModel):
     def data_base64(self) -> str:
         """Return base64-encoded data string."""
         return base64.b64encode(self.data).decode("ascii") if self.data else ""
-
-
-class CtlgAssign(BaseModel):
-    """Catalog assignment — links an item/category to a catalog entry."""
-
-    ctlg_id: str = ""
-    ctlg_code: str = ""
-    quantity: Decimal | None = None
-
-
-class Catalog(BaseModel):
-    """Catalog definition (DIN 276 cost groups, BIM, locality, work category, etc.)."""
-
-    ctlg_id: str = ""
-    ctlg_type: str = ""
-    ctlg_name: str = ""
-    assign_type: str = ""
 
 
 class QTakeoffRow(BaseModel):

@@ -4,6 +4,29 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-03-15
+
+### Added
+
+- **Shared Catalog Module** — `CtlgAssign` and `Catalog` moved to `pygaeb.models.catalog` for cross-package reuse
+- `ctlg_assigns` field on `Item`, `BoQCtgy`, `BoQInfo`, `CostElement`, and `ECCtgy`
+- `CtlgAssign` parsing in procurement (`_parse_item`, `_parse_ctgy`, `_parse_boq_info`), cost (`CostElement`, `ECCtgy`), and trade (`TradeOrder`, `OrderInfo`, `OrderItem`)
+- `CtlgAssign` serialization in procurement writer (items, categories, BoQInfo) and trade writer (Order, OrderInfo, OrderItem)
+- `ctlg_assigns` field on `OrderItem`, `OrderInfo`, and `TradeOrder`
+- **Phase-specific procurement namespace** — `procurement_namespace()` helper; writer output now uses `DA83/3.3` for X83, `DA84/3.3` for X84, etc. (was hardcoded `DA86`)
+- DA XML 3.0 and earlier correctly falls back to the fixed `200407` namespace
+- **MarkupItem support (X52)** — `<MarkupItem>` elements parsed as `Item` with `ItemType.MARKUP`
+- `MarkupSubQty` model for markup sub-quantity references
+- `markup_type` and `markup_sub_qtys` fields on `Item`
+- `_add_markup_item()` writer function for round-trip `<MarkupItem>` serialization
+- 33 new tests covering all findings (including trade CtlgAssign)
+- `MarkupSubQty` added to top-level `__all__` exports
+
+### Fixed
+
+- Procurement writer namespace no longer hardcodes `DA86` — each exchange phase gets its correct namespace
+- `CtlgAssign` and `Catalog` no longer tied to `pygaeb.models.quantity`; re-exported for backward compatibility
+
 ## [1.4.0] - 2026-03-15
 
 ### Added
@@ -107,6 +130,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `py.typed` marker for PEP 561 compliance
 - Comprehensive test suite (193 tests)
 
+[1.4.1]: https://github.com/frameiq/pygaeb/releases/tag/v1.4.1
 [1.4.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.4.0
 [1.3.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.3.0
 [1.2.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.2.0

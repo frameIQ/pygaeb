@@ -59,7 +59,7 @@ class TestGAEBWriterTargetVersion:
         warnings = GAEBWriter.write(sample_document, output)
         content = output.read_text(encoding="utf-8")
         assert "3.3" in content
-        assert "DA86/3.3" in content
+        assert "DA83/3.3" in content
         assert len(warnings) == 0
 
     def test_write_v32(self, sample_document, tmp_path):
@@ -68,7 +68,7 @@ class TestGAEBWriterTargetVersion:
             sample_document, output, target_version=SourceVersion.DA_XML_32,
         )
         content = output.read_text(encoding="utf-8")
-        assert "DA86/3.2" in content
+        assert "DA83/3.2" in content
         assert "<Version>3.2</Version>" in content
         assert len(warnings) == 0
 
@@ -78,7 +78,7 @@ class TestGAEBWriterTargetVersion:
             sample_document, output, target_version=SourceVersion.DA_XML_31,
         )
         content = output.read_text(encoding="utf-8")
-        assert "DA86/3.1" in content
+        assert "DA83/3.1" in content
         assert "<Version>3.1</Version>" in content
 
     def test_write_v30(self, sample_document, tmp_path):
@@ -170,7 +170,7 @@ class TestGAEBWriterTargetVersion:
 
     def test_to_bytes_v33(self, sample_document):
         xml_bytes, warnings = GAEBWriter.to_bytes(sample_document)
-        assert b"DA86/3.3" in xml_bytes
+        assert b"DA83/3.3" in xml_bytes
         assert len(warnings) == 0
 
     def test_to_bytes_v20_german(self, sample_document):
@@ -261,7 +261,7 @@ class TestGAEBConverterFile:
 class TestGAEBConverterBytes:
     def test_convert_bytes_v33(self, sample_v33_file):
         xml_bytes, report = GAEBConverter.convert_bytes(sample_v33_file)
-        assert b"DA86/3.3" in xml_bytes
+        assert b"DA83/3.3" in xml_bytes
         assert report.items_converted == 3
 
     def test_convert_bytes_v20(self, sample_v33_file):
@@ -278,7 +278,7 @@ class TestGAEBConverterBytes:
             SAMPLE_V33_XML.encode("utf-8"),
             target_version=SourceVersion.DA_XML_32,
         )
-        assert b"DA86/3.2" in xml_bytes
+        assert b"DA83/3.2" in xml_bytes
         assert report.items_converted == 3
 
 

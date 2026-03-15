@@ -98,6 +98,11 @@ The unified domain model that all parser tracks produce. Documents are **procure
       show_root_heading: true
       members_order: source
 
+::: pygaeb.models.item.MarkupSubQty
+    options:
+      show_root_heading: true
+      members_order: source
+
 ::: pygaeb.models.item.ValidationResult
     options:
       show_root_heading: true
@@ -254,17 +259,21 @@ The unified domain model that all parser tracks produce. Documents are **procure
       show_root_heading: true
       members_order: source
 
-::: pygaeb.models.quantity.Catalog
-    options:
-      show_root_heading: true
-      members_order: source
-
-::: pygaeb.models.quantity.CtlgAssign
-    options:
-      show_root_heading: true
-      members_order: source
-
 ::: pygaeb.models.quantity.PrjInfoQD
+    options:
+      show_root_heading: true
+      members_order: source
+
+## Catalog System (shared)
+
+Used across all document kinds (procurement, trade, cost, quantity) for DIN 276 cost groups, BIM references, locality catalogs, and work category assignments.
+
+::: pygaeb.models.catalog.CtlgAssign
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.catalog.Catalog
     options:
       show_root_heading: true
       members_order: source
