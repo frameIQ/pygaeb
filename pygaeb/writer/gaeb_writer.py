@@ -13,14 +13,26 @@ from typing import Any
 from lxml import etree
 
 from pygaeb.models.boq import BoQ, BoQBody, BoQCtgy, BoQInfo
+from pygaeb.models.cost import (
+    CategoryElement,
+    CostElement,
+    CostProperty,
+    DimensionElement,
+    ECBody,
+    ECCtgy,
+    ECInfo,
+    ElementalCosting,
+    RefGroup,
+)
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
 from pygaeb.models.enums import BkdnType, ExchangePhase, SourceVersion
-from pygaeb.models.item import Item
+from pygaeb.models.item import CostApproach, Item
 from pygaeb.models.order import OrderItem, TradeOrder
 from pygaeb.writer.version_registry import (
     VERSION_REGISTRY,
     WRITABLE_VERSIONS,
     VersionMeta,
+    cost_namespace,
     trade_namespace,
 )
 
@@ -128,9 +140,18 @@ def _build_xml(
 ) -> tuple[etree._Element, list[str]]:
     warnings: list[str] = []
 
+    if doc.is_cost and doc.elemental_costing is not None:
+        ns = cost_namespace(phase, SourceVersion(meta.version_tag))
+        ns_map: dict[str | None, str] = {None: ns}
+        root = etree.Element("GAEB", nsmap=ns_map)  # type: ignore[arg-type]
+        root.set("xmlns", ns)
+        _add_gaeb_info(root, doc.gaeb_info, meta)
+        _add_elemental_costing(root, doc.elemental_costing, warnings)
+        return root, warnings
+
     if doc.is_trade and doc.order is not None:
         ns = trade_namespace(phase, SourceVersion(meta.version_tag))
-        ns_map: dict[str | None, str] = {None: ns}
+        ns_map = {None: ns}
         root = etree.Element("GAEB", nsmap=ns_map)  # type: ignore[arg-type]
         root.set("xmlns", ns)
         _add_gaeb_info(root, doc.gaeb_info, meta)
@@ -214,6 +235,8 @@ def _add_boq_info(parent: etree._Element, info: BoQInfo) -> None:
             tag = _bkdn_tag(level.bkdn_type)
             level_el = etree.SubElement(bkdn_el, tag)
             level_el.set("Length", str(level.length))
+
+    _add_boq_info_cost_types(info_el, info)
 
 
 def _add_body_categories(
@@ -302,6 +325,15 @@ def _add_item(
                 f"Item {item.oz}: {len(item.attachments)} attachment(s) dropped "
                 f"(not supported in DA XML {meta.version_tag})"
             )
+
+    for ca in item.cost_approaches:
+        _add_cost_approach(item_el, ca)
+
+    for i, comp in enumerate(item.up_components, 1):
+        _add_text_el(item_el, f"UPComp{i}", _fmt_decimal(comp))
+
+    if item.discount_pct is not None:
+        _add_text_el(item_el, "DiscountPcnt", _fmt_decimal(item.discount_pct))
 
 
 def _add_order(
@@ -402,6 +434,284 @@ def _add_order_item(
         _add_text_el(item_el, "ModeOfShipment", item.mode_of_shipment)
     if item.delivery_date:
         _add_text_el(item_el, "DeliveryDate", item.delivery_date.strftime("%Y-%m-%d"))
+
+
+def _add_cost_approach(parent: etree._Element, ca: CostApproach) -> None:
+    ca_el = etree.SubElement(parent, "CostApproach")
+    if ca.cost_type:
+        _add_text_el(ca_el, "CostType", ca.cost_type)
+    if ca.amount is not None:
+        _add_text_el(ca_el, "Amount", _fmt_decimal(ca.amount))
+    if ca.remark:
+        _add_text_el(ca_el, "Remark", ca.remark)
+
+
+def _add_boq_info_cost_types(parent: etree._Element, info: BoQInfo) -> None:
+    for ct in info.cost_types:
+        ct_el = etree.SubElement(parent, "CostType")
+        if ct.name:
+            _add_text_el(ct_el, "Name", ct.name)
+        if ct.label:
+            _add_text_el(ct_el, "Label", ct.label)
+
+
+# ------------------------------------------------------------------
+# Elemental Costing (X50/X51) serialization
+# ------------------------------------------------------------------
+
+
+def _add_elemental_costing(
+    parent: etree._Element, ec: ElementalCosting, warnings: list[str],
+) -> None:
+    ec_el = etree.SubElement(parent, "ElementalCosting")
+    if ec.dp:
+        _add_text_el(ec_el, "DP", ec.dp)
+
+    _add_ec_info(ec_el, ec.ec_info)
+    _add_ec_body(ec_el, ec.body, warnings)
+
+
+def _add_ec_info(parent: etree._Element, info: ECInfo) -> None:
+    info_el = etree.SubElement(parent, "ECInfo")
+    if info.name:
+        _add_text_el(info_el, "Name", info.name)
+    if info.label:
+        _add_text_el(info_el, "LblEC", info.label)
+    if info.ec_type:
+        _add_text_el(info_el, "ECType", info.ec_type)
+    if info.ec_method:
+        _add_text_el(info_el, "ECMethod", info.ec_method)
+    if info.date:
+        _add_text_el(info_el, "Date", info.date.strftime("%Y-%m-%d"))
+    if info.currency:
+        _add_text_el(info_el, "Cur", info.currency)
+    if info.currency_label:
+        _add_text_el(info_el, "CurLbl", info.currency_label)
+    if info.date_of_price:
+        _add_text_el(info_el, "DateOfPrice", info.date_of_price.strftime("%Y-%m-%d"))
+
+    for bkdn in info.breakdowns:
+        bkdn_el = etree.SubElement(info_el, "ECBkdn")
+        if bkdn.bkdn_type:
+            _add_text_el(bkdn_el, "Type", bkdn.bkdn_type)
+        if bkdn.label:
+            _add_text_el(bkdn_el, "LblOutline", bkdn.label)
+        if bkdn.length:
+            _add_text_el(bkdn_el, "Length", str(bkdn.length))
+        if bkdn.is_numeric:
+            _add_text_el(bkdn_el, "Num", "Yes")
+
+    for cm in info.consortium_members:
+        cm_el = etree.SubElement(info_el, "ConsortiumMember")
+        if cm.description:
+            _add_text_el(cm_el, "Description", cm.description)
+        if cm.name or cm.street or cm.city:
+            addr_el = etree.SubElement(cm_el, "Address")
+            if cm.name:
+                _add_text_el(addr_el, "Name", cm.name)
+            if cm.street:
+                _add_text_el(addr_el, "Street", cm.street)
+            if cm.pcode:
+                _add_text_el(addr_el, "PCode", cm.pcode)
+            if cm.city:
+                _add_text_el(addr_el, "City", cm.city)
+            if cm.country:
+                _add_text_el(addr_el, "Country", cm.country)
+
+    if info.totals_net is not None or info.totals_gross is not None:
+        totals_el = etree.SubElement(info_el, "Totals")
+        if info.totals_net is not None:
+            _add_text_el(totals_el, "TotalNet", _fmt_decimal(info.totals_net))
+        if info.totals_gross is not None:
+            _add_text_el(totals_el, "TotalGross", _fmt_decimal(info.totals_gross))
+
+
+def _add_ec_body(
+    parent: etree._Element, body: ECBody, warnings: list[str],
+) -> None:
+    body_el = etree.SubElement(parent, "ECBody")
+
+    for ctgy in body.categories:
+        _add_ec_ctgy(body_el, ctgy, warnings)
+
+    for ce in body.cost_elements:
+        _add_cost_element(body_el, ce, warnings)
+
+    for de in body.dimension_elements:
+        _add_dimension_element(body_el, de)
+
+    for cat in body.category_elements:
+        _add_category_element(body_el, cat)
+
+
+def _add_ec_ctgy(
+    parent: etree._Element, ctgy: ECCtgy, warnings: list[str],
+) -> None:
+    ctgy_el = etree.SubElement(parent, "ECCtgy")
+    if ctgy.ele_no:
+        _add_text_el(ctgy_el, "EleNo", ctgy.ele_no)
+    if ctgy.description:
+        _add_text_el(ctgy_el, "Descr", ctgy.description)
+    if ctgy.portion is not None:
+        _add_text_el(ctgy_el, "Portion", _fmt_decimal(ctgy.portion))
+
+    for prop in ctgy.properties:
+        _add_cost_property(ctgy_el, prop)
+
+    if ctgy.body is not None:
+        _add_ec_body(ctgy_el, ctgy.body, warnings)
+
+    if ctgy.totals_net is not None or ctgy.totals_gross is not None:
+        totals_el = etree.SubElement(ctgy_el, "Totals")
+        if ctgy.totals_net is not None:
+            _add_text_el(totals_el, "TotalNet", _fmt_decimal(ctgy.totals_net))
+        if ctgy.totals_gross is not None:
+            _add_text_el(totals_el, "TotalGross", _fmt_decimal(ctgy.totals_gross))
+
+
+def _add_cost_element(
+    parent: etree._Element, ce: CostElement, warnings: list[str],
+) -> None:
+    ce_el = etree.SubElement(parent, "CostElement")
+    if ce.ele_no:
+        _add_text_el(ce_el, "EleNo", ce.ele_no)
+    if ce.short_text:
+        _add_text_el(ce_el, "Descr", ce.short_text)
+    if ce.cat_id:
+        _add_text_el(ce_el, "CatID", ce.cat_id)
+    if ce.remark:
+        _add_text_el(ce_el, "Remark", ce.remark)
+    if ce.qty is not None:
+        _add_text_el(ce_el, "Qty", _fmt_decimal(ce.qty))
+    if ce.unit:
+        _add_text_el(ce_el, "QU", ce.unit)
+    if ce.unit_price is not None:
+        _add_text_el(ce_el, "UP", _fmt_decimal(ce.unit_price))
+    if ce.item_total is not None:
+        _add_text_el(ce_el, "IT", _fmt_decimal(ce.item_total))
+    if ce.markup is not None:
+        _add_text_el(ce_el, "Markup", _fmt_decimal(ce.markup))
+    if ce.up_from is not None:
+        _add_text_el(ce_el, "UPFrom", _fmt_decimal(ce.up_from))
+    if ce.up_avg is not None:
+        _add_text_el(ce_el, "UPAvg", _fmt_decimal(ce.up_avg))
+    if ce.up_to is not None:
+        _add_text_el(ce_el, "UPTo", _fmt_decimal(ce.up_to))
+    if ce.is_bill_element:
+        _add_text_el(ce_el, "BillElement", "Yes")
+
+    for prop in ce.properties:
+        _add_cost_property(ce_el, prop)
+
+    for rg in ce.ref_groups:
+        _add_ref_group(ce_el, rg)
+
+    for child in ce.children:
+        _add_cost_element(ce_el, child, warnings)
+
+
+def _add_cost_property(parent: etree._Element, prop: CostProperty) -> None:
+    prop_el = etree.SubElement(parent, "Property")
+    if prop.name:
+        _add_text_el(prop_el, "Name", prop.name)
+    if prop.label:
+        _add_text_el(prop_el, "LblProp", prop.label)
+    if prop.arithmetic_qty_approach:
+        _add_text_el(prop_el, "ArithmeticQuantityApproach", prop.arithmetic_qty_approach)
+    if prop.value_qty_approach is not None:
+        _add_text_el(prop_el, "ValueQuantityApproach", _fmt_decimal(prop.value_qty_approach))
+    if prop.unit:
+        _add_text_el(prop_el, "QU", prop.unit)
+    if prop.prop_type:
+        _add_text_el(prop_el, "Type", prop.prop_type)
+    if prop.cad_id:
+        _add_text_el(prop_el, "CAD_ID", prop.cad_id)
+
+
+def _add_ref_group(parent: etree._Element, rg: RefGroup) -> None:
+    rg_el = etree.SubElement(parent, "RefGroup")
+    if rg.title:
+        _add_text_el(rg_el, "Title", rg.title)
+    for bi_ref in rg.boq_item_refs:
+        ref_el = etree.SubElement(rg_el, "BoQItemRef")
+        if bi_ref.id_ref:
+            ref_el.set("IDRef", bi_ref.id_ref)
+        if bi_ref.ref_type:
+            ref_el.set("Type", bi_ref.ref_type)
+        if bi_ref.portion is not None:
+            _add_text_el(ref_el, "Portion", _fmt_decimal(bi_ref.portion))
+    for bc_ref in rg.boq_ctgy_refs:
+        ref_el = etree.SubElement(rg_el, "BoQCtgyRef")
+        if bc_ref.id_ref:
+            ref_el.set("IDRef", bc_ref.id_ref)
+        if bc_ref.ref_type:
+            ref_el.set("Type", bc_ref.ref_type)
+        if bc_ref.portion is not None:
+            _add_text_el(ref_el, "Portion", _fmt_decimal(bc_ref.portion))
+    for ce_ref in rg.cost_element_refs:
+        ref_el = etree.SubElement(rg_el, "CostElementRef")
+        if ce_ref.id_ref:
+            ref_el.set("IDRef", ce_ref.id_ref)
+        if ce_ref.ref_type:
+            ref_el.set("Type", ce_ref.ref_type)
+        if ce_ref.portion is not None:
+            _add_text_el(ref_el, "Portion", _fmt_decimal(ce_ref.portion))
+    for de_ref in rg.dimension_element_refs:
+        ref_el = etree.SubElement(rg_el, "DimensionElementRef")
+        if de_ref.id_ref:
+            ref_el.set("IDRef", de_ref.id_ref)
+        if de_ref.ref_type:
+            ref_el.set("Type", de_ref.ref_type)
+        if de_ref.portion is not None:
+            _add_text_el(ref_el, "Portion", _fmt_decimal(de_ref.portion))
+    for cat_ref in rg.category_element_refs:
+        ref_el = etree.SubElement(rg_el, "CategoryElementRef")
+        if cat_ref.id_ref:
+            ref_el.set("IDRef", cat_ref.id_ref)
+        if cat_ref.ref_type:
+            ref_el.set("Type", cat_ref.ref_type)
+        if cat_ref.portion is not None:
+            _add_text_el(ref_el, "Portion", _fmt_decimal(cat_ref.portion))
+    for cm_ref in rg.consortium_member_refs:
+        ref_el = etree.SubElement(rg_el, "ConsortiumMemberRef")
+        if cm_ref.id_ref:
+            ref_el.set("IDRef", cm_ref.id_ref)
+
+
+def _add_dimension_element(parent: etree._Element, de: DimensionElement) -> None:
+    de_el = etree.SubElement(parent, "DimensionElement")
+    if de.ele_no:
+        _add_text_el(de_el, "EleNo", de.ele_no)
+    if de.description:
+        _add_text_el(de_el, "Descr", de.description)
+    if de.cat_id:
+        _add_text_el(de_el, "CatID", de.cat_id)
+    if de.remark:
+        _add_text_el(de_el, "Remark", de.remark)
+    if de.qty is not None:
+        _add_text_el(de_el, "Qty", _fmt_decimal(de.qty))
+    if de.unit:
+        _add_text_el(de_el, "QU", de.unit)
+    if de.markup is not None:
+        _add_text_el(de_el, "Markup", _fmt_decimal(de.markup))
+    for prop in de.properties:
+        _add_cost_property(de_el, prop)
+
+
+def _add_category_element(parent: etree._Element, cat: CategoryElement) -> None:
+    cat_el = etree.SubElement(parent, "CategoryElement")
+    if cat.ele_no:
+        _add_text_el(cat_el, "EleNo", cat.ele_no)
+    if cat.description:
+        _add_text_el(cat_el, "Descr", cat.description)
+    if cat.cat_id:
+        _add_text_el(cat_el, "CatID", cat.cat_id)
+    if cat.remark:
+        _add_text_el(cat_el, "Remark", cat.remark)
+    if cat.markup is not None:
+        _add_text_el(cat_el, "Markup", _fmt_decimal(cat.markup))
+    for prop in cat.properties:
+        _add_cost_property(cat_el, prop)
 
 
 def _translate_to_german(xml_text: str) -> str:

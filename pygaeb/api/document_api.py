@@ -6,7 +6,8 @@ from collections.abc import Iterator
 from decimal import Decimal
 from typing import Any, Callable
 
-from pygaeb.models.boq import BoQ, BoQCtgy, Lot
+from pygaeb.models.boq import BoQ, Lot
+from pygaeb.models.cost import CostElement, ElementalCosting
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import DocumentKind, ItemType
 from pygaeb.models.item import Item
@@ -16,9 +17,9 @@ from pygaeb.models.order import OrderItem, TradeOrder
 class DocumentAPI:
     """Convenience wrapper for navigating a parsed GAEBDocument.
 
-    Works with both procurement and trade documents.  Use ``is_trade`` /
-    ``is_procurement`` to discriminate, and ``iter_items()`` for universal
-    iteration over any document kind.
+    Works with procurement, trade, and cost documents.  Use ``is_trade`` /
+    ``is_procurement`` / ``is_cost`` to discriminate, and ``iter_items()``
+    for universal iteration over any document kind.
     """
 
     def __init__(self, doc: GAEBDocument) -> None:
@@ -39,6 +40,10 @@ class DocumentAPI:
     @property
     def is_procurement(self) -> bool:
         return self._doc.is_procurement
+
+    @property
+    def is_cost(self) -> bool:
+        return self._doc.is_cost
 
     # ------------------------------------------------------------------
     # Procurement accessors
@@ -65,14 +70,27 @@ class DocumentAPI:
         return self._doc.order
 
     # ------------------------------------------------------------------
+    # Cost accessors
+    # ------------------------------------------------------------------
+
+    @property
+    def elemental_costing(self) -> ElementalCosting | None:
+        return self._doc.elemental_costing
+
+    # ------------------------------------------------------------------
     # Universal iteration
     # ------------------------------------------------------------------
 
     def iter_items(self, lot_index: int | None = None) -> Iterator[Any]:
-        """Iterate all items (universal — works for both document kinds).
+        """Iterate all items (universal — works for all document kinds).
 
         For procurement documents, optionally filter to a specific lot.
         """
+        if self._doc.is_cost:
+            if self._doc.elemental_costing is not None:
+                yield from self._doc.elemental_costing.iter_items()
+            return
+
         if self._doc.is_trade:
             if self._doc.order is not None:
                 yield from self._doc.order.iter_items()
@@ -97,8 +115,19 @@ class DocumentAPI:
                 return item
         return None
 
-    def iter_hierarchy(self) -> Iterator[tuple[int, str, BoQCtgy | None]]:
-        """Walk the BoQ hierarchy tree (procurement documents only)."""
+    def get_cost_element(self, ele_no: str) -> CostElement | None:
+        """Find a cost element by its element number."""
+        if self._doc.elemental_costing is None:
+            return None
+        for ce in self._doc.elemental_costing.iter_items():
+            if ce.ele_no == ele_no:
+                return ce
+        return None
+
+    def iter_hierarchy(self) -> Iterator[tuple[int, str, Any]]:
+        """Walk the hierarchy tree (procurement BoQ or cost categories)."""
+        if self._doc.is_cost and self._doc.elemental_costing is not None:
+            return self._doc.elemental_costing.iter_hierarchy()
         return self.boq.iter_hierarchy()
 
     # ------------------------------------------------------------------
@@ -113,7 +142,7 @@ class DocumentAPI:
         min_total: Decimal | None = None,
         has_classification: bool | None = None,
     ) -> list[Any]:
-        """Filter items by various criteria (works for both document kinds)."""
+        """Filter items by various criteria (works for all document kinds)."""
         items = list(self.iter_items())
 
         if item_type is not None:
@@ -159,7 +188,7 @@ class DocumentAPI:
     def custom_tag(self, item: Any, tag: str) -> str | None:
         """Get text content of a custom/vendor tag from an item's source element.
 
-        Works for both ``Item`` and ``OrderItem``.
+        Works for ``Item``, ``OrderItem``, and ``CostElement``.
         Returns None if the tag is not found or ``keep_xml`` was not enabled.
         """
         source_el = getattr(item, "source_element", None)
@@ -203,7 +232,17 @@ class DocumentAPI:
             "trades": trade_counts,
         }
 
-        if self._doc.is_procurement:
+        if self._doc.is_cost and self._doc.elemental_costing is not None:
+            ec = self._doc.elemental_costing
+            result["ec_type"] = ec.ec_info.ec_type
+            result["ec_method"] = ec.ec_info.ec_method
+            has_bim = any(
+                prop.cad_id
+                for ce in ec.iter_items()
+                for prop in ce.properties
+            )
+            result["has_bim_references"] = has_bim
+        elif self._doc.is_procurement:
             result["lots"] = len(self.lots)
             result["is_multi_lot"] = self.is_multi_lot
         else:
@@ -220,5 +259,7 @@ def _item_total(item: Any) -> Decimal | None:
     if isinstance(item, Item):
         return item.total_price
     if isinstance(item, OrderItem):
+        return item.display_price
+    if isinstance(item, CostElement):
         return item.display_price
     return None

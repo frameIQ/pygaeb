@@ -14,13 +14,13 @@ from typing import Any
 from lxml import etree
 
 from pygaeb.detector.version_detector import ParseRoute
-from pygaeb.models.boq import BoQ, BoQBkdn, BoQBody, BoQCtgy, BoQInfo, Lot
+from pygaeb.models.boq import BoQ, BoQBkdn, BoQBody, BoQCtgy, BoQInfo, CostType, Lot
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
 from pygaeb.models.enums import (
     BkdnType,
     ItemType,
 )
-from pygaeb.models.item import Item, QtySplit
+from pygaeb.models.item import CostApproach, Item, QtySplit
 from pygaeb.parser.recovery import parse_xml_safe
 from pygaeb.parser.xml_v3.richtext_parser import parse_plaintext, parse_richtext
 
@@ -189,6 +189,13 @@ class BaseV3Parser:
         elif len(bkdn_els) == 1:
             self._parse_bkdn_v33(bkdn_els[0], info)
 
+        for ct_el in self._findall(info_el, "CostType"):
+            ct = CostType(
+                name=self._text(ct_el, "Name") or "",
+                label=self._text(ct_el, "Label") or "",
+            )
+            info.cost_types.append(ct)
+
         return info
 
     def _parse_bkdn_v33(self, bkdn_el: etree._Element, info: BoQInfo) -> None:
@@ -345,6 +352,27 @@ class BaseV3Parser:
         co_el = self._find(item_el, "CONo")
         if co_el is not None:
             item.change_order_number = co_el.text.strip() if co_el.text else None
+
+        for ca_el in self._findall(item_el, "CostApproach"):
+            ca = CostApproach(
+                cost_type=self._text(ca_el, "CostType") or "",
+                amount=_parse_decimal(self._text(ca_el, "Amount")),
+                remark=self._text(ca_el, "Remark") or "",
+            )
+            if self._keep_xml:
+                ca.source_element = ca_el
+            item.cost_approaches.append(ca)
+
+        for i in range(1, 7):
+            val = _parse_decimal(self._text(item_el, f"UPComp{i}"))
+            if val is not None:
+                while len(item.up_components) < i:
+                    item.up_components.append(Decimal("0"))
+                item.up_components[i - 1] = val
+
+        disc_str = self._text(item_el, "DiscountPcnt")
+        if disc_str:
+            item.discount_pct = _parse_decimal(disc_str)
 
         if self._keep_xml:
             item.source_element = item_el

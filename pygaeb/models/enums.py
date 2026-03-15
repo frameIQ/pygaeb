@@ -18,14 +18,20 @@ class SourceVersion(str, Enum):
 
 
 class DocumentKind(str, Enum):
-    """Discriminator for procurement vs. trade documents."""
+    """Discriminator for procurement, trade, and cost documents."""
 
     PROCUREMENT = "procurement"
     TRADE = "trade"
+    COST = "cost"
 
 
 class ExchangePhase(str, Enum):
-    """GAEB exchange phase — procurement and trade workflows."""
+    """GAEB exchange phase — procurement, trade, and cost workflows."""
+
+    # Cost & Calculation phases (X50-X52)
+    X50 = "X50"
+    X51 = "X51"
+    X52 = "X52"
 
     # Procurement phases (X80-X89)
     X80 = "X80"
@@ -65,6 +71,11 @@ class ExchangePhase(str, Enum):
         return _D_TO_X_PHASE.get(self, self)
 
     @property
+    def is_cost(self) -> bool:
+        """True for cost phases (X50, X51)."""
+        return self in _COST_PHASES
+
+    @property
     def is_trade(self) -> bool:
         """True for trade phases (X93, X94, X96, X97)."""
         return self in _TRADE_PHASES
@@ -72,10 +83,12 @@ class ExchangePhase(str, Enum):
 
 _D_TO_X_PHASE: dict[ExchangePhase, ExchangePhase] = {}
 
+_COST_PHASES: frozenset[ExchangePhase] = frozenset()
 _TRADE_PHASES: frozenset[ExchangePhase] = frozenset()
 
 
 def _init_phase_map() -> None:
+    global _COST_PHASES
     global _TRADE_PHASES
     _D_TO_X_PHASE.update({
         ExchangePhase.D80: ExchangePhase.X80,
@@ -88,6 +101,7 @@ def _init_phase_map() -> None:
         ExchangePhase.D89: ExchangePhase.X89,
         ExchangePhase.D31: ExchangePhase.X31,
     })
+    _COST_PHASES = frozenset({ExchangePhase.X50, ExchangePhase.X51})
     _TRADE_PHASES = frozenset({
         ExchangePhase.X93,
         ExchangePhase.X94,
@@ -110,6 +124,7 @@ class ItemType(str, Enum):
     BASE_SURCHARGE = "BaseSurcharge"
     INDEX = "Index"
     SUPPLEMENT = "Supplement"
+    MARKUP = "Markup"
 
     @property
     def affects_total(self) -> bool:

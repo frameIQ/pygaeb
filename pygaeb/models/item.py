@@ -104,6 +104,15 @@ class ExtractionResult(BaseModel):
         return max(0.0, min(1.0, v))
 
 
+class CostApproach(BaseModel):
+    """Per-item calculation approach (X52 Kalkulationsansätze)."""
+
+    cost_type: str = ""
+    amount: Decimal | None = None
+    remark: str = ""
+    source_element: Any = Field(default=None, exclude=True, repr=False)
+
+
 class Item(BaseModel):
     """A single item (position) in a procurement Bill of Quantities (X80-X89).
 
@@ -138,6 +147,9 @@ class Item(BaseModel):
     attachments: list[Attachment] = Field(default_factory=list)
     bim_guid: str | None = None
     change_order_number: str | None = None
+    cost_approaches: list[CostApproach] = Field(default_factory=list)
+    up_components: list[Decimal] = Field(default_factory=list)
+    discount_pct: Decimal | None = None
     source_element: Any = Field(default=None, exclude=True, repr=False)
     raw_data: dict[str, Any] | None = Field(default=None, exclude=True)
 

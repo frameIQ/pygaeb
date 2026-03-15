@@ -29,6 +29,13 @@ class BoQBkdn(BaseModel):
     key: str = ""
 
 
+class CostType(BaseModel):
+    """Cost type classification on BoQInfo (X52 Kalkulationsansätze)."""
+
+    name: str = ""
+    label: str = ""
+
+
 class BoQInfo(BaseModel):
     """BoQ-level metadata including breakdown definitions."""
 
@@ -36,6 +43,7 @@ class BoQInfo(BaseModel):
     lbl_boq: str | None = None
     bkdn: list[BoQBkdn] = Field(default_factory=list)
     outline_complete: bool = False
+    cost_types: list[CostType] = Field(default_factory=list)
 
 
 class BoQCtgy(BaseModel):

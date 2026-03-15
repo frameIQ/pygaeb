@@ -4,6 +4,28 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-03-15
+
+### Added
+
+- **GAEB Cost & Calculation Phase Support (X50, X51, X52)** — first-class parsing, writing, and LLM support for cost estimation workflows
+- New `DocumentKind.COST` for X50/X51 elemental costing documents
+- `ExchangePhase.X50`, `X51`, `X52` enum values with `is_cost` property
+- `ElementalCosting` root model with recursive `ECBody`/`ECCtgy`/`CostElement` hierarchy
+- `CostElement` with LLM-compatible interface (`short_text`, `long_text`, `qty`, `unit`, `classification`, `extractions`)
+- `CostProperty` for BIM integration (`cad_id`, `arithmetic_qty_approach`, `value_qty_approach`)
+- `RefGroup` for cross-references between cost elements, BoQ items, and dimension elements
+- `DimensionElement` and `CategoryElement` support
+- `ECInfo` metadata (ec_type, ec_method, breakdowns, consortium members, totals)
+- `CostParser` for `<ElementalCosting>/<ECBody>/<CostElement>` XML structure
+- X52 extensions: `CostApproach`, `CostType`, `up_components` (UPComp1-6), `discount_pct` on `Item`
+- `GAEBWriter` support for cost document output (X50/X51) and X52 fields
+- `DocumentAPI` cost-aware: `is_cost`, `elemental_costing`, `get_cost_element()`, updated `summary()` and `iter_hierarchy()`
+- `GAEBDocument.is_cost`, `elemental_costing` property, updated `iter_items()`, `grand_total`, `item_count`
+- LLM classifier and extractor `_item_label` updated for `ele_no`
+- Cost phases documentation guide
+- 65 new tests for cost parsing, models, writer round-trip, and API
+
 ## [1.2.0] - 2026-03-15
 
 ### Added
@@ -63,6 +85,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `py.typed` marker for PEP 561 compliance
 - Comprehensive test suite (193 tests)
 
+[1.3.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.3.0
 [1.2.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.2.0
 [1.0.1]: https://github.com/frameiq/pygaeb/releases/tag/v1.0.1
 [1.0.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.0.0
