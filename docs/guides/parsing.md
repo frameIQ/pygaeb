@@ -116,6 +116,14 @@ Trade phases use a different XML structure (`<Order>/<OrderItem>` instead of `<A
 
 X50 and X51 use a different XML structure (`<ElementalCosting>/<ECBody>/<CostElement>` instead of `<Award>/<BoQ>/<Item>`), introducing `DocumentKind.COST`. X52 extends the standard procurement structure with per-item calculation data. See the [Cost & Calculation Phases Guide](cost-phases.md) for details.
 
+### Quantity Determination Phase (X31)
+
+| Phase | Purpose | Typical Extension |
+|-------|---------|-------------------|
+| X31 | Quantity Take-Off / Measurements | `.X31` |
+
+X31 uses a different XML structure (`<QtyDeterm>/<BoQ>/<QtyItem>` with REB 23.003 measurement rows instead of procurement items), introducing `DocumentKind.QUANTITY`. Items carry no descriptions or prices — only OZ numbers and measurement data. See the [Quantity Determination Guide](quantity-phases.md) for details.
+
 DA XML 2.x uses `D`-prefixed phases (D83, D84, etc.) which are automatically normalized to `X`-prefixed canonical form:
 
 ```python
@@ -143,12 +151,12 @@ See the [Custom & Vendor Tags Guide](custom-tags.md) for full details.
 
 ## Unified Document Model
 
-Regardless of input version, you always get the same `GAEBDocument`. The document discriminates between **procurement**, **trade**, and **cost** workflows:
+Regardless of input version, you always get the same `GAEBDocument`. The document discriminates between **procurement**, **trade**, **cost**, and **quantity** workflows:
 
 ```python
 doc.source_version       # SourceVersion enum
 doc.exchange_phase       # ExchangePhase enum
-doc.document_kind        # DocumentKind.PROCUREMENT, TRADE, or COST
+doc.document_kind        # DocumentKind.PROCUREMENT, TRADE, COST, or QUANTITY
 doc.gaeb_info            # GAEBInfo (software metadata)
 doc.validation_results   # list[ValidationResult]
 doc.grand_total          # Decimal (sum of affecting items)
@@ -174,6 +182,13 @@ doc.order.items          # list[OrderItem]
 ```python
 doc.elemental_costing    # ElementalCosting (cost hierarchy + BIM properties)
 doc.elemental_costing.body.iter_cost_elements()  # recursive element iteration
+```
+
+### Quantity determination documents (X31)
+
+```python
+doc.qty_determination    # QtyDetermination (measurement data + catalogs)
+doc.qty_determination.boq.ref_boq_name  # referenced procurement BoQ
 ```
 
 ### Universal iteration

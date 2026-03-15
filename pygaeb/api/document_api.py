@@ -12,6 +12,7 @@ from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import DocumentKind, ItemType
 from pygaeb.models.item import Item
 from pygaeb.models.order import OrderItem, TradeOrder
+from pygaeb.models.quantity import QtyDetermination, QtyItem
 
 
 class DocumentAPI:
@@ -44,6 +45,10 @@ class DocumentAPI:
     @property
     def is_cost(self) -> bool:
         return self._doc.is_cost
+
+    @property
+    def is_quantity(self) -> bool:
+        return self._doc.is_quantity
 
     # ------------------------------------------------------------------
     # Procurement accessors
@@ -78,6 +83,14 @@ class DocumentAPI:
         return self._doc.elemental_costing
 
     # ------------------------------------------------------------------
+    # Quantity accessors
+    # ------------------------------------------------------------------
+
+    @property
+    def qty_determination(self) -> QtyDetermination | None:
+        return self._doc.qty_determination
+
+    # ------------------------------------------------------------------
     # Universal iteration
     # ------------------------------------------------------------------
 
@@ -86,6 +99,11 @@ class DocumentAPI:
 
         For procurement documents, optionally filter to a specific lot.
         """
+        if self._doc.is_quantity:
+            if self._doc.qty_determination is not None:
+                yield from self._doc.qty_determination.iter_items()
+            return
+
         if self._doc.is_cost:
             if self._doc.elemental_costing is not None:
                 yield from self._doc.elemental_costing.iter_items()
@@ -124,8 +142,16 @@ class DocumentAPI:
                 return ce
         return None
 
+    def get_qty_item(self, oz: str) -> QtyItem | None:
+        """Find a quantity determination item by its OZ."""
+        if self._doc.qty_determination is None:
+            return None
+        return self._doc.qty_determination.boq.get_item(oz)
+
     def iter_hierarchy(self) -> Iterator[tuple[int, str, Any]]:
-        """Walk the hierarchy tree (procurement BoQ or cost categories)."""
+        """Walk the hierarchy tree (procurement BoQ, cost, or quantity)."""
+        if self._doc.is_quantity and self._doc.qty_determination is not None:
+            return self._doc.qty_determination.iter_hierarchy()
         if self._doc.is_cost and self._doc.elemental_costing is not None:
             return self._doc.elemental_costing.iter_hierarchy()
         return self.boq.iter_hierarchy()
@@ -206,7 +232,9 @@ class DocumentAPI:
     def summary(self) -> dict[str, Any]:
         """Return a summary of the document."""
         items = list(self.iter_items())
-        classified = [i for i in items if i.classification]
+        classified = [
+            i for i in items if getattr(i, "classification", None)
+        ]
 
         trade_counts: dict[str, int] = {}
         for item in classified:
@@ -232,7 +260,13 @@ class DocumentAPI:
             "trades": trade_counts,
         }
 
-        if self._doc.is_cost and self._doc.elemental_costing is not None:
+        if self._doc.is_quantity and self._doc.qty_determination is not None:
+            qd = self._doc.qty_determination
+            result["method"] = qd.info.method
+            result["ref_boq_name"] = qd.boq.ref_boq_name
+            result["catalogs"] = len(qd.boq.catalogs)
+            result["attachments"] = len(qd.boq.attachments)
+        elif self._doc.is_cost and self._doc.elemental_costing is not None:
             ec = self._doc.elemental_costing
             result["ec_type"] = ec.ec_info.ec_type
             result["ec_method"] = ec.ec_info.ec_method

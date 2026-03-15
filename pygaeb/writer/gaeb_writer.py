@@ -28,11 +28,24 @@ from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
 from pygaeb.models.enums import BkdnType, ExchangePhase, SourceVersion
 from pygaeb.models.item import CostApproach, Item
 from pygaeb.models.order import OrderItem, TradeOrder
+from pygaeb.models.quantity import (
+    Catalog,
+    CtlgAssign,
+    QDetermItem,
+    QtyAttachment,
+    QtyBoQ,
+    QtyBoQBody,
+    QtyBoQCtgy,
+    QtyDetermination,
+    QtyDetermInfo,
+    QtyItem,
+)
 from pygaeb.writer.version_registry import (
     VERSION_REGISTRY,
     WRITABLE_VERSIONS,
     VersionMeta,
     cost_namespace,
+    qty_namespace,
     trade_namespace,
 )
 
@@ -140,9 +153,18 @@ def _build_xml(
 ) -> tuple[etree._Element, list[str]]:
     warnings: list[str] = []
 
+    if doc.is_quantity and doc.qty_determination is not None:
+        ns = qty_namespace(phase, SourceVersion(meta.version_tag))
+        ns_map: dict[str | None, str] = {None: ns}
+        root = etree.Element("GAEB", nsmap=ns_map)  # type: ignore[arg-type]
+        root.set("xmlns", ns)
+        _add_gaeb_info(root, doc.gaeb_info, meta)
+        _add_qty_determination(root, doc.qty_determination, warnings)
+        return root, warnings
+
     if doc.is_cost and doc.elemental_costing is not None:
         ns = cost_namespace(phase, SourceVersion(meta.version_tag))
-        ns_map: dict[str | None, str] = {None: ns}
+        ns_map = {None: ns}
         root = etree.Element("GAEB", nsmap=ns_map)  # type: ignore[arg-type]
         root.set("xmlns", ns)
         _add_gaeb_info(root, doc.gaeb_info, meta)
@@ -712,6 +734,212 @@ def _add_category_element(parent: etree._Element, cat: CategoryElement) -> None:
         _add_text_el(cat_el, "Markup", _fmt_decimal(cat.markup))
     for prop in cat.properties:
         _add_cost_property(cat_el, prop)
+
+
+# ------------------------------------------------------------------
+# Quantity Determination (X31) serialisation
+# ------------------------------------------------------------------
+
+def _add_qty_determination(
+    parent: etree._Element,
+    qd: QtyDetermination,
+    warnings: list[str],
+) -> None:
+    qd_el = etree.SubElement(parent, "QtyDeterm")
+
+    if qd.prj_info is not None:
+        prj_el = etree.SubElement(qd_el, "PrjInfo")
+        if qd.prj_info.ref_prj_name:
+            _add_text_el(prj_el, "RefPrjName", qd.prj_info.ref_prj_name)
+        if qd.prj_info.ref_prj_id:
+            _add_text_el(prj_el, "RefPrjID", qd.prj_info.ref_prj_id)
+
+    _add_qty_determ_info(qd_el, qd.info)
+
+    if qd.dp:
+        _add_text_el(qd_el, "DP", qd.dp)
+
+    if qd.owner is not None:
+        own_el = etree.SubElement(qd_el, "OWN")
+        _add_address(own_el, qd.owner)
+
+    if qd.contractor is not None:
+        ctr_el = etree.SubElement(qd_el, "CTR")
+        _add_address(ctr_el, qd.contractor)
+
+    _add_qty_boq(qd_el, qd.boq, warnings)
+
+
+def _add_qty_determ_info(parent: etree._Element, info: QtyDetermInfo) -> None:
+    info_el = etree.SubElement(parent, "QtyDetermInfo")
+
+    if info.method:
+        _add_text_el(info_el, "MethodDescription", info.method)
+    if info.order_descr:
+        _add_text_el(info_el, "OrdDescr", info.order_descr)
+    if info.project_descr:
+        _add_text_el(info_el, "ProjDescr", info.project_descr)
+
+    if info.service_start is not None:
+        _add_text_el(
+            info_el, "ServiceProvisionStartDate",
+            info.service_start.strftime("%Y-%m-%d"),
+        )
+    if info.service_end is not None:
+        _add_text_el(
+            info_el, "ServiceProvisionEndDate",
+            info.service_end.strftime("%Y-%m-%d"),
+        )
+
+    if info.creator is not None:
+        creator_el = etree.SubElement(info_el, "Creator")
+        _add_address(creator_el, info.creator)
+
+    if info.profiler is not None:
+        profiler_el = etree.SubElement(info_el, "Profiler")
+        _add_address(profiler_el, info.profiler)
+
+    for ca in info.ctlg_assigns:
+        _add_ctlg_assign(info_el, ca)
+
+
+def _add_qty_boq(
+    parent: etree._Element, boq: QtyBoQ, warnings: list[str],
+) -> None:
+    boq_el = etree.SubElement(parent, "BoQ")
+    boq_el.set("ID", "B1")
+
+    if boq.ref_boq_name:
+        _add_text_el(boq_el, "RefBoQName", boq.ref_boq_name)
+    if boq.ref_boq_id:
+        _add_text_el(boq_el, "RefBoQID", boq.ref_boq_id)
+
+    for bkdn in boq.bkdn:
+        bkdn_el = etree.SubElement(boq_el, "BoQBkdn")
+        _add_text_el(bkdn_el, "Type", _bkdn_tag(bkdn.bkdn_type))
+        _add_text_el(bkdn_el, "Length", str(bkdn.length))
+
+    for ctlg in boq.catalogs:
+        _add_catalog(boq_el, ctlg)
+
+    _add_qty_boq_body(boq_el, boq.body, warnings)
+
+    for ca in boq.ctlg_assigns:
+        _add_ctlg_assign(boq_el, ca)
+
+    if boq.attachments:
+        att_container = etree.SubElement(boq_el, "CtlgAttachment")
+        for att in boq.attachments:
+            _add_qty_attachment(att_container, att)
+
+
+def _add_qty_boq_body(
+    parent: etree._Element, body: QtyBoQBody, warnings: list[str],
+) -> None:
+    body_el = etree.SubElement(parent, "BoQBody")
+
+    for ctgy in body.categories:
+        if ctgy.rno:
+            _add_qty_boq_ctgy(body_el, ctgy, warnings)
+        else:
+            itemlist_el = body_el.find("Itemlist")
+            if itemlist_el is None:
+                itemlist_el = etree.SubElement(body_el, "Itemlist")
+            for item in ctgy.items:
+                _add_qty_item(itemlist_el, item)
+
+
+def _add_qty_boq_ctgy(
+    parent: etree._Element, ctgy: QtyBoQCtgy, warnings: list[str],
+) -> None:
+    ctgy_el = etree.SubElement(parent, "BoQCtgy")
+    ctgy_el.set("ID", f"C_{ctgy.rno}")
+    ctgy_el.set("RNoPart", ctgy.rno)
+
+    for ca in ctgy.ctlg_assigns:
+        _add_ctlg_assign(ctgy_el, ca)
+
+    if ctgy.subcategories or ctgy.items:
+        inner_body = QtyBoQBody(categories=ctgy.subcategories)
+        if ctgy.items:
+            inner_body.categories = [
+                *ctgy.subcategories,
+                QtyBoQCtgy(rno="", items=ctgy.items),
+            ]
+
+        if ctgy.subcategories:
+            sub_body_el = etree.SubElement(ctgy_el, "BoQBody")
+            for sub in ctgy.subcategories:
+                _add_qty_boq_ctgy(sub_body_el, sub, warnings)
+
+        if ctgy.items:
+            itemlist_el = etree.SubElement(ctgy_el, "Itemlist")
+            for item in ctgy.items:
+                _add_qty_item(itemlist_el, item)
+
+
+def _add_qty_item(parent: etree._Element, item: QtyItem) -> None:
+    item_el = etree.SubElement(parent, "Item")
+    item_el.set("ID", f"I_{item.rno_part}")
+    item_el.set("RNoPart", item.rno_part)
+    if item.rno_index:
+        item_el.set("RNoIndex", item.rno_index)
+
+    if item.qty is not None or item.determ_items:
+        qd_el = etree.SubElement(item_el, "QtyDeterm")
+        if item.qty is not None:
+            _add_text_el(qd_el, "Qty", _fmt_decimal(item.qty))
+        for di in item.determ_items:
+            _add_q_determ_item(qd_el, di)
+
+    for ca in item.ctlg_assigns:
+        _add_ctlg_assign(item_el, ca)
+
+
+def _add_q_determ_item(parent: etree._Element, di: QDetermItem) -> None:
+    di_el = etree.SubElement(parent, "QDetermItem")
+
+    qtakeoff_el = etree.SubElement(di_el, "QTakeoff")
+    qtakeoff_el.set("Row", di.takeoff_row.raw)
+
+    for ca in di.ctlg_assigns:
+        _add_ctlg_assign(di_el, ca)
+
+
+def _add_catalog(parent: etree._Element, ctlg: Catalog) -> None:
+    ctlg_el = etree.SubElement(parent, "Ctlg")
+    if ctlg.ctlg_id:
+        _add_text_el(ctlg_el, "CtlgID", ctlg.ctlg_id)
+    if ctlg.ctlg_type:
+        _add_text_el(ctlg_el, "CtlgType", ctlg.ctlg_type)
+    if ctlg.ctlg_name:
+        _add_text_el(ctlg_el, "CtlgName", ctlg.ctlg_name)
+    if ctlg.assign_type:
+        _add_text_el(ctlg_el, "CtlgAssignType", ctlg.assign_type)
+
+
+def _add_ctlg_assign(parent: etree._Element, ca: CtlgAssign) -> None:
+    ca_el = etree.SubElement(parent, "CtlgAssign")
+    if ca.ctlg_id:
+        _add_text_el(ca_el, "CtlgID", ca.ctlg_id)
+    if ca.ctlg_code:
+        _add_text_el(ca_el, "CtlgCode", ca.ctlg_code)
+    if ca.quantity is not None:
+        _add_text_el(ca_el, "Quantity", _fmt_decimal(ca.quantity))
+
+
+def _add_qty_attachment(parent: etree._Element, att: QtyAttachment) -> None:
+    att_el = etree.SubElement(parent, "Attachment")
+    if att.name:
+        _add_text_el(att_el, "Name", att.name)
+    if att.text:
+        _add_text_el(att_el, "Text", att.text)
+    if att.description:
+        _add_text_el(att_el, "Descrip", att.description)
+    if att.file_type:
+        _add_text_el(att_el, "Type", att.file_type)
+    if att.data:
+        _add_text_el(att_el, "Data", att.data_base64)
 
 
 def _translate_to_german(xml_text: str) -> str:

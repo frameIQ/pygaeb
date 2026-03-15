@@ -125,8 +125,9 @@ def _detect_xml_version(path: Path, text: str | None = None) -> ParseRoute:
                 if v:
                     version = _parse_version_string(v)
 
-            if tag in ("Award", "Order", "ElementalCosting", "Vergabe",
-                       "BoQ", "Leistungsverzeichnis", "GAEBInfo", "GAEB"):
+            if tag in ("Award", "Order", "ElementalCosting", "QtyDeterm",
+                       "Vergabe", "BoQ", "Leistungsverzeichnis", "GAEBInfo",
+                       "GAEB"):
                 if tag in ("Vergabe", "Leistungsverzeichnis"):
                     if version is None:
                         version = SourceVersion.DA_XML_20
@@ -139,6 +140,9 @@ def _detect_xml_version(path: Path, text: str | None = None) -> ParseRoute:
                     phase_from_ns = _phase_from_namespace(namespace or "")
                     if phase_from_ns is not None:
                         phase = phase_from_ns
+                if tag == "QtyDeterm" and phase == ExchangePhase.X83:
+                    phase_from_ns = _phase_from_namespace(namespace or "")
+                    phase = phase_from_ns if phase_from_ns is not None else ExchangePhase.X31
                 if version is not None:
                     break
             elem.clear()

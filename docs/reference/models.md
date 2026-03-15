@@ -1,6 +1,6 @@
 # Models
 
-The unified domain model that all parser tracks produce. Documents are **procurement** (X80–X89, using `AwardInfo`/`BoQ`/`Item`), **trade** (X93–X97, using `TradeOrder`/`OrderItem`), or **cost** (X50/X51, using `ElementalCosting`/`CostElement`).
+The unified domain model that all parser tracks produce. Documents are **procurement** (X80–X89, using `AwardInfo`/`BoQ`/`Item`), **trade** (X93–X97, using `TradeOrder`/`OrderItem`), **cost** (X50/X51, using `ElementalCosting`/`CostElement`), or **quantity** (X31, using `QtyDetermination`/`QtyItem`).
 
 ## Document
 
@@ -203,6 +203,68 @@ The unified domain model that all parser tracks produce. Documents are **procure
       members_order: source
 
 ::: pygaeb.models.cost.ConsortiumMember
+    options:
+      show_root_heading: true
+      members_order: source
+
+## Quantity Determination (X31)
+
+::: pygaeb.models.quantity.QtyDetermination
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.quantity.QtyDetermInfo
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.quantity.QtyBoQ
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.quantity.QtyBoQBody
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.quantity.QtyBoQCtgy
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.quantity.QtyItem
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.quantity.QDetermItem
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.quantity.QTakeoffRow
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.quantity.QtyAttachment
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.quantity.Catalog
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.quantity.CtlgAssign
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.quantity.PrjInfoQD
     options:
       show_root_heading: true
       members_order: source

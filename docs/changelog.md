@@ -4,6 +4,28 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-03-15
+
+### Added
+
+- **GAEB Quantity Determination Phase Support (X31)** — first-class parsing, writing, and API support for quantity take-off data
+- New `DocumentKind.QUANTITY` for X31 quantity determination documents
+- `ExchangePhase.X31` `is_quantity` property and `_QUANTITY_PHASES` frozenset
+- `QtyDetermination` root model with `QtyBoQ`, `QtyBoQCtgy`, `QtyItem` hierarchy
+- `QtyItem` — thin BoQ position with OZ, measurement data, and catalog assignments (no text/prices)
+- `QDetermItem` and `QTakeoffRow` for REB 23.003 measurement row data
+- `Catalog` and `CtlgAssign` for DIN 276, BIM, locality, and other catalog systems
+- `QtyAttachment` for base64-encoded attachments (photos, sketches, PDFs) at BoQ level
+- `QtyDetermInfo` metadata (REB method, dates, creator/profiler addresses)
+- `PrjInfoQD` for external project references
+- `QtyParser` for `<QtyDeterm>/<BoQ>/<QtyItem>` XML structure
+- `GAEBWriter` support for X31 document output with quantity-specific namespace (`DA31`)
+- `DocumentAPI` quantity-aware: `is_quantity`, `qty_determination`, `get_qty_item()`, updated `summary()` and `iter_hierarchy()`
+- `GAEBDocument.is_quantity`, `qty_determination` property, updated `iter_items()`, `grand_total`, `item_count`, `memory_estimate_mb`
+- Cross-referencing capability between X31 quantity items and procurement BoQ via OZ matching
+- Quantity determination documentation guide
+- 71 new tests for quantity parsing, models, writer round-trip, API, and enums
+
 ## [1.3.0] - 2026-03-15
 
 ### Added
@@ -85,6 +107,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `py.typed` marker for PEP 561 compliance
 - Comprehensive test suite (193 tests)
 
+[1.4.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.4.0
 [1.3.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.3.0
 [1.2.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.2.0
 [1.0.1]: https://github.com/frameiq/pygaeb/releases/tag/v1.0.1

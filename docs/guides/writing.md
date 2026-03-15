@@ -87,6 +87,14 @@ By default, documents are written as DA XML 3.3. The writer outputs:
 - Cross-reference groups (RefGroup)
 - Dimension and category elements
 
+**Quantity determination documents (X31):**
+
+- Quantity-specific namespace (e.g., `DA31/3.3`)
+- QtyDetermination structure (QtyBoQ, QtyItem, QDetermItem)
+- REB 23.003 QTakeoff measurement rows
+- Catalog definitions and assignments
+- Base64-encoded BoQ-level attachments
+
 ## Export to JSON
 
 Export the full nested BoQ tree as JSON:

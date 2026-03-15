@@ -85,3 +85,10 @@ def cost_namespace(phase: ExchangePhase, version: SourceVersion) -> str:
     phase_num = phase.value.lstrip("X")
     ver = version.value
     return f"http://www.gaeb.de/GAEB_DA_XML/DA{phase_num}/{ver}"
+
+
+def qty_namespace(phase: ExchangePhase, version: SourceVersion) -> str:
+    """Build the namespace URI for a quantity determination document (X31)."""
+    phase_num = phase.value.lstrip("X")
+    ver = version.value
+    return f"http://www.gaeb.de/GAEB_DA_XML/DA{phase_num}/{ver}"
