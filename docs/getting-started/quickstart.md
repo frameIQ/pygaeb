@@ -41,6 +41,13 @@ for item in doc.award.boq.iter_items():
     print(item.item_type)       # ItemType.NORMAL
 ```
 
+For code that should work on **both** procurement and trade documents, use universal iteration:
+
+```python
+for item in doc.iter_items():
+    print(item.short_text, item.qty, item.unit)
+```
+
 Look up a specific item by its OZ (ordinal number):
 
 ```python
@@ -131,10 +138,12 @@ print(f"~${estimate.estimated_cost_usd:.2f} for {estimate.items_to_classify} ite
 # Classify
 await classifier.enrich(doc)
 
-for item in doc.award.boq.iter_items():
+for item in doc.iter_items():
     if item.classification:
-        print(item.oz, item.classification.element_type, item.classification.confidence)
+        print(item.short_text, item.classification.element_type, item.classification.confidence)
 ```
+
+Classification works on both procurement and trade documents — `doc.iter_items()` handles both.
 
 See the [Classification Guide](../guides/classification.md) for details on the taxonomy, confidence flags, and caching.
 
@@ -169,15 +178,36 @@ doc = GAEBParser.parse("vendor_file.X83", keep_xml=True)
 codes = doc.xpath("//g:VendorCostCode/text()")
 
 # Per-item raw element access
-for item in doc.award.boq.iter_items():
+for item in doc.iter_items():
     el = item.source_element  # original lxml element
 ```
 
 See the [Custom & Vendor Tags Guide](../guides/custom-tags.md) for full details.
 
+## Trade Phases (X93–X97)
+
+Trade documents (material ordering between contractors and suppliers) are parsed with the same entry point:
+
+```python
+doc = GAEBParser.parse("order.X96")
+print(doc.document_kind)    # DocumentKind.TRADE
+print(doc.is_trade)         # True
+
+# Trade-specific access
+for item in doc.order.items:
+    print(item.art_no, item.short_text, item.net_price)
+
+print(doc.order.supplier_info.address.name)
+```
+
+LLM classification, structured extraction, and all other features work on trade documents without any code changes — just use `doc.iter_items()`.
+
+See the [Trade Phases Guide](../guides/trade-phases.md) for full details.
+
 ## Next Steps
 
 - [Parsing Guide](../guides/parsing.md) — version detection, encoding repair, error recovery
+- [Trade Phases](../guides/trade-phases.md) — working with X93–X97 trade orders
 - [Version Conversion](../guides/conversion.md) — convert between DA XML 2.0–3.3, upgrade, downgrade
 - [Custom & Vendor Tags](../guides/custom-tags.md) — raw XML access, XPath queries, vendor extensions
 - [Classification Guide](../guides/classification.md) — LLM setup, taxonomy, confidence flags

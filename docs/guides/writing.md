@@ -23,7 +23,7 @@ from pygaeb import GAEBParser, GAEBWriter, ExchangePhase
 
 doc = GAEBParser.parse("tender.X83")
 
-# Modify prices
+# Modify prices (procurement)
 for item in doc.award.boq.iter_items():
     if item.unit_price:
         item.unit_price = item.unit_price * Decimal("1.05")  # 5% markup
@@ -41,15 +41,43 @@ GAEBWriter.write(doc, "bid.X84", phase=ExchangePhase.X84)
 GAEBWriter.write(doc, "invoice.X86", phase=ExchangePhase.X86)
 ```
 
+### Writing Trade Documents
+
+Trade documents (X93–X97) are written the same way:
+
+```python
+from pygaeb import GAEBParser, GAEBWriter, ExchangePhase
+
+doc = GAEBParser.parse("order.X96")
+
+# Modify a trade item
+for item in doc.order.items:
+    if item.net_price:
+        item.net_price = item.net_price * Decimal("0.95")  # 5% discount
+
+# Write as order confirmation
+GAEBWriter.write(doc, "confirmation.X97", phase=ExchangePhase.X97)
+```
+
+The writer automatically detects trade documents and uses the correct XML structure (`<Order>/<OrderItem>`) and trade-specific namespaces.
+
 ### Target Version
 
 By default, documents are written as DA XML 3.3. The writer outputs:
+
+**Procurement documents:**
 
 - Standard GAEB DA XML 3.3 namespace
 - All BoQ structure (lots, categories, items)
 - Item attributes (quantities, prices, units, text)
 - Attachments (base64-encoded)
 - GAEBInfo metadata (auto-populated with pyGAEB version)
+
+**Trade documents:**
+
+- Trade-specific namespace (e.g., `DA96/3.3`)
+- Order structure (supplier/customer info, flat item list)
+- Trade-specific fields (EAN, article number, delivery details)
 
 ## Export to JSON
 

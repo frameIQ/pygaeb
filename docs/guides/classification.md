@@ -35,12 +35,15 @@ classifier.enrich_sync(doc)
 After enrichment, each item has a `classification` attribute:
 
 ```python
-for item in doc.award.boq.iter_items():
+for item in doc.iter_items():
     c = item.classification
     if c:
-        print(f"{item.oz}: {c.trade} / {c.element_type} / {c.sub_type}")
+        print(f"{item.short_text}: {c.trade} / {c.element_type} / {c.sub_type}")
         print(f"  confidence={c.confidence:.2f} flag={c.flag.value}")
 ```
+
+!!! tip
+    `doc.iter_items()` works for both procurement (X80–X89) and trade (X93–X97) documents. For procurement-only code you can still use `doc.award.boq.iter_items()`.
 
 ## Cost Estimation
 
@@ -95,9 +98,9 @@ Each classification result carries a `flag` indicating the confidence level:
 ```python
 from pygaeb.models.enums import ClassificationFlag
 
-for item in doc.award.boq.iter_items():
+for item in doc.iter_items():
     if item.classification and item.classification.flag == ClassificationFlag.NEEDS_REVIEW:
-        print(f"Review needed: {item.oz} — {item.short_text}")
+        print(f"Review needed: {item.short_text}")
 ```
 
 ## Manual Overrides
