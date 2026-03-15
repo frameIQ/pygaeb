@@ -15,6 +15,15 @@ extractor = StructuredExtractor(model="gpt-4o")
 
 No configuration needed. When the process exits, the cache is lost.
 
+The in-memory cache uses **LRU (Least Recently Used) eviction** with a default capacity of 10,000 entries. When the cache is full, the oldest unused entry is evicted to make room. You can adjust the capacity:
+
+```python
+from pygaeb import InMemoryCache
+
+cache = InMemoryCache(maxsize=50_000)  # larger for big projects
+classifier = LLMClassifier(model="gpt-4o", cache=cache)
+```
+
 **Best for:** scripts, notebooks, one-off processing.
 
 ## SQLite Cache (Persistent)

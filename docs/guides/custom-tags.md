@@ -162,4 +162,28 @@ When `keep_xml=False` (the default), the lxml tree is garbage-collected after pa
 | `keep_xml=False` | Normal | `None` | Raises `RuntimeError` |
 | `keep_xml=True` | ~2x | lxml `_Element` | Full XPath support |
 
+### Releasing XML memory with `discard_xml()`
+
+After you're done with XPath queries and `source_element` access, call `discard_xml()` to release the lxml tree and all element references:
+
+```python
+doc = GAEBParser.parse("large_file.X83", keep_xml=True)
+
+# Do your custom tag work
+codes = doc.xpath("//g:VendorCostCode/text()")
+for item in doc.iter_items():
+    el = item.source_element
+    # ... extract vendor data ...
+
+# Release XML memory — doc still works for iteration, writing, etc.
+doc.discard_xml()
+# doc.xpath() would now raise RuntimeError
+# item.source_element is now None
+```
+
+This is especially useful in pipelines processing many files — parse with `keep_xml=True`, extract what you need, then `discard_xml()` before moving to the next file.
+
+!!! tip
+    `post_parse_hook` and `collect_raw_data` automatically handle this for you — they enable `keep_xml` internally, run hooks, then discard. See the [Extensibility Guide](extensibility.md).
+
 For most use cases, the memory overhead is negligible. If you're processing many large files in a pipeline, parse with `keep_xml=False` for standard data and only re-parse specific files with `keep_xml=True` when custom tag access is needed.

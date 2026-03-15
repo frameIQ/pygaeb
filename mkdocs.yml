@@ -98,6 +98,7 @@ nav:
     - Converter: reference/converter.md
     - Writer & Export: reference/writer.md
     - Cache: reference/cache.md
+    - DocumentAPI: reference/document-api.md
     - Validation: reference/validation.md
     - Configuration: reference/config.md
     - Exceptions: reference/exceptions.md

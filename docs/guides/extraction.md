@@ -60,6 +60,63 @@ exterior = await extractor.extract(
 )
 ```
 
+## Extract from an Explicit Item List
+
+Use `extract_items()` when you want full control over which items to extract from, bypassing classification-based filtering:
+
+```python
+# Pick specific items
+my_items = [item for item in doc.iter_items() if "Tür" in item.short_text]
+
+results = await extractor.extract_items(
+    my_items, schema=DoorSpec,
+    trade_context="Finishes",
+    element_context="Door",
+)
+for item, spec in results:
+    print(item.oz, spec.door_type, spec.fire_rating)
+```
+
+## Cost Estimation
+
+Estimate the LLM cost before running extraction:
+
+```python
+estimate = await extractor.estimate_cost(doc, schema=DoorSpec, element_type="Door")
+print(f"Items to extract: {estimate['items_to_extract']}")
+print(f"Cached (free): {estimate['cached_items']}")
+print(f"Estimated tokens: {estimate['estimated_input_tokens']} in / {estimate['estimated_output_tokens']} out")
+```
+
+## Progress Tracking
+
+Monitor extraction progress with a callback:
+
+```python
+def on_progress(completed: int, total: int, current_label: str):
+    print(f"[{completed}/{total}] Extracting {current_label}...")
+
+doors = await extractor.extract(
+    doc, schema=DoorSpec, element_type="Door", on_progress=on_progress,
+)
+```
+
+## Re-extraction and Attachment
+
+By default, cached results are reused and results are stored on `item.extractions`. Override with:
+
+```python
+# Force re-extraction (bypass cache)
+doors = await extractor.extract(
+    doc, schema=DoorSpec, element_type="Door", force_reextract=True,
+)
+
+# Don't store results on items (return only)
+doors = await extractor.extract(
+    doc, schema=DoorSpec, element_type="Door", attach=False,
+)
+```
+
 ## Synchronous API
 
 ```python
