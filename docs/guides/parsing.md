@@ -80,7 +80,9 @@ for issue in doc.validation_results:
 
 ## Exchange Phases
 
-GAEB defines a procurement workflow through exchange phases:
+GAEB defines workflows through exchange phases. **Procurement phases** cover the tendering process, while **trade phases** cover material ordering between contractors and suppliers.
+
+### Procurement Phases (X80–X89)
 
 | Phase | Purpose | Typical Extension |
 |-------|---------|-------------------|
@@ -92,6 +94,17 @@ GAEB defines a procurement workflow through exchange phases:
 | X85 | Award | `.X85` |
 | X86 | Invoice | `.X86` |
 | X89 | Cost planning | `.X89` |
+
+### Trade Phases (X93–X97)
+
+| Phase | Purpose | Typical Extension |
+|-------|---------|-------------------|
+| X93 | Trade Price Inquiry | `.X93` |
+| X94 | Trade Price Offer | `.X94` |
+| X96 | Trade Order | `.X96` |
+| X97 | Trade Order Confirmation | `.X97` |
+
+Trade phases use a different XML structure (`<Order>/<OrderItem>` instead of `<Award>/<BoQ>/<Item>`), but pyGAEB handles this transparently. See the [Trade Phases Guide](trade-phases.md) for details.
 
 DA XML 2.x uses `D`-prefixed phases (D83, D84, etc.) which are automatically normalized to `X`-prefixed canonical form:
 
@@ -112,7 +125,7 @@ doc = GAEBParser.parse("tender.X83", keep_xml=True)
 codes = doc.xpath("//g:VendorCostCode/text()")
 
 # Access the raw lxml element on any item
-for item in doc.award.boq.iter_items():
+for item in doc.iter_items():
     el = item.source_element  # lxml _Element or None
 ```
 
@@ -120,17 +133,39 @@ See the [Custom & Vendor Tags Guide](custom-tags.md) for full details.
 
 ## Unified Document Model
 
-Regardless of input version, you always get the same structure:
+Regardless of input version, you always get the same `GAEBDocument`. The document discriminates between **procurement** and **trade** workflows:
 
 ```python
 doc.source_version       # SourceVersion enum
 doc.exchange_phase       # ExchangePhase enum
+doc.document_kind        # DocumentKind.PROCUREMENT or DocumentKind.TRADE
 doc.gaeb_info            # GAEBInfo (software metadata)
-doc.award                # AwardInfo (project info + BoQ)
-doc.award.boq            # BoQ (lots > categories > items)
 doc.validation_results   # list[ValidationResult]
 doc.grand_total          # Decimal (sum of affecting items)
 doc.item_count           # int
+```
+
+### Procurement documents (X80–X89)
+
+```python
+doc.award                # AwardInfo (project info + BoQ)
+doc.award.boq            # BoQ (lots > categories > items)
+```
+
+### Trade documents (X93–X97)
+
+```python
+doc.order                # TradeOrder (supplier/customer info + flat item list)
+doc.order.items          # list[OrderItem]
+```
+
+### Universal iteration
+
+Works for both document kinds:
+
+```python
+for item in doc.iter_items():
+    print(item.short_text, item.qty, item.unit)
 ```
 
 See the [Models Reference](../reference/models.md) for full details on every field.

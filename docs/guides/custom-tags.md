@@ -21,18 +21,20 @@ doc = GAEBParser.parse_string(xml_text, keep_xml=True)
 
 ## Accessing Custom Tags on Items
 
-When `keep_xml=True`, every `Item`, `BoQCtgy`, `AwardInfo`, and `GAEBInfo` object has a `source_element` attribute containing the original lxml `_Element`:
+When `keep_xml=True`, every `Item`, `OrderItem`, `BoQCtgy`, `AwardInfo`, `TradeOrder`, and `GAEBInfo` object has a `source_element` attribute containing the original lxml `_Element`:
 
 ```python
-for item in doc.award.boq.iter_items():
+for item in doc.iter_items():
     el = item.source_element
 
     # Access a vendor-specific tag (namespaced)
     ns = "{http://www.gaeb.de/GAEB_DA_XML/DA86/3.3}"
     cost_code = el.find(f"{ns}VendorCostCode")
     if cost_code is not None:
-        print(f"{item.oz}: {cost_code.text}")
+        print(f"{item.short_text}: {cost_code.text}")
 ```
+
+This works for both procurement (`Item`) and trade (`OrderItem`) documents.
 
 !!! tip "Namespace prefix"
     GAEB DA XML elements are namespaced. When using `el.find()`, you must include the full namespace URI in braces. Use `doc.raw_namespace` to get it dynamically:
@@ -97,14 +99,27 @@ doc = GAEBParser.parse("file.X83", keep_xml=True)
 # GAEBInfo
 doc.gaeb_info.source_element  # <GAEBInfo> element
 
-# AwardInfo
+# AwardInfo (procurement)
 doc.award.source_element      # <Award> element
 
-# Categories
+# Categories (procurement)
 for _, _, ctgy in doc.award.boq.iter_hierarchy():
     if ctgy and ctgy.source_element is not None:
         # Access category-level custom tags
         pass
+```
+
+For **trade documents**, the `TradeOrder` also retains its raw element:
+
+```python
+doc = GAEBParser.parse("order.X96", keep_xml=True)
+
+# TradeOrder
+doc.order.source_element      # <Order> element
+
+# OrderItems
+for item in doc.order.items:
+    el = item.source_element  # <OrderItem> element
 ```
 
 ## Real-World Example
@@ -130,11 +145,11 @@ Extract these without modifying the parser:
 doc = GAEBParser.parse("vendor_file.X83", keep_xml=True)
 ns = f"{{{doc.raw_namespace}}}"
 
-for item in doc.award.boq.iter_items():
+for item in doc.iter_items():
     el = item.source_element
     code = el.find(f"{ns}VendorCostCode")
     note = el.find(f"{ns}CustomNote")
-    print(f"{item.oz}: code={code.text if code is not None else 'N/A'}, "
+    print(f"{item.short_text}: code={code.text if code is not None else 'N/A'}, "
           f"note={note.text if note is not None else 'N/A'}")
 ```
 
