@@ -28,12 +28,12 @@ from pygaeb.models.boq import (
 )
 from pygaeb.models.catalog import CtlgAssign
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
-from pygaeb.models.order import Address
 from pygaeb.models.enums import (
     BkdnType,
     ItemType,
 )
 from pygaeb.models.item import Attachment, CostApproach, Item, MarkupSubQty, QtySplit
+from pygaeb.models.order import Address
 from pygaeb.parser.recovery import parse_xml_safe
 from pygaeb.parser.xml_v3.richtext_parser import parse_plaintext, parse_richtext
 
