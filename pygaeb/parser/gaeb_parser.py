@@ -149,6 +149,11 @@ _TRADE_PHASES = frozenset({
     ExchangePhase.X97,
 })
 
+_COST_PHASES = frozenset({
+    ExchangePhase.X50,
+    ExchangePhase.X51,
+})
+
 
 def _dispatch_parser(
     route: ParseRoute, path: Path, text: str, keep_xml: bool = False,
@@ -163,6 +168,11 @@ def _dispatch_parser(
         from pygaeb.parser.xml_v3.trade_parser import TradeParser
         parser = TradeParser(route, keep_xml=keep_xml)
         return parser.parse(path, text)
+
+    if route.exchange_phase in _COST_PHASES:
+        from pygaeb.parser.xml_v3.cost_parser import CostParser
+        cost_parser = CostParser(route, keep_xml=keep_xml)
+        return cost_parser.parse(path, text)
 
     if route.track == ParserTrack.TRACK_A:
         from pygaeb.parser.xml_v2.v2_parser import V2Parser

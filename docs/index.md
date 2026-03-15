@@ -14,6 +14,7 @@ pyGAEB parses, validates, classifies, and writes GAEB DA XML files (versions 2.0
 
 - **Multi-version parsing** — DA XML 2.0 through 3.3, all producing the same `GAEBDocument` model
 - **Procurement + Trade phases** — full support for X80–X89 (procurement) and X93–X97 (trade) workflows
+- **Cost & Calculation phases** — X50/X51 elemental costing with BIM integration, X52 calculation approaches
 - **Tolerant by default** — malformed real-world files are common; warnings not exceptions
 - **Version conversion** — convert between DA XML 2.0–3.3 with data-loss reports
 - **Full round-trip** — parse, modify, write back to valid GAEB DA XML
@@ -40,6 +41,11 @@ doc = GAEBParser.parse("order.X96")
 for item in doc.order.items:
     print(item.art_no, item.short_text, item.net_price)
 
+# Cost estimation (X50/X51) — recursive hierarchy, BIM refs
+doc = GAEBParser.parse("catalog.X50")
+for elem in doc.iter_items():
+    print(elem.ele_no, elem.short_text, elem.item_total)
+
 # Universal iteration — works for both kinds
 for item in doc.iter_items():
     print(item.short_text, item.qty)
@@ -61,10 +67,12 @@ for item in doc.iter_items():
 |-------------|--------|--------|
 | Procurement | X80–X89 (tender, bid, award, invoice…) | v1.0 |
 | Trade | X93, X94, X96, X97 (price inquiry, offer, order, confirmation) | v1.2 |
+| Cost & Calculation | X50, X51 (elemental costing), X52 (calculation approaches) | v1.3 |
 
 ## Next Steps
 
 - [Installation](getting-started/installation.md) — get pyGAEB installed
 - [Quick Start](getting-started/quickstart.md) — parse your first file in 5 minutes
 - [Trade Phases](guides/trade-phases.md) — working with X93–X97 trade orders
+- [Cost & Calculation Phases](guides/cost-phases.md) — working with X50–X52 cost estimation and calculation
 - [API Reference](reference/index.md) — complete class and function documentation

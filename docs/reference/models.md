@@ -1,6 +1,6 @@
 # Models
 
-The unified domain model that all parser tracks produce. Documents are either **procurement** (X80–X89, using `AwardInfo`/`BoQ`/`Item`) or **trade** (X93–X97, using `TradeOrder`/`OrderItem`).
+The unified domain model that all parser tracks produce. Documents are **procurement** (X80–X89, using `AwardInfo`/`BoQ`/`Item`), **trade** (X93–X97, using `TradeOrder`/`OrderItem`), or **cost** (X50/X51, using `ElementalCosting`/`CostElement`).
 
 ## Document
 
@@ -51,6 +51,11 @@ The unified domain model that all parser tracks produce. Documents are either **
       show_root_heading: true
       members_order: source
 
+::: pygaeb.models.boq.CostType
+    options:
+      show_root_heading: true
+      members_order: source
+
 ## Item (Procurement)
 
 ::: pygaeb.models.item.Item
@@ -84,6 +89,11 @@ The unified domain model that all parser tracks produce. Documents are either **
       members_order: source
 
 ::: pygaeb.models.item.Attachment
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.item.CostApproach
     options:
       show_root_heading: true
       members_order: source
@@ -136,6 +146,63 @@ The unified domain model that all parser tracks produce. Documents are either **
       members_order: source
 
 ::: pygaeb.models.order.Address
+    options:
+      show_root_heading: true
+      members_order: source
+
+## Elemental Costing (X50/X51)
+
+::: pygaeb.models.cost.ElementalCosting
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.ECInfo
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.ECBody
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.ECCtgy
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.CostElement
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.CostProperty
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.RefGroup
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.DimensionElement
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.CategoryElement
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.ECBkdn
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.ConsortiumMember
     options:
       show_root_heading: true
       members_order: source

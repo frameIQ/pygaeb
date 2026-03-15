@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from pygaeb.models.boq import BoQ
+from pygaeb.models.cost import ElementalCosting
 from pygaeb.models.enums import (
     DocumentKind,
     ExchangePhase,
@@ -53,7 +54,8 @@ class GAEBDocument(BaseModel):
     """Root model produced by all parser tracks — the unified output contract.
 
     Procurement documents populate ``award``; trade documents populate
-    ``order``.  Use ``document_kind``, ``is_trade``, or ``is_procurement``
+    ``order``; cost documents populate ``elemental_costing``.
+    Use ``document_kind``, ``is_trade``, ``is_procurement``, or ``is_cost``
     to discriminate, and ``iter_items()`` for universal iteration.
     """
 
@@ -64,16 +66,16 @@ class GAEBDocument(BaseModel):
     gaeb_info: GAEBInfo = Field(default_factory=GAEBInfo)
     award: AwardInfo = Field(default_factory=AwardInfo)
     order: TradeOrder | None = Field(default=None)
+    elemental_costing: ElementalCosting | None = Field(default=None)
     validation_results: list[ValidationResult] = Field(default_factory=list)
     source_file: str | None = None
     raw_namespace: str | None = None
     xml_root: Any = Field(default=None, exclude=True, repr=False)
 
     def __repr__(self) -> str:
-        kind = "trade" if self.is_trade else "procurement"
         return (
             f"GAEBDocument(version={self.source_version.value}, "
-            f"phase={self.exchange_phase.value}, kind={kind}, "
+            f"phase={self.exchange_phase.value}, kind={self.document_kind.value}, "
             f"items={self.item_count})"
         )
 
@@ -83,6 +85,8 @@ class GAEBDocument(BaseModel):
 
     @property
     def document_kind(self) -> DocumentKind:
+        if self.elemental_costing is not None:
+            return DocumentKind.COST
         if self.order is not None:
             return DocumentKind.TRADE
         return DocumentKind.PROCUREMENT
@@ -93,7 +97,11 @@ class GAEBDocument(BaseModel):
 
     @property
     def is_procurement(self) -> bool:
-        return self.order is None
+        return self.order is None and self.elemental_costing is None
+
+    @property
+    def is_cost(self) -> bool:
+        return self.elemental_costing is not None
 
     # ------------------------------------------------------------------
     # Universal iteration
@@ -102,10 +110,13 @@ class GAEBDocument(BaseModel):
     def iter_items(self) -> Iterator[Any]:
         """Iterate all items regardless of document kind.
 
-        Returns ``Item`` instances for procurement documents and
-        ``OrderItem`` instances for trade documents.
+        Returns ``Item`` instances for procurement documents,
+        ``OrderItem`` instances for trade documents, and
+        ``CostElement`` instances for cost documents.
         """
-        if self.order is not None:
+        if self.elemental_costing is not None:
+            yield from self.elemental_costing.iter_items()
+        elif self.order is not None:
             yield from self.order.iter_items()
         else:
             yield from self.award.boq.iter_items()
@@ -116,7 +127,9 @@ class GAEBDocument(BaseModel):
 
     @property
     def grand_total(self) -> Decimal:
-        """Sum of all item totals (procurement: total_price; trade: net/offer * qty)."""
+        """Sum of all item totals across any document kind."""
+        if self.elemental_costing is not None:
+            return self.elemental_costing.grand_total
         if self.order is not None:
             return self.order.grand_total
         return _sum_prices(self.award.boq.iter_items())
@@ -124,12 +137,16 @@ class GAEBDocument(BaseModel):
     @property
     def computed_grand_total(self) -> Decimal:
         """Sum of all item.computed_total (qty x unit_price). Procurement only."""
+        if self.elemental_costing is not None:
+            return self.elemental_costing.grand_total
         if self.order is not None:
             return self.order.grand_total
         return _sum_computed(self.award.boq.iter_items())
 
     @property
     def item_count(self) -> int:
+        if self.elemental_costing is not None:
+            return self.elemental_costing.item_count
         if self.order is not None:
             return self.order.item_count
         return sum(1 for _ in self.award.boq.iter_items())
@@ -137,6 +154,8 @@ class GAEBDocument(BaseModel):
     @property
     def memory_estimate_mb(self) -> float:
         """Approximate memory usage in MB (~1 KB per item + attachment sizes)."""
+        if self.elemental_costing is not None:
+            return float(self.elemental_costing.item_count) / 1024
         if self.order is not None:
             return float(self.order.item_count) / 1024
         item_count = 0

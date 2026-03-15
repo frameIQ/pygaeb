@@ -79,6 +79,14 @@ By default, documents are written as DA XML 3.3. The writer outputs:
 - Order structure (supplier/customer info, flat item list)
 - Trade-specific fields (EAN, article number, delivery details)
 
+**Cost documents (X50/X51):**
+
+- Cost-specific namespace (e.g., `DA50/3.3`)
+- ElementalCosting structure (categories, cost elements, properties)
+- BIM-integrated properties (CAD_ID, arithmetic approaches)
+- Cross-reference groups (RefGroup)
+- Dimension and category elements
+
 ## Export to JSON
 
 Export the full nested BoQ tree as JSON:

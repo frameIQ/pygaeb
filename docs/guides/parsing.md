@@ -80,7 +80,7 @@ for issue in doc.validation_results:
 
 ## Exchange Phases
 
-GAEB defines workflows through exchange phases. **Procurement phases** cover the tendering process, while **trade phases** cover material ordering between contractors and suppliers.
+GAEB defines workflows through exchange phases. **Procurement phases** cover the tendering process, **trade phases** cover material ordering between contractors and suppliers, and **cost phases** cover construction cost estimation and calculation.
 
 ### Procurement Phases (X80–X89)
 
@@ -105,6 +105,16 @@ GAEB defines workflows through exchange phases. **Procurement phases** cover the
 | X97 | Trade Order Confirmation | `.X97` |
 
 Trade phases use a different XML structure (`<Order>/<OrderItem>` instead of `<Award>/<BoQ>/<Item>`), but pyGAEB handles this transparently. See the [Trade Phases Guide](trade-phases.md) for details.
+
+### Cost & Calculation Phases (X50–X52)
+
+| Phase | Purpose | Typical Extension |
+|-------|---------|-------------------|
+| X50 | Construction Cost Catalog | `.X50` |
+| X51 | Cost Determination | `.X51` |
+| X52 | Calculation Approaches | `.X52` |
+
+X50 and X51 use a different XML structure (`<ElementalCosting>/<ECBody>/<CostElement>` instead of `<Award>/<BoQ>/<Item>`), introducing `DocumentKind.COST`. X52 extends the standard procurement structure with per-item calculation data. See the [Cost & Calculation Phases Guide](cost-phases.md) for details.
 
 DA XML 2.x uses `D`-prefixed phases (D83, D84, etc.) which are automatically normalized to `X`-prefixed canonical form:
 
@@ -133,12 +143,12 @@ See the [Custom & Vendor Tags Guide](custom-tags.md) for full details.
 
 ## Unified Document Model
 
-Regardless of input version, you always get the same `GAEBDocument`. The document discriminates between **procurement** and **trade** workflows:
+Regardless of input version, you always get the same `GAEBDocument`. The document discriminates between **procurement**, **trade**, and **cost** workflows:
 
 ```python
 doc.source_version       # SourceVersion enum
 doc.exchange_phase       # ExchangePhase enum
-doc.document_kind        # DocumentKind.PROCUREMENT or DocumentKind.TRADE
+doc.document_kind        # DocumentKind.PROCUREMENT, TRADE, or COST
 doc.gaeb_info            # GAEBInfo (software metadata)
 doc.validation_results   # list[ValidationResult]
 doc.grand_total          # Decimal (sum of affecting items)
@@ -159,9 +169,16 @@ doc.order                # TradeOrder (supplier/customer info + flat item list)
 doc.order.items          # list[OrderItem]
 ```
 
+### Cost documents (X50, X51)
+
+```python
+doc.elemental_costing    # ElementalCosting (cost hierarchy + BIM properties)
+doc.elemental_costing.body.iter_cost_elements()  # recursive element iteration
+```
+
 ### Universal iteration
 
-Works for both document kinds:
+Works for all document kinds:
 
 ```python
 for item in doc.iter_items():

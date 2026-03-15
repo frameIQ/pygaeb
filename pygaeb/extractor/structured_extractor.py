@@ -254,6 +254,7 @@ class StructuredExtractor:
             nonlocal completed
             label = str(
                 getattr(item, "oz", None)
+                or getattr(item, "ele_no", None)
                 or getattr(item, "art_no", None)
                 or getattr(item, "item_id", "")
             )

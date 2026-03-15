@@ -37,6 +37,10 @@ _PHASE_FROM_EXT: dict[str, ExchangePhase] = {
     ".X94": ExchangePhase.X94,
     ".X96": ExchangePhase.X96,
     ".X97": ExchangePhase.X97,
+    # Cost & Calculation phases
+    ".X50": ExchangePhase.X50,
+    ".X51": ExchangePhase.X51,
+    ".X52": ExchangePhase.X52,
     # DA XML 2.x D-prefixed aliases
     ".D80": ExchangePhase.D80,
     ".D81": ExchangePhase.D81,
@@ -121,13 +125,17 @@ def _detect_xml_version(path: Path, text: str | None = None) -> ParseRoute:
                 if v:
                     version = _parse_version_string(v)
 
-            if tag in ("Award", "Order", "Vergabe", "BoQ",
-                       "Leistungsverzeichnis", "GAEBInfo", "GAEB"):
+            if tag in ("Award", "Order", "ElementalCosting", "Vergabe",
+                       "BoQ", "Leistungsverzeichnis", "GAEBInfo", "GAEB"):
                 if tag in ("Vergabe", "Leistungsverzeichnis"):
                     if version is None:
                         version = SourceVersion.DA_XML_20
                     break
                 if tag == "Order" and phase == ExchangePhase.X83:
+                    phase_from_ns = _phase_from_namespace(namespace or "")
+                    if phase_from_ns is not None:
+                        phase = phase_from_ns
+                if tag == "ElementalCosting" and phase == ExchangePhase.X83:
                     phase_from_ns = _phase_from_namespace(namespace or "")
                     if phase_from_ns is not None:
                         phase = phase_from_ns
