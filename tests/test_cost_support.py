@@ -17,18 +17,14 @@ from pygaeb.api.document_api import DocumentAPI
 from pygaeb.models.boq import CostType
 from pygaeb.models.cost import (
     BoQItemRef,
-    CategoryElement,
     CostElement,
     CostProperty,
-    DimensionElement,
     ECBody,
     ECCtgy,
-    ECInfo,
     ElementalCosting,
     RefGroup,
 )
 from pygaeb.models.item import CostApproach, Item
-
 
 # ---------------------------------------------------------------------------
 # XML fixtures
