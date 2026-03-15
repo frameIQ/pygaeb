@@ -98,17 +98,26 @@ class OrderItem(BaseModel):
 # ---------------------------------------------------------------------------
 
 class Address(BaseModel):
-    """Postal address (shared across supplier / customer / delivery place)."""
+    """Postal address — mirrors the GAEB ``tgAddress`` schema type.
+
+    Name fields follow the XSD convention: ``Name1`` through ``Name4``.
+    The ``name`` field maps to ``<Name1>`` (or ``<Name>`` in older files).
+    """
 
     name: str | None = None
     name2: str | None = None
+    name3: str | None = None
+    name4: str | None = None
     street: str | None = None
     pcode: str | None = None
     city: str | None = None
     country: str | None = None
+    contact: str | None = None
     phone: str | None = None
     fax: str | None = None
     email: str | None = None
+    iln: str | None = None
+    vat_id: str | None = None
 
 
 class OrderInfo(BaseModel):

@@ -19,7 +19,6 @@ from pygaeb.models.boq import BoQBkdn
 from pygaeb.models.catalog import Catalog, CtlgAssign
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import BkdnType
-from pygaeb.models.order import Address
 from pygaeb.models.quantity import (
     PrjInfoQD,
     QDetermItem,
@@ -150,27 +149,6 @@ class QtyParser(BaseV3Parser):
             info.ctlg_assigns.append(self._parse_ctlg_assign(ca_el))
 
         return info
-
-    # ------------------------------------------------------------------
-    # Address parsing
-    # ------------------------------------------------------------------
-
-    def _parse_address(self, parent_el: etree._Element) -> Address:
-        addr_el = self._find(parent_el, "Address")
-        if addr_el is None:
-            return Address(name=self._text(parent_el, "Name"))
-
-        return Address(
-            name=self._text(addr_el, "Name"),
-            name2=self._text(addr_el, "Name2"),
-            street=self._text(addr_el, "Street"),
-            pcode=self._text(addr_el, "PCode"),
-            city=self._text(addr_el, "City"),
-            country=self._text(addr_el, "Country"),
-            phone=self._text(addr_el, "Phone"),
-            fax=self._text(addr_el, "Fax"),
-            email=self._text(addr_el, "EMail", "Email"),
-        )
 
     # ------------------------------------------------------------------
     # QtyBoQ

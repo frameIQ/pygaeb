@@ -4,6 +4,23 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-03-15
+
+### Fixed
+
+- **Procurement long text parsing** — Items in DA XML 3.x procurement files (X80–X89) now correctly extract long text from the `<Description>/<CompleteText>/<DetailTxt>` structure, matching the behavior already present in trade and cost parsers.
+- **OWN (owner/client) parsed from wrong element** — `<OWN>` is now correctly located as a child of `<Award>` instead of `<AwardInfo>`, producing a full `Address` with all `tgAddress` fields instead of a bare string.
+
+### Added
+
+- **AwardInfo metadata** — 13 new fields on `AwardInfo`: `category`, `open_date`, `open_time`, `eval_end`, `submit_location`, `construction_start`, `construction_end`, `contract_no`, `contract_date`, `accept_type`, `warranty_duration`, `warranty_unit`, and `award_no`.
+- **`AwardInfo.owner_address`** — Full `Address` model for the `<OWN>/<Address>` structure, including `award_no` from `<OWN>/<AwardNo>`.
+- **`Address` model extended to match `tgAddress` XSD** — Added `name3`, `name4`, `contact`, `iln`, and `vat_id` fields. The `name` field now maps to `<Name1>` (with `<Name>` fallback for older files).
+- **`_parse_address` consolidated** — Moved from `TradeParser` and `QtyParser` into `BaseV3Parser` so all phases (procurement, trade, cost, quantity) share the same XSD-complete address parsing logic.
+- **Writer updated** — `_add_address` emits XSD-canonical `<Name1>` through `<Name4>`, `<Contact>`, `<ILN>`, and `<VATID>`. `_add_award` serializes all new AwardInfo fields and the proper `<OWN>/<Address>/<AwardNo>` structure.
+- **German element map** — Added DA XML 2.x mappings for new AwardInfo tags (`Vergabekategorie`, `Eroeffnungsdatum`, `Baubeginn`, `Bauende`, `Vertragsnummer`, `Vertragsdatum`, `Gewaehrleistungsdauer`, etc.).
+- 48 new tests covering long text fallback, AwardInfo metadata, OWN address with full `tgAddress` fields, model defaults, round-trip serialization, and integration against the `tender.X81` fixture.
+
 ## [1.7.0] - 2026-03-15
 
 ### Added
@@ -179,6 +196,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `py.typed` marker for PEP 561 compliance
 - Comprehensive test suite (193 tests)
 
+[1.7.1]: https://github.com/frameiq/pygaeb/releases/tag/v1.7.1
+[1.7.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.7.0
+[1.6.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.6.0
 [1.5.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.5.0
 [1.4.1]: https://github.com/frameiq/pygaeb/releases/tag/v1.4.1
 [1.4.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.4.0
