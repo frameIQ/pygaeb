@@ -141,6 +141,66 @@ LLMClassifier(model="bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0")
 LLMClassifier(model="ollama/llama3")
 ```
 
+## Progress Tracking
+
+Monitor classification progress with a callback:
+
+```python
+def on_progress(completed: int, total: int, current_label: str):
+    print(f"[{completed}/{total}] Classifying {current_label}...")
+
+await classifier.enrich(doc, on_progress=on_progress)
+```
+
+## Re-classification
+
+By default, items with existing classification results are skipped (pulled from cache). To force re-classification:
+
+```python
+await classifier.enrich(doc, force_reclassify=True)
+```
+
+## Fallback Models
+
+Specify fallback models in case the primary model fails:
+
+```python
+classifier = LLMClassifier(
+    model="anthropic/claude-sonnet-4-6",
+    fallbacks=["gpt-4o", "ollama/llama3"],
+)
+```
+
+If the primary model returns an error, pyGAEB tries each fallback in order before giving up.
+
+## Custom Taxonomy & Prompt
+
+Override the built-in taxonomy and system prompt per classifier instance:
+
+```python
+my_taxonomy = {
+    "Electrical": {"Cable Tray": ["Ladder", "Perforated"], "Panel": ["MCC", "DB"]},
+    "HVAC": {"AHU": ["Rooftop", "Indoor"], "Duct": ["Galvanised", "Flexible"]},
+}
+
+classifier = LLMClassifier(
+    model="gpt-4o",
+    taxonomy=my_taxonomy,
+    prompt_template="You are a specialist classifying MEP items...",
+)
+```
+
+You can also register reusable prompt templates:
+
+```python
+from pygaeb import register_prompt
+
+register_prompt("mep-v1", "You are classifying MEP items...")
+classifier = LLMClassifier(prompt_version="mep-v1")
+```
+
+See the [Extensibility Guide](extensibility.md) for more details.
+
 ## Concurrency
 
 Classification runs items in parallel for speed:

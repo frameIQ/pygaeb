@@ -11,6 +11,8 @@ Pluggable cache backends for LLM classification and extraction results.
 
 ## InMemoryCache
 
+LRU-bounded in-memory cache. Default `maxsize=10,000` entries. When full, the least recently accessed entry is evicted.
+
 ::: pygaeb.cache.InMemoryCache
     options:
       show_root_heading: true

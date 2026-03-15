@@ -239,6 +239,47 @@ See the [Models Reference](../reference/models.md) for full details on every fie
 
 ## Advanced Parsing Options
 
+### File size limit
+
+By default, pyGAEB rejects files larger than 100 MB to prevent memory exhaustion. You can adjust or disable this:
+
+```python
+# Override per call (in bytes)
+doc = GAEBParser.parse("huge.X83", max_file_size=500 * 1024 * 1024)  # 500 MB
+
+# Disable the check
+doc = GAEBParser.parse("huge.X83", max_file_size=0)
+
+# Change the global default
+from pygaeb import configure
+configure(max_file_size_mb=200)
+```
+
+### Per-call validators
+
+Pass extra validation rules to a single parse call without registering them globally:
+
+```python
+from pygaeb.models.item import ValidationResult
+from pygaeb.models.enums import ValidationSeverity
+
+def require_unit(doc):
+    issues = []
+    for item in doc.iter_items():
+        if not item.unit:
+            issues.append(
+                ValidationResult(
+                    severity=ValidationSeverity.WARNING,
+                    message=f"{item.oz}: missing unit",
+                )
+            )
+    return issues
+
+doc = GAEBParser.parse("tender.X83", extra_validators=[require_unit])
+```
+
+See the [Extensibility Guide](extensibility.md) for global validator registration.
+
 ### Post-parse hook
 
 Use `post_parse_hook` to inspect or mutate each item right after parsing:

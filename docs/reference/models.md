@@ -226,6 +226,40 @@ Financial summary data from `<Totals>` elements on BoQInfo, BoQCtgy, and Lot. In
       show_root_heading: true
       members_order: source
 
+### Cross-Reference Models
+
+Used by `RefGroup` to link cost elements to BoQ items, other cost elements, dimensions, categories, and consortium members.
+
+::: pygaeb.models.cost.BoQItemRef
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.BoQCtgyRef
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.CostElementRef
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.DimensionElementRef
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.CategoryElementRef
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.cost.ConsortiumMemberRef
+    options:
+      show_root_heading: true
+      members_order: source
+
 ## Quantity Determination (X31)
 
 ::: pygaeb.models.quantity.QtyDetermination
