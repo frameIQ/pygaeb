@@ -37,6 +37,39 @@ class CostType(BaseModel):
     label: str = ""
 
 
+class VATPart(BaseModel):
+    """A single VAT rate partition within a ``Totals`` block.
+
+    GAEB files can have multiple VAT rates (e.g. 19% and 7%) applied to
+    different subsets of items.  Each ``VATPart`` carries the net amount
+    subject to that rate and the resulting VAT amount.
+    """
+
+    vat_pcnt: Decimal = Decimal("0")
+    total_net_part: Decimal | None = None
+    vat_amount: Decimal | None = None
+
+
+class Totals(BaseModel):
+    """Authoritative financial summary (``<Totals>``) on BoQInfo, BoQCtgy, or Lot.
+
+    Fields mirror the ``tgTotals`` schema type.  All monetary values use
+    ``Decimal`` for precision.
+    """
+
+    total: Decimal | None = None
+    discount_pcnt: Decimal | None = None
+    discount_amt: Decimal | None = None
+    tot_after_disc: Decimal | None = None
+    total_lsum: Decimal | None = None
+    vat: Decimal | None = None
+    total_net: Decimal | None = None
+    total_net_up_comp: list[Decimal] = Field(default_factory=list)
+    vat_parts: list[VATPart] = Field(default_factory=list)
+    vat_amount: Decimal | None = None
+    total_gross: Decimal | None = None
+
+
 class BoQInfo(BaseModel):
     """BoQ-level metadata including breakdown definitions."""
 
@@ -46,6 +79,7 @@ class BoQInfo(BaseModel):
     outline_complete: bool = False
     cost_types: list[CostType] = Field(default_factory=list)
     ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
+    totals: Totals | None = None
 
 
 class BoQCtgy(BaseModel):
@@ -59,6 +93,7 @@ class BoQCtgy(BaseModel):
     subcategories: list[BoQCtgy] = Field(default_factory=list)
     lbl_tx: str | None = None
     ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
+    totals: Totals | None = None
     source_element: Any = Field(default=None, exclude=True, repr=False)
 
     def iter_items(self) -> Iterator[Item]:
@@ -89,6 +124,7 @@ class Lot(BaseModel):
     label: str = ""
     boq_info: BoQInfo | None = None
     body: BoQBody = Field(default_factory=BoQBody)
+    totals: Totals | None = None
 
     def __repr__(self) -> str:
         count = sum(1 for _ in self.iter_items())

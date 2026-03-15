@@ -170,6 +170,41 @@ doc.award                # AwardInfo (project info + BoQ)
 doc.award.boq            # BoQ (lots > categories > items)
 ```
 
+**Project metadata** from `<PrjInfo>` is merged into `AwardInfo`:
+
+```python
+doc.award.project_name   # str — project name
+doc.award.prj_id         # str — project GUID
+doc.award.lbl_prj        # str — project label
+doc.award.description    # str — project description
+doc.award.currency_label # str — e.g., "Euro"
+doc.award.up_frac_dig    # int (2 or 3) — unit price decimal places
+doc.award.bid_comm_perm  # bool — bidder comments permitted
+doc.award.alter_bid_perm # bool — alternative bids permitted
+```
+
+**Financial summaries** are parsed from `<Totals>` elements on BoQInfo, categories, and lots. These carry the authoritative net/gross totals, VAT rates, VAT breakdowns, and discount data — present in X84 (bid), X86 (award), and X89 (invoice) files:
+
+```python
+totals = doc.award.boq.boq_info.totals
+if totals:
+    totals.total           # Decimal — sum before discounts
+    totals.total_net       # Decimal — net after discounts
+    totals.total_gross     # Decimal — gross (net + VAT)
+    totals.vat             # Decimal — VAT rate %
+    totals.vat_amount      # Decimal — total VAT amount
+    totals.discount_pcnt   # Decimal — discount percentage
+    totals.vat_parts       # list[VATPart] — per-rate breakdown
+```
+
+**Item-level VAT** — each item can carry its own VAT rate:
+
+```python
+for item in doc.award.boq.iter_items():
+    if item.vat is not None:
+        print(f"{item.oz}: {item.vat}%")
+```
+
 ### Trade documents (X93–X97)
 
 ```python

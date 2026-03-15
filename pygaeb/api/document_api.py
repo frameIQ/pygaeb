@@ -279,6 +279,15 @@ class DocumentAPI:
         elif self._doc.is_procurement:
             result["lots"] = len(self.lots)
             result["is_multi_lot"] = self.is_multi_lot
+            boq_info = self._doc.award.boq.boq_info
+            if boq_info and boq_info.totals:
+                t = boq_info.totals
+                result["total_net"] = str(t.total_net) if t.total_net else None
+                result["total_gross"] = str(t.total_gross) if t.total_gross else None
+                result["vat_rate"] = str(t.vat) if t.vat else None
+                result["vat_amount"] = str(t.vat_amount) if t.vat_amount else None
+            if self._doc.award.up_frac_dig is not None:
+                result["up_frac_dig"] = self._doc.award.up_frac_dig
         else:
             result["has_supplier_info"] = (
                 self._doc.order is not None
