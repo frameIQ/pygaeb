@@ -10,7 +10,12 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from pygaeb.models.boq import BoQ
-from pygaeb.models.enums import ExchangePhase, SourceVersion, ValidationSeverity
+from pygaeb.models.enums import (
+    DocumentKind,
+    ExchangePhase,
+    SourceVersion,
+    ValidationSeverity,
+)
 from pygaeb.models.item import ValidationResult
 
 
@@ -27,7 +32,7 @@ class GAEBInfo(BaseModel):
 
 
 class AwardInfo(BaseModel):
-    """Project-level award information."""
+    """Project-level award information (procurement phases X80-X89)."""
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -44,7 +49,12 @@ class AwardInfo(BaseModel):
 
 
 class GAEBDocument(BaseModel):
-    """Root model produced by all parser tracks — the unified output contract."""
+    """Root model produced by all parser tracks — the unified output contract.
+
+    Procurement documents populate ``award``; trade documents populate
+    ``order``.  Use ``document_kind``, ``is_trade``, or ``is_procurement``
+    to discriminate, and ``iter_items()`` for universal iteration.
+    """
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -52,34 +62,82 @@ class GAEBDocument(BaseModel):
     exchange_phase: ExchangePhase = ExchangePhase.X83
     gaeb_info: GAEBInfo = Field(default_factory=GAEBInfo)
     award: AwardInfo = Field(default_factory=AwardInfo)
+    order: Any = Field(default=None)
     validation_results: list[ValidationResult] = Field(default_factory=list)
     source_file: str | None = None
     raw_namespace: str | None = None
     xml_root: Any = Field(default=None, exclude=True, repr=False)
 
     def __repr__(self) -> str:
+        kind = "trade" if self.is_trade else "procurement"
         return (
             f"GAEBDocument(version={self.source_version.value}, "
-            f"phase={self.exchange_phase.value}, items={self.item_count})"
+            f"phase={self.exchange_phase.value}, kind={kind}, "
+            f"items={self.item_count})"
         )
+
+    # ------------------------------------------------------------------
+    # Document kind discriminators
+    # ------------------------------------------------------------------
+
+    @property
+    def document_kind(self) -> DocumentKind:
+        if self.order is not None:
+            return DocumentKind.TRADE
+        return DocumentKind.PROCUREMENT
+
+    @property
+    def is_trade(self) -> bool:
+        return self.order is not None
+
+    @property
+    def is_procurement(self) -> bool:
+        return self.order is None
+
+    # ------------------------------------------------------------------
+    # Universal iteration
+    # ------------------------------------------------------------------
+
+    def iter_items(self) -> Iterator[Any]:
+        """Iterate all items regardless of document kind.
+
+        Returns ``Item`` instances for procurement documents and
+        ``OrderItem`` instances for trade documents.
+        """
+        if self.order is not None:
+            yield from self.order.iter_items()
+        else:
+            yield from self.award.boq.iter_items()
+
+    # ------------------------------------------------------------------
+    # Aggregate properties
+    # ------------------------------------------------------------------
 
     @property
     def grand_total(self) -> Decimal:
-        """Sum of all item.total_price where item_type.affects_total is True."""
+        """Sum of all item totals (procurement: total_price; trade: net/offer * qty)."""
+        if self.order is not None:
+            return self.order.grand_total
         return _sum_prices(self.award.boq.iter_items())
 
     @property
     def computed_grand_total(self) -> Decimal:
-        """Sum of all item.computed_total (qty x unit_price)."""
+        """Sum of all item.computed_total (qty x unit_price). Procurement only."""
+        if self.order is not None:
+            return self.order.grand_total
         return _sum_computed(self.award.boq.iter_items())
 
     @property
     def item_count(self) -> int:
+        if self.order is not None:
+            return self.order.item_count
         return sum(1 for _ in self.award.boq.iter_items())
 
     @property
     def memory_estimate_mb(self) -> float:
         """Approximate memory usage in MB (~1 KB per item + attachment sizes)."""
+        if self.order is not None:
+            return self.order.item_count / 1024
         item_count = 0
         attach_bytes = 0
         for item in self.award.boq.iter_items():
@@ -87,6 +145,10 @@ class GAEBDocument(BaseModel):
             for a in item.attachments:
                 attach_bytes += a.size_bytes
         return item_count / 1024 + attach_bytes / (1024 * 1024)
+
+    # ------------------------------------------------------------------
+    # Validation helpers
+    # ------------------------------------------------------------------
 
     def add_warning(self, message: str, xpath: str | None = None) -> None:
         self.validation_results.append(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from pygaeb.models.enums import SourceVersion
+from pygaeb.models.enums import ExchangePhase, SourceVersion
 
 
 @dataclass(frozen=True)
@@ -71,3 +71,10 @@ VERSION_REGISTRY: dict[SourceVersion, VersionMeta] = {
 }
 
 WRITABLE_VERSIONS = frozenset(VERSION_REGISTRY.keys())
+
+
+def trade_namespace(phase: ExchangePhase, version: SourceVersion) -> str:
+    """Build the namespace URI for a trade phase document."""
+    phase_num = phase.value.lstrip("X")
+    ver = version.value
+    return f"http://www.gaeb.de/GAEB_DA_XML/DA{phase_num}/{ver}"

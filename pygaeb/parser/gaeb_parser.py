@@ -12,7 +12,7 @@ from pygaeb.detector.format_detector import FormatFamily, ParserTrack
 from pygaeb.detector.version_detector import ParseRoute, detect_version
 from pygaeb.exceptions import GAEBParseError, GAEBValidationError
 from pygaeb.models.document import GAEBDocument
-from pygaeb.models.enums import SourceVersion, ValidationMode, ValidationSeverity
+from pygaeb.models.enums import ExchangePhase, SourceVersion, ValidationMode, ValidationSeverity
 
 logger = logging.getLogger("pygaeb.parser")
 
@@ -142,6 +142,14 @@ def _parse_core(
     return doc
 
 
+_TRADE_PHASES = frozenset({
+    ExchangePhase.X93,
+    ExchangePhase.X94,
+    ExchangePhase.X96,
+    ExchangePhase.X97,
+})
+
+
 def _dispatch_parser(
     route: ParseRoute, path: Path, text: str, keep_xml: bool = False,
 ) -> GAEBDocument:
@@ -151,9 +159,14 @@ def _dispatch_parser(
             "GAEB 90 (fixed-width) parsing is not yet supported — planned for v1.1"
         )
 
+    if route.exchange_phase in _TRADE_PHASES:
+        from pygaeb.parser.xml_v3.trade_parser import TradeParser
+        parser = TradeParser(route, keep_xml=keep_xml)
+        return parser.parse(path, text)
+
     if route.track == ParserTrack.TRACK_A:
         from pygaeb.parser.xml_v2.v2_parser import V2Parser
-        parser = V2Parser(route, keep_xml=keep_xml)
+        parser = V2Parser(route, keep_xml=keep_xml)  # type: ignore[assignment]
         return parser.parse(path, text)
 
     if route.version == SourceVersion.DA_XML_30:

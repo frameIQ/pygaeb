@@ -32,6 +32,12 @@ _PHASE_FROM_EXT: dict[str, ExchangePhase] = {
     ".X86": ExchangePhase.X86,
     ".X89": ExchangePhase.X89,
     ".X31": ExchangePhase.X31,
+    # Trade phases
+    ".X93": ExchangePhase.X93,
+    ".X94": ExchangePhase.X94,
+    ".X96": ExchangePhase.X96,
+    ".X97": ExchangePhase.X97,
+    # DA XML 2.x D-prefixed aliases
     ".D80": ExchangePhase.D80,
     ".D81": ExchangePhase.D81,
     ".D82": ExchangePhase.D82,
@@ -115,12 +121,16 @@ def _detect_xml_version(path: Path, text: str | None = None) -> ParseRoute:
                 if v:
                     version = _parse_version_string(v)
 
-            if tag in ("Award", "Vergabe", "BoQ", "Leistungsverzeichnis",
-                       "GAEBInfo", "GAEB"):
+            if tag in ("Award", "Order", "Vergabe", "BoQ",
+                       "Leistungsverzeichnis", "GAEBInfo", "GAEB"):
                 if tag in ("Vergabe", "Leistungsverzeichnis"):
                     if version is None:
                         version = SourceVersion.DA_XML_20
                     break
+                if tag == "Order" and phase == ExchangePhase.X83:
+                    phase_from_ns = _phase_from_namespace(namespace or "")
+                    if phase_from_ns is not None:
+                        phase = phase_from_ns
                 if version is not None:
                     break
             elem.clear()
@@ -201,10 +211,20 @@ def _phase_from_extension(path: Path) -> ExchangePhase:
     return _PHASE_FROM_EXT.get(ext, ExchangePhase.X83)
 
 
+_NS_TRADE_PHASE_MAP: dict[str, ExchangePhase] = {
+    "DA93": ExchangePhase.X93,
+    "DA94": ExchangePhase.X94,
+    "DA96": ExchangePhase.X96,
+    "DA97": ExchangePhase.X97,
+}
+
+
 def _phase_from_namespace(ns: str) -> ExchangePhase | None:
     match = _NS_PHASE_RE.search(ns)
     if match:
         phase_str = match.group(1).upper()
+        if phase_str in _NS_TRADE_PHASE_MAP:
+            return _NS_TRADE_PHASE_MAP[phase_str]
         if phase_str.startswith("DA"):
             phase_str = "X" + phase_str[2:]
         try:

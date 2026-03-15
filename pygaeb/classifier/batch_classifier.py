@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Callable
+from typing import Any, Callable
 
 from pygaeb.cache import CacheBackend
 from pygaeb.classifier.cache import ClassificationCache, compute_hash
@@ -12,11 +12,20 @@ from pygaeb.classifier.confidence import merge_with_override
 from pygaeb.classifier.prompt_templates import CURRENT_PROMPT_VERSION
 from pygaeb.config import get_settings
 from pygaeb.models.document import GAEBDocument
-from pygaeb.models.item import ClassificationResult, CostEstimate, Item
+from pygaeb.models.item import ClassificationResult, CostEstimate
 
 logger = logging.getLogger("pygaeb.classifier")
 
 ProgressCallback = Callable[[int, int, str], None]
+
+
+def _item_label(item: Any) -> str:
+    """Return a human-readable label for progress reporting."""
+    return (
+        getattr(item, "oz", None)
+        or getattr(item, "art_no", None)
+        or getattr(item, "item_id", "")
+    )
 
 
 class LLMClassifier:
@@ -53,13 +62,16 @@ class LLMClassifier:
         on_progress: ProgressCallback | None = None,
         force_reclassify: bool = False,
     ) -> None:
-        """Classify all items in the document (async)."""
-        items = list(doc.award.boq.iter_items())
+        """Classify all items in the document (async).
+
+        Works for both procurement and trade documents via ``doc.iter_items()``.
+        """
+        items = list(doc.iter_items())
         total = len(items)
         if total == 0:
             return
 
-        dedup_map: dict[str, list[Item]] = {}
+        dedup_map: dict[str, list[Any]] = {}
         for item in items:
             h = compute_hash(item.short_text, item.long_text_plain[:300])
             dedup_map.setdefault(h, []).append(item)
@@ -67,7 +79,7 @@ class LLMClassifier:
         semaphore = asyncio.Semaphore(self.concurrency)
         completed = 0
 
-        async def _classify_group(text_hash: str, group: list[Item]) -> None:
+        async def _classify_group(text_hash: str, group: list[Any]) -> None:
             nonlocal completed
             representative = group[0]
 
@@ -78,7 +90,7 @@ class LLMClassifier:
                         item.classification = cached
                     completed += len(group)
                     if on_progress:
-                        on_progress(completed, total, representative.oz)
+                        on_progress(completed, total, _item_label(representative))
                     return
 
             async with semaphore:
@@ -91,7 +103,7 @@ class LLMClassifier:
 
             completed += len(group)
             if on_progress:
-                on_progress(completed, total, representative.oz)
+                on_progress(completed, total, _item_label(representative))
 
         tasks = [
             _classify_group(h, group)
@@ -132,10 +144,10 @@ class LLMClassifier:
         """Estimate the cost of classifying all items in the document."""
         from pygaeb.classifier.llm_backend import estimate_tokens
 
-        items = list(doc.award.boq.iter_items())
+        items = list(doc.iter_items())
         total = len(items)
 
-        dedup_map: dict[str, Item] = {}
+        dedup_map: dict[str, Any] = {}
         duplicates = 0
         for item in items:
             h = compute_hash(item.short_text, item.long_text_plain[:300])
@@ -145,7 +157,7 @@ class LLMClassifier:
                 dedup_map[h] = item
 
         cached_count = 0
-        to_classify: list[Item] = []
+        to_classify: list[Any] = []
         for h, item in dedup_map.items():
             if self.cache.get(h, self.prompt_version) is not None:
                 cached_count += 1
@@ -155,8 +167,9 @@ class LLMClassifier:
         total_input_tokens = 0
         total_output_tokens = 0
         for item in to_classify:
+            hierarchy = getattr(item, "hierarchy_path_str", "")
             inp, out = await estimate_tokens(
-                item.hierarchy_path_str,
+                hierarchy,
                 item.short_text,
                 item.long_text_plain[:300],
                 item.unit or "",
@@ -179,12 +192,13 @@ class LLMClassifier:
             model=self.model,
         )
 
-    async def _classify_item(self, item: Item) -> ClassificationResult:
+    async def _classify_item(self, item: Any) -> ClassificationResult:
         from pygaeb.classifier.llm_backend import classify_single_item
 
+        hierarchy = getattr(item, "hierarchy_path_str", "")
         return await classify_single_item(
             model=self.model,
-            hierarchy_path=item.hierarchy_path_str,
+            hierarchy_path=hierarchy,
             short_text=item.short_text,
             long_text_head=item.long_text_plain[:300],
             unit=item.unit or "",

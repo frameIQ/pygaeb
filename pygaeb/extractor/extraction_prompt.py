@@ -56,7 +56,7 @@ explicitly excluded
 def build_extraction_user_message(
     hierarchy_path: str,
     short_text: str,
-    long_text_head: str,
+    long_text: str,
     unit: str,
     qty: str = "",
 ) -> str:
@@ -64,8 +64,8 @@ def build_extraction_user_message(
     parts = [f"Hierarchy: {hierarchy_path}"]
     if short_text:
         parts.append(f"Short text: {short_text}")
-    if long_text_head:
-        parts.append(f"Long text: {long_text_head}")
+    if long_text:
+        parts.append(f"Long text: {long_text}")
     if unit:
         parts.append(f"Unit: {unit}")
     if qty:

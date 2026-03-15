@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.0.1"
+__version__ = "1.2.0"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
@@ -22,6 +22,7 @@ from pygaeb.exceptions import (
 )
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import (
+    DocumentKind,
     ExchangePhase,
     ItemType,
     SourceVersion,
@@ -67,6 +68,16 @@ def __getattr__(name: str) -> object:
         "BoQCtgy": ("pygaeb.models.boq", "BoQCtgy"),
         "BoQInfo": ("pygaeb.models.boq", "BoQInfo"),
         "Lot": ("pygaeb.models.boq", "Lot"),
+        # Trade models
+        "TradeOrder": ("pygaeb.models.order", "TradeOrder"),
+        "OrderItem": ("pygaeb.models.order", "OrderItem"),
+        "OrderInfo": ("pygaeb.models.order", "OrderInfo"),
+        "SupplierInfo": ("pygaeb.models.order", "SupplierInfo"),
+        "CustomerInfo": ("pygaeb.models.order", "CustomerInfo"),
+        "DeliveryPlaceInfo": ("pygaeb.models.order", "DeliveryPlaceInfo"),
+        "PlannerInfo": ("pygaeb.models.order", "PlannerInfo"),
+        "InvoiceInfo": ("pygaeb.models.order", "InvoiceInfo"),
+        "Address": ("pygaeb.models.order", "Address"),
         # Enums (advanced)
         "BkdnType": ("pygaeb.models.enums", "BkdnType"),
         "ClassificationFlag": ("pygaeb.models.enums", "ClassificationFlag"),
@@ -85,6 +96,7 @@ def __getattr__(name: str) -> object:
 
 
 __all__ = [
+    "Address",
     "Attachment",
     "AwardInfo",
     "BkdnType",
@@ -100,7 +112,10 @@ __all__ = [
     "ConversionReport",
     "CostEstimate",
     "CrossPhaseValidator",
+    "CustomerInfo",
+    "DeliveryPlaceInfo",
     "DocumentAPI",
+    "DocumentKind",
     "ExchangePhase",
     "ExtractionResult",
     "GAEBConverter",
@@ -111,10 +126,14 @@ __all__ = [
     "GAEBValidationError",
     "GAEBWriter",
     "InMemoryCache",
+    "InvoiceInfo",
     "Item",
     "ItemType",
     "LLMClassifier",
     "Lot",
+    "OrderInfo",
+    "OrderItem",
+    "PlannerInfo",
     "PyGAEBError",
     "PyGAEBSettings",
     "QtySplit",
@@ -122,6 +141,8 @@ __all__ = [
     "SQLiteCache",
     "SourceVersion",
     "StructuredExtractor",
+    "SupplierInfo",
+    "TradeOrder",
     "ValidationMode",
     "ValidationResult",
     "ValidationSeverity",

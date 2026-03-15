@@ -8,20 +8,41 @@ from typing import Any, Callable
 
 from pygaeb.models.boq import BoQ, BoQCtgy, Lot
 from pygaeb.models.document import GAEBDocument
-from pygaeb.models.enums import ItemType
+from pygaeb.models.enums import DocumentKind, ItemType
 from pygaeb.models.item import Item
+from pygaeb.models.order import OrderItem, TradeOrder
 
 
 class DocumentAPI:
     """Convenience wrapper for navigating a parsed GAEBDocument.
 
-    Most of these methods are also available directly on the model objects
-    (GAEBDocument, BoQ, Lot). This class provides additional filtering
-    and query capabilities.
+    Works with both procurement and trade documents.  Use ``is_trade`` /
+    ``is_procurement`` to discriminate, and ``iter_items()`` for universal
+    iteration over any document kind.
     """
 
     def __init__(self, doc: GAEBDocument) -> None:
         self._doc = doc
+
+    # ------------------------------------------------------------------
+    # Document kind
+    # ------------------------------------------------------------------
+
+    @property
+    def document_kind(self) -> DocumentKind:
+        return self._doc.document_kind
+
+    @property
+    def is_trade(self) -> bool:
+        return self._doc.is_trade
+
+    @property
+    def is_procurement(self) -> bool:
+        return self._doc.is_procurement
+
+    # ------------------------------------------------------------------
+    # Procurement accessors
+    # ------------------------------------------------------------------
 
     @property
     def boq(self) -> BoQ:
@@ -35,8 +56,28 @@ class DocumentAPI:
     def is_multi_lot(self) -> bool:
         return self.boq.is_multi_lot
 
-    def iter_items(self, lot_index: int | None = None) -> Iterator[Item]:
-        """Iterate all items, optionally filtered to a specific lot."""
+    # ------------------------------------------------------------------
+    # Trade accessors
+    # ------------------------------------------------------------------
+
+    @property
+    def order(self) -> TradeOrder | None:
+        return self._doc.order
+
+    # ------------------------------------------------------------------
+    # Universal iteration
+    # ------------------------------------------------------------------
+
+    def iter_items(self, lot_index: int | None = None) -> Iterator[Any]:
+        """Iterate all items (universal — works for both document kinds).
+
+        For procurement documents, optionally filter to a specific lot.
+        """
+        if self._doc.is_trade:
+            if self._doc.order is not None:
+                yield from self._doc.order.iter_items()
+            return
+
         if lot_index is not None:
             if 0 <= lot_index < len(self.lots):
                 yield from self.lots[lot_index].iter_items()
@@ -44,26 +85,42 @@ class DocumentAPI:
             yield from self.boq.iter_items()
 
     def get_item(self, oz: str) -> Item | None:
-        """Find an item by its OZ (ordinal number)."""
+        """Find a procurement item by its OZ (ordinal number)."""
         return self.boq.get_item(oz)
 
+    def get_order_item(self, art_no: str) -> OrderItem | None:
+        """Find a trade order item by article number."""
+        if self._doc.order is None:
+            return None
+        for item in self._doc.order.items:
+            if item.art_no == art_no:
+                return item
+        return None
+
     def iter_hierarchy(self) -> Iterator[tuple[int, str, BoQCtgy | None]]:
-        """Walk the BoQ hierarchy tree yielding (depth, label, category_or_none)."""
+        """Walk the BoQ hierarchy tree (procurement documents only)."""
         return self.boq.iter_hierarchy()
+
+    # ------------------------------------------------------------------
+    # Filtering
+    # ------------------------------------------------------------------
 
     def filter_items(
         self,
-        predicate: Callable[[Item], bool] | None = None,
+        predicate: Callable[[Any], bool] | None = None,
         item_type: ItemType | None = None,
         trade: str | None = None,
         min_total: Decimal | None = None,
         has_classification: bool | None = None,
-    ) -> list[Item]:
-        """Filter items by various criteria."""
-        items = list(self.boq.iter_items())
+    ) -> list[Any]:
+        """Filter items by various criteria (works for both document kinds)."""
+        items = list(self.iter_items())
 
         if item_type is not None:
-            items = [i for i in items if i.item_type == item_type]
+            items = [
+                i for i in items
+                if isinstance(i, Item) and i.item_type == item_type
+            ]
 
         if trade is not None:
             items = [
@@ -74,7 +131,7 @@ class DocumentAPI:
         if min_total is not None:
             items = [
                 i for i in items
-                if i.total_price is not None and i.total_price >= min_total
+                if _item_total(i) is not None and _item_total(i) >= min_total
             ]
 
         if has_classification is not None:
@@ -88,6 +145,10 @@ class DocumentAPI:
 
         return items
 
+    # ------------------------------------------------------------------
+    # XPath / custom tags
+    # ------------------------------------------------------------------
+
     def xpath(self, expression: str) -> list[Any]:
         """Run an XPath query against the raw XML tree.
 
@@ -95,37 +156,42 @@ class DocumentAPI:
         """
         return self._doc.xpath(expression)
 
-    def custom_tag(self, item: Item, tag: str) -> str | None:
+    def custom_tag(self, item: Any, tag: str) -> str | None:
         """Get text content of a custom/vendor tag from an item's source element.
 
+        Works for both ``Item`` and ``OrderItem``.
         Returns None if the tag is not found or ``keep_xml`` was not enabled.
         """
-        if item.source_element is None:
+        source_el = getattr(item, "source_element", None)
+        if source_el is None:
             return None
-        el = item.source_element.find(tag)
+        el = source_el.find(tag)
         if el is not None and el.text:
             return str(el.text).strip()
         return None
 
+    # ------------------------------------------------------------------
+    # Summary
+    # ------------------------------------------------------------------
+
     def summary(self) -> dict[str, Any]:
         """Return a summary of the document."""
-        items = list(self.boq.iter_items())
+        items = list(self.iter_items())
         classified = [i for i in items if i.classification]
 
         trade_counts: dict[str, int] = {}
         for item in classified:
             if item.classification:
-                trade = item.classification.trade
-                trade_counts[trade] = trade_counts.get(trade, 0) + 1
+                t = item.classification.trade
+                trade_counts[t] = trade_counts.get(t, 0) + 1
 
-        return {
+        result: dict[str, Any] = {
             "source_version": self._doc.source_version.value,
             "exchange_phase": self._doc.exchange_phase.value,
+            "document_kind": self._doc.document_kind.value,
             "total_items": len(items),
             "classified_items": len(classified),
             "grand_total": str(self._doc.grand_total),
-            "lots": len(self.lots),
-            "is_multi_lot": self.is_multi_lot,
             "validation_errors": sum(
                 1 for r in self._doc.validation_results
                 if r.severity.value == "ERROR"
@@ -136,3 +202,23 @@ class DocumentAPI:
             ),
             "trades": trade_counts,
         }
+
+        if self._doc.is_procurement:
+            result["lots"] = len(self.lots)
+            result["is_multi_lot"] = self.is_multi_lot
+        else:
+            result["has_supplier_info"] = (
+                self._doc.order is not None
+                and self._doc.order.supplier_info is not None
+            )
+
+        return result
+
+
+def _item_total(item: Any) -> Decimal | None:
+    """Get the relevant total for an item of any kind."""
+    if isinstance(item, Item):
+        return item.total_price
+    if isinstance(item, OrderItem):
+        return item.display_price
+    return None

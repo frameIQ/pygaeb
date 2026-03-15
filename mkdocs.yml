@@ -78,6 +78,7 @@ nav:
   - Guides:
     - guides/index.md
     - Parsing: guides/parsing.md
+    - Trade Phases: guides/trade-phases.md
     - Validation: guides/validation.md
     - LLM Classification: guides/classification.md
     - Structured Extraction: guides/extraction.md
