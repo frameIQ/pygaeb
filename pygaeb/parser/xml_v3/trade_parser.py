@@ -15,7 +15,6 @@ from lxml import etree
 
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.order import (
-    Address,
     CustomerInfo,
     DeliveryPlaceInfo,
     InvoiceInfo,
@@ -246,27 +245,6 @@ class TradeParser(BaseV3Parser):
             item.source_element = item_el
 
         return item
-
-    # ------------------------------------------------------------------
-    # Address parsing (shared across info sections)
-    # ------------------------------------------------------------------
-
-    def _parse_address(self, parent_el: etree._Element) -> Address:
-        addr_el = self._find(parent_el, "Address")
-        if addr_el is None:
-            return Address(name=self._text(parent_el, "Name"))
-
-        return Address(
-            name=self._text(addr_el, "Name"),
-            name2=self._text(addr_el, "Name2"),
-            street=self._text(addr_el, "Street"),
-            pcode=self._text(addr_el, "PCode"),
-            city=self._text(addr_el, "City"),
-            country=self._text(addr_el, "Country"),
-            phone=self._text(addr_el, "Phone"),
-            fax=self._text(addr_el, "Fax"),
-            email=self._text(addr_el, "EMail", "Email"),
-        )
 
 
 # ------------------------------------------------------------------

@@ -19,7 +19,7 @@ from pygaeb.models.enums import (
     ValidationSeverity,
 )
 from pygaeb.models.item import ValidationResult
-from pygaeb.models.order import TradeOrder
+from pygaeb.models.order import Address, TradeOrder
 from pygaeb.models.quantity import QtyDetermination
 
 
@@ -52,6 +52,24 @@ class AwardInfo(BaseModel):
     procurement_type: str | None = None
     date: datetime | None = None
     place: str | None = None
+
+    # --- AwardInfo XML fields ---
+    category: str | None = None
+    open_date: datetime | None = None
+    open_time: str | None = None
+    eval_end: datetime | None = None
+    submit_location: str | None = None
+    construction_start: datetime | None = None
+    construction_end: datetime | None = None
+    contract_no: str | None = None
+    contract_date: datetime | None = None
+    accept_type: str | None = None
+    warranty_duration: int | None = None
+    warranty_unit: str | None = None
+
+    # --- OWN (owner/client) ---
+    owner_address: Address | None = None
+    award_no: str | None = None
 
     # --- PrjInfo fields ---
     prj_id: str | None = None

@@ -28,6 +28,7 @@ from pygaeb.models.boq import (
 )
 from pygaeb.models.catalog import CtlgAssign
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
+from pygaeb.models.order import Address
 from pygaeb.models.enums import (
     BkdnType,
     ItemType,
@@ -152,12 +153,44 @@ class BaseV3Parser:
         if award_info_el is not None:
             award.project_no = self._text(award_info_el, "Prj")
             award.project_name = self._text(award_info_el, "PrjName", "Name")
-            award.client = self._text(award_info_el, "OWN", "Client")
             award.currency = self._text(award_info_el, "Cur") or "EUR"
             award.procurement_type = self._text(award_info_el, "PrcTyp")
             date_str = self._text(award_info_el, "Dp")
             if date_str:
                 award.date = _parse_date(date_str)
+
+            award.category = self._text(award_info_el, "Cat")
+            if not award.currency_label:
+                award.currency_label = self._text(award_info_el, "CurLbl")
+
+            for tag, attr in [
+                ("OpenDate", "open_date"), ("EvalEnd", "eval_end"),
+                ("CnstStart", "construction_start"), ("CnstEnd", "construction_end"),
+                ("ContrDate", "contract_date"),
+            ]:
+                ds = self._text(award_info_el, tag)
+                if ds:
+                    setattr(award, attr, _parse_date(ds))
+
+            award.open_time = self._text(award_info_el, "OpenTime")
+            award.submit_location = self._text(award_info_el, "SubmLoc")
+            award.contract_no = self._text(award_info_el, "ContrNo")
+            award.accept_type = self._text(award_info_el, "AcceptType")
+            award.warranty_unit = self._text(award_info_el, "WarrUnit")
+
+            warr_dur = self._text(award_info_el, "WarrDur")
+            if warr_dur:
+                with contextlib.suppress(ValueError):
+                    award.warranty_duration = int(warr_dur)
+
+        own_el = self._find(award_el, "OWN")
+        if own_el is not None:
+            award.owner_address = self._parse_address(own_el)
+            award.award_no = self._text(own_el, "AwardNo")
+            if award.owner_address and award.owner_address.name:
+                award.client = award.owner_address.name
+        elif award_info_el is not None:
+            award.client = self._text(award_info_el, "OWN", "Client")
 
         prj_info_el = self._find(root, "PrjInfo")
         if prj_info_el is not None:
@@ -400,6 +433,14 @@ class BaseV3Parser:
             lt_str = self._text(item_el, "LongText")
             if lt_str:
                 item.long_text = parse_plaintext(lt_str)
+
+        if not item.long_text:
+            desc_el = self._find(item_el, "Description")
+            if desc_el is not None:
+                detail_el = self._find(desc_el, "CompleteText", "DetailTxt")
+                if detail_el is not None:
+                    html = etree.tostring(detail_el, encoding="unicode", method="html")
+                    item.long_text = parse_richtext(html)
 
         item.attachments = self._parse_item_attachments(item_el)
 
@@ -654,6 +695,32 @@ class BaseV3Parser:
                 ))
 
         return attachments
+
+    def _parse_address(self, parent_el: etree._Element) -> Address:
+        """Parse a ``tgAddress`` structure from *parent_el*.
+
+        Handles both XSD-canonical ``Name1``-``Name4`` and older ``Name``
+        fallback for non-conformant files.
+        """
+        addr_el = self._find(parent_el, "Address")
+        if addr_el is None:
+            return Address(name=self._text(parent_el, "Name", "Name1"))
+        return Address(
+            name=self._text(addr_el, "Name1", "Name"),
+            name2=self._text(addr_el, "Name2"),
+            name3=self._text(addr_el, "Name3"),
+            name4=self._text(addr_el, "Name4"),
+            street=self._text(addr_el, "Street"),
+            pcode=self._text(addr_el, "PCode"),
+            city=self._text(addr_el, "City"),
+            country=self._text(addr_el, "Country"),
+            contact=self._text(addr_el, "Contact"),
+            phone=self._text(addr_el, "Phone"),
+            fax=self._text(addr_el, "Fax"),
+            email=self._text(addr_el, "EMail", "Email"),
+            iln=self._text(addr_el, "ILN"),
+            vat_id=self._text(addr_el, "VATID"),
+        )
 
     def _has_lot_bkdn(self) -> bool:
         return any(b.bkdn_type == BkdnType.LOT for b in self._bkdn)

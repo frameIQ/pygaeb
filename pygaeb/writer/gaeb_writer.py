@@ -248,11 +248,41 @@ def _add_award(
         _add_text_el(award_info_el, "Prj", award.project_no)
     if award.project_name:
         _add_text_el(award_info_el, "PrjName", award.project_name)
-    if award.client:
-        _add_text_el(award_info_el, "OWN", award.client)
     _add_text_el(award_info_el, "Cur", award.currency)
     if award.procurement_type:
         _add_text_el(award_info_el, "PrcTyp", award.procurement_type)
+    if award.category:
+        _add_text_el(award_info_el, "Cat", award.category)
+    if award.open_date:
+        _add_text_el(award_info_el, "OpenDate", award.open_date.strftime("%Y-%m-%d"))
+    if award.open_time:
+        _add_text_el(award_info_el, "OpenTime", award.open_time)
+    if award.eval_end:
+        _add_text_el(award_info_el, "EvalEnd", award.eval_end.strftime("%Y-%m-%d"))
+    if award.submit_location:
+        _add_text_el(award_info_el, "SubmLoc", award.submit_location)
+    if award.construction_start:
+        _add_text_el(award_info_el, "CnstStart", award.construction_start.strftime("%Y-%m-%d"))
+    if award.construction_end:
+        _add_text_el(award_info_el, "CnstEnd", award.construction_end.strftime("%Y-%m-%d"))
+    if award.contract_no:
+        _add_text_el(award_info_el, "ContrNo", award.contract_no)
+    if award.contract_date:
+        _add_text_el(award_info_el, "ContrDate", award.contract_date.strftime("%Y-%m-%d"))
+    if award.accept_type:
+        _add_text_el(award_info_el, "AcceptType", award.accept_type)
+    if award.warranty_duration is not None:
+        _add_text_el(award_info_el, "WarrDur", str(award.warranty_duration))
+    if award.warranty_unit:
+        _add_text_el(award_info_el, "WarrUnit", award.warranty_unit)
+
+    if award.owner_address or award.award_no:
+        own_el = etree.SubElement(award_el, "OWN")
+        _add_address(own_el, award.owner_address)
+        if award.award_no:
+            _add_text_el(own_el, "AwardNo", award.award_no)
+    elif award.client:
+        _add_text_el(award_info_el, "OWN", award.client)
 
     _add_boq(award_el, award.boq, phase, meta, warnings)
 
@@ -493,9 +523,10 @@ def _add_address(parent: etree._Element, addr: Any) -> None:
         return
     addr_el = etree.SubElement(parent, "Address")
     for field_name, tag_name in [
-        ("name", "Name"), ("name2", "Name2"), ("street", "Street"),
-        ("pcode", "PCode"), ("city", "City"), ("country", "Country"),
-        ("phone", "Phone"), ("fax", "Fax"), ("email", "EMail"),
+        ("name", "Name1"), ("name2", "Name2"), ("name3", "Name3"), ("name4", "Name4"),
+        ("street", "Street"), ("pcode", "PCode"), ("city", "City"), ("country", "Country"),
+        ("contact", "Contact"), ("phone", "Phone"), ("fax", "Fax"), ("email", "EMail"),
+        ("iln", "ILN"), ("vat_id", "VATID"),
     ]:
         val = getattr(addr, field_name, None)
         if val:
