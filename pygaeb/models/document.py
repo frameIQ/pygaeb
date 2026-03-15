@@ -19,6 +19,7 @@ from pygaeb.models.enums import (
 )
 from pygaeb.models.item import ValidationResult
 from pygaeb.models.order import TradeOrder
+from pygaeb.models.quantity import QtyDetermination
 
 
 class GAEBInfo(BaseModel):
@@ -54,9 +55,11 @@ class GAEBDocument(BaseModel):
     """Root model produced by all parser tracks — the unified output contract.
 
     Procurement documents populate ``award``; trade documents populate
-    ``order``; cost documents populate ``elemental_costing``.
-    Use ``document_kind``, ``is_trade``, ``is_procurement``, or ``is_cost``
-    to discriminate, and ``iter_items()`` for universal iteration.
+    ``order``; cost documents populate ``elemental_costing``; quantity
+    determination documents populate ``qty_determination``.
+    Use ``document_kind``, ``is_trade``, ``is_procurement``, ``is_cost``,
+    or ``is_quantity`` to discriminate, and ``iter_items()`` for universal
+    iteration.
     """
 
     model_config = {"arbitrary_types_allowed": True}
@@ -67,6 +70,7 @@ class GAEBDocument(BaseModel):
     award: AwardInfo = Field(default_factory=AwardInfo)
     order: TradeOrder | None = Field(default=None)
     elemental_costing: ElementalCosting | None = Field(default=None)
+    qty_determination: QtyDetermination | None = Field(default=None)
     validation_results: list[ValidationResult] = Field(default_factory=list)
     source_file: str | None = None
     raw_namespace: str | None = None
@@ -85,6 +89,8 @@ class GAEBDocument(BaseModel):
 
     @property
     def document_kind(self) -> DocumentKind:
+        if self.qty_determination is not None:
+            return DocumentKind.QUANTITY
         if self.elemental_costing is not None:
             return DocumentKind.COST
         if self.order is not None:
@@ -97,11 +103,19 @@ class GAEBDocument(BaseModel):
 
     @property
     def is_procurement(self) -> bool:
-        return self.order is None and self.elemental_costing is None
+        return (
+            self.order is None
+            and self.elemental_costing is None
+            and self.qty_determination is None
+        )
 
     @property
     def is_cost(self) -> bool:
         return self.elemental_costing is not None
+
+    @property
+    def is_quantity(self) -> bool:
+        return self.qty_determination is not None
 
     # ------------------------------------------------------------------
     # Universal iteration
@@ -111,10 +125,13 @@ class GAEBDocument(BaseModel):
         """Iterate all items regardless of document kind.
 
         Returns ``Item`` instances for procurement documents,
-        ``OrderItem`` instances for trade documents, and
-        ``CostElement`` instances for cost documents.
+        ``OrderItem`` instances for trade documents,
+        ``CostElement`` instances for cost documents, and
+        ``QtyItem`` instances for quantity determination documents.
         """
-        if self.elemental_costing is not None:
+        if self.qty_determination is not None:
+            yield from self.qty_determination.iter_items()
+        elif self.elemental_costing is not None:
             yield from self.elemental_costing.iter_items()
         elif self.order is not None:
             yield from self.order.iter_items()
@@ -128,6 +145,8 @@ class GAEBDocument(BaseModel):
     @property
     def grand_total(self) -> Decimal:
         """Sum of all item totals across any document kind."""
+        if self.qty_determination is not None:
+            return self.qty_determination.grand_total
         if self.elemental_costing is not None:
             return self.elemental_costing.grand_total
         if self.order is not None:
@@ -137,6 +156,8 @@ class GAEBDocument(BaseModel):
     @property
     def computed_grand_total(self) -> Decimal:
         """Sum of all item.computed_total (qty x unit_price). Procurement only."""
+        if self.qty_determination is not None:
+            return self.qty_determination.grand_total
         if self.elemental_costing is not None:
             return self.elemental_costing.grand_total
         if self.order is not None:
@@ -145,6 +166,8 @@ class GAEBDocument(BaseModel):
 
     @property
     def item_count(self) -> int:
+        if self.qty_determination is not None:
+            return self.qty_determination.item_count
         if self.elemental_costing is not None:
             return self.elemental_costing.item_count
         if self.order is not None:
@@ -154,6 +177,12 @@ class GAEBDocument(BaseModel):
     @property
     def memory_estimate_mb(self) -> float:
         """Approximate memory usage in MB (~1 KB per item + attachment sizes)."""
+        if self.qty_determination is not None:
+            count = self.qty_determination.item_count
+            attach_bytes = sum(
+                a.size_bytes for a in self.qty_determination.boq.attachments
+            )
+            return count / 1024 + attach_bytes / (1024 * 1024)
         if self.elemental_costing is not None:
             return float(self.elemental_costing.item_count) / 1024
         if self.order is not None:

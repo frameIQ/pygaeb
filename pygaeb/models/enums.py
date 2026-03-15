@@ -18,11 +18,12 @@ class SourceVersion(str, Enum):
 
 
 class DocumentKind(str, Enum):
-    """Discriminator for procurement, trade, and cost documents."""
+    """Discriminator for procurement, trade, cost, and quantity documents."""
 
     PROCUREMENT = "procurement"
     TRADE = "trade"
     COST = "cost"
+    QUANTITY = "quantity"
 
 
 class ExchangePhase(str, Enum):
@@ -80,16 +81,23 @@ class ExchangePhase(str, Enum):
         """True for trade phases (X93, X94, X96, X97)."""
         return self in _TRADE_PHASES
 
+    @property
+    def is_quantity(self) -> bool:
+        """True for quantity determination phases (X31)."""
+        return self in _QUANTITY_PHASES
+
 
 _D_TO_X_PHASE: dict[ExchangePhase, ExchangePhase] = {}
 
 _COST_PHASES: frozenset[ExchangePhase] = frozenset()
 _TRADE_PHASES: frozenset[ExchangePhase] = frozenset()
+_QUANTITY_PHASES: frozenset[ExchangePhase] = frozenset()
 
 
 def _init_phase_map() -> None:
     global _COST_PHASES
     global _TRADE_PHASES
+    global _QUANTITY_PHASES
     _D_TO_X_PHASE.update({
         ExchangePhase.D80: ExchangePhase.X80,
         ExchangePhase.D81: ExchangePhase.X81,
@@ -108,6 +116,7 @@ def _init_phase_map() -> None:
         ExchangePhase.X96,
         ExchangePhase.X97,
     })
+    _QUANTITY_PHASES = frozenset({ExchangePhase.X31})
 
 
 _init_phase_map()

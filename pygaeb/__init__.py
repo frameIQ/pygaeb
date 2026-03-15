@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
@@ -99,6 +99,19 @@ def __getattr__(name: str) -> object:
         # X52 cost approach
         "CostApproach": ("pygaeb.models.item", "CostApproach"),
         "CostType": ("pygaeb.models.boq", "CostType"),
+        # Quantity determination models (X31)
+        "QtyDetermination": ("pygaeb.models.quantity", "QtyDetermination"),
+        "QtyDetermInfo": ("pygaeb.models.quantity", "QtyDetermInfo"),
+        "QtyBoQ": ("pygaeb.models.quantity", "QtyBoQ"),
+        "QtyBoQBody": ("pygaeb.models.quantity", "QtyBoQBody"),
+        "QtyBoQCtgy": ("pygaeb.models.quantity", "QtyBoQCtgy"),
+        "QtyItem": ("pygaeb.models.quantity", "QtyItem"),
+        "QDetermItem": ("pygaeb.models.quantity", "QDetermItem"),
+        "QTakeoffRow": ("pygaeb.models.quantity", "QTakeoffRow"),
+        "QtyAttachment": ("pygaeb.models.quantity", "QtyAttachment"),
+        "Catalog": ("pygaeb.models.quantity", "Catalog"),
+        "CtlgAssign": ("pygaeb.models.quantity", "CtlgAssign"),
+        "PrjInfoQD": ("pygaeb.models.quantity", "PrjInfoQD"),
         # Enums (advanced)
         "BkdnType": ("pygaeb.models.enums", "BkdnType"),
         "ClassificationFlag": ("pygaeb.models.enums", "ClassificationFlag"),
@@ -129,6 +142,7 @@ __all__ = [
     "BoQInfo",
     "BoQItemRef",
     "CacheBackend",
+    "Catalog",
     "CategoryElement",
     "CategoryElementRef",
     "ClassificationBackendError",
@@ -144,6 +158,7 @@ __all__ = [
     "CostProperty",
     "CostType",
     "CrossPhaseValidator",
+    "CtlgAssign",
     "CustomerInfo",
     "DeliveryPlaceInfo",
     "DimensionElement",
@@ -173,8 +188,18 @@ __all__ = [
     "OrderInfo",
     "OrderItem",
     "PlannerInfo",
+    "PrjInfoQD",
     "PyGAEBError",
     "PyGAEBSettings",
+    "QDetermItem",
+    "QTakeoffRow",
+    "QtyAttachment",
+    "QtyBoQ",
+    "QtyBoQBody",
+    "QtyBoQCtgy",
+    "QtyDetermInfo",
+    "QtyDetermination",
+    "QtyItem",
     "QtySplit",
     "RefGroup",
     "RichText",

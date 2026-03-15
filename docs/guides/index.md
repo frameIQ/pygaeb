@@ -5,6 +5,7 @@ In-depth guides for every pyGAEB capability.
 - **[Parsing](parsing.md)** — version detection, encoding repair, error recovery
 - **[Trade Phases](trade-phases.md)** — working with X93–X97 trade orders (supplier/contractor workflows)
 - **[Cost & Calculation Phases](cost-phases.md)** — working with X50–X52 cost estimation, elemental costing, BIM integration
+- **[Quantity Determination](quantity-phases.md)** — working with X31 quantity take-off data, REB 23.003 measurements, catalog assignments
 - **[Validation](validation.md)** — lenient vs strict mode, phase rules, cross-phase checks
 - **[LLM Classification](classification.md)** — taxonomy, confidence flags, cost estimation, caching
 - **[Structured Extraction](extraction.md)** — custom Pydantic schemas, built-in specs, batch extraction
