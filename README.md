@@ -2,9 +2,13 @@
 
 **Python parser for GAEB DA XML construction data exchange files, with LLM-powered item classification.**
 
+[![CI](https://github.com/frameIQ/pygaeb/actions/workflows/test.yml/badge.svg)](https://github.com/frameIQ/pygaeb/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/frameIQ/pygaeb/branch/main/graph/badge.svg)](https://codecov.io/gh/frameIQ/pygaeb)
 [![PyPI version](https://img.shields.io/badge/version-1.7.0-blue.svg)](https://pypi.org/project/pyGAEB/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+
+> **[Deutsche Version (README.de.md)](README.de.md)**
 
 pyGAEB parses, validates, classifies, and writes GAEB DA XML files (versions 2.0 through 3.3), producing a unified Pydantic v2 domain model from all inputs. It supports the full GAEB exchange phase spectrum — procurement (X80–X89), trade (X93–X97), cost & calculation (X50–X52), and quantity determination (X31).
 

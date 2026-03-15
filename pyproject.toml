@@ -47,6 +47,7 @@ dependencies = [
 llm = ["litellm>=1.40", "instructor>=1.0"]
 dev = [
     "pytest",
+    "pytest-cov",
     "hypothesis",
     "mypy",
     "ruff",
