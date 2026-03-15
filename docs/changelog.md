@@ -4,6 +4,39 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-03-15
+
+### Added
+
+- **Custom validator registry** — `register_validator()` / `clear_validators()` for project-specific validation rules that run after the built-in pipeline. Per-call validators via `extra_validators=` on `GAEBParser.parse()`.
+- **Post-parse hook** — `post_parse_hook=` callback on `GAEBParser.parse()` / `parse_bytes()` / `parse_string()` receives `(item, source_element)` for each parsed item. Auto-enables `keep_xml` and discards afterwards when needed.
+- **`collect_raw_data`** — `GAEBParser.parse(..., collect_raw_data=True)` populates `item.raw_data` with XML child elements the parser did not consume.
+- **Custom LLM taxonomy & prompt** — `LLMClassifier(taxonomy=..., prompt_template=...)` for per-instance overrides. `register_prompt()` for reusable prompt templates.
+- **`log_level` applied** — The `log_level` setting is now applied to the `pygaeb` logger on `get_settings()` and `configure()`.
+- New exports: `register_validator`, `clear_validators`, `reset_settings`, `register_prompt`.
+- New guide: [Extensibility](guides/extensibility.md).
+
+## [1.6.0] - 2026-03-15
+
+### Security
+
+- **XXE prevention** — All XML parsing now uses hardened `lxml.XMLParser` with `resolve_entities=False`, `no_network=True`, and `huge_tree=False`. External entity injection and Billion Laughs attacks are blocked.
+- **File size guard** — New `max_file_size` parameter on `GAEBParser.parse()`, `parse_bytes()`, and `parse_string()`. Default limit: 100 MB (configurable via `max_file_size_mb` setting). Prevents memory exhaustion from oversized inputs.
+- **ReDoS removal** — Removed unused `_UNCLOSED_TAG_RE` regex that had catastrophic backtracking potential.
+
+### Fixed
+
+- **Recursion depth limits** — Hierarchy walkers (`_walk_ctgy`, `_walk_ec_ctgy`, `_walk_qty_ctgy`) now cap at 50 levels to prevent stack overflow on malicious/deep structures. `BoQCtgy.iter_items()`, `QtyBoQCtgy.iter_items()`, and `CostElement.iter_cost_elements()` converted from recursive to iterative.
+- **InMemoryCache bounded** — Now uses LRU eviction with a default `maxsize=10,000` entries to prevent unbounded growth in long-running processes.
+- **SQLiteCache resource cleanup** — Added `__del__` fallback to close connections. Cursors are now explicitly closed after each query.
+- **XSD validation memory** — Reuses the parsed XML tree (when `keep_xml=True`) instead of reparsing. XSD files opened with explicit file handles.
+
+### Added
+
+- `GAEBDocument.discard_xml()` — Releases the retained lxml tree and all `source_element` references to free memory after XPath/raw-element work is done.
+- `pygaeb.parser._xml_safety` — Shared module with `SAFE_PARSER`, `SAFE_RECOVER_PARSER`, and `safe_iterparse()` constants.
+- `max_file_size_mb` setting in `PyGAEBSettings` (default 100).
+
 ## [1.5.0] - 2026-03-15
 
 ### Added

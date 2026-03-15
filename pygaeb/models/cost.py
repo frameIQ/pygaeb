@@ -162,9 +162,11 @@ class CostElement(BaseModel):
 
     def iter_cost_elements(self) -> Iterator[CostElement]:
         """Yield this element and all descendants (depth-first)."""
-        yield self
-        for child in self.children:
-            yield from child.iter_cost_elements()
+        stack: list[CostElement] = [self]
+        while stack:
+            current = stack.pop()
+            yield current
+            stack.extend(reversed(current.children))
 
     @property
     def display_price(self) -> Decimal | None:
@@ -302,9 +304,14 @@ class ElementalCosting(BaseModel):
         return f"ElementalCosting(dp={self.dp!r}, items={count})"
 
 
+_MAX_HIERARCHY_DEPTH = 50
+
+
 def _walk_ec_ctgy(
     ctgy: ECCtgy, depth: int,
 ) -> Iterator[tuple[int, str, ECCtgy | None]]:
+    if depth > _MAX_HIERARCHY_DEPTH:
+        return
     label = ctgy.description or ctgy.ele_no
     yield (depth, label, ctgy)
     if ctgy.body is not None:

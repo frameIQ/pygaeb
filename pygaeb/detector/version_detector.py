@@ -11,6 +11,7 @@ from lxml import etree
 
 from pygaeb.detector.format_detector import FormatFamily, ParserTrack, detect_format
 from pygaeb.models.enums import ExchangePhase, SourceVersion
+from pygaeb.parser._xml_safety import safe_iterparse
 
 logger = logging.getLogger("pygaeb.detector")
 
@@ -102,7 +103,7 @@ def _detect_xml_version(path: Path, text: str | None = None) -> ParseRoute:
     try:
         raw = text.encode("utf-8") if text is not None else path.read_bytes()
 
-        for _event, elem in etree.iterparse(
+        for _event, elem in safe_iterparse(
             source=_bytes_io(raw),
             events=("start",),
         ):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,9 +18,17 @@ class PyGAEBSettings(BaseSettings):
     log_level: str = "WARNING"
     large_file_threshold_mb: int = 50
     large_file_item_threshold: int = 10000
+    max_file_size_mb: int = 100
 
 
 _settings: PyGAEBSettings | None = None
+
+
+def _apply_log_level(level: str) -> None:
+    """Set the ``pygaeb`` logger to *level*."""
+    logging.getLogger("pygaeb").setLevel(
+        getattr(logging, level.upper(), logging.WARNING),
+    )
 
 
 def get_settings() -> PyGAEBSettings:
@@ -26,6 +36,7 @@ def get_settings() -> PyGAEBSettings:
     global _settings
     if _settings is None:
         _settings = PyGAEBSettings()
+        _apply_log_level(_settings.log_level)
     return _settings
 
 
@@ -36,6 +47,7 @@ def configure(
     log_level: str | None = None,
     large_file_threshold_mb: int | None = None,
     large_file_item_threshold: int | None = None,
+    max_file_size_mb: int | None = None,
 ) -> PyGAEBSettings:
     """Override settings for the current session. Only supplied values are changed."""
     global _settings
@@ -53,9 +65,12 @@ def configure(
         overrides["large_file_threshold_mb"] = large_file_threshold_mb
     if large_file_item_threshold is not None:
         overrides["large_file_item_threshold"] = large_file_item_threshold
+    if max_file_size_mb is not None:
+        overrides["max_file_size_mb"] = max_file_size_mb
     merged = current.model_dump()
     merged.update(overrides)
     _settings = PyGAEBSettings(**merged)
+    _apply_log_level(_settings.log_level)
     return _settings
 
 

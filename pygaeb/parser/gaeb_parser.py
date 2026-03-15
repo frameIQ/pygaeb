@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from pygaeb.config import get_settings
 from pygaeb.detector.encoding_repair import repair_encoding
@@ -13,6 +15,7 @@ from pygaeb.detector.version_detector import ParseRoute, detect_version
 from pygaeb.exceptions import GAEBParseError, GAEBValidationError
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import ExchangePhase, SourceVersion, ValidationMode, ValidationSeverity
+from pygaeb.models.item import ValidationResult
 
 logger = logging.getLogger("pygaeb.parser")
 
@@ -33,19 +36,44 @@ class GAEBParser:
         validation: ValidationMode = ValidationMode.LENIENT,
         xsd_dir: str | None = None,
         keep_xml: bool = False,
+        max_file_size: int | None = None,
+        post_parse_hook: Callable[[Any, Any], None] | None = None,
+        collect_raw_data: bool = False,
+        extra_validators: list[Callable[[GAEBDocument], list[ValidationResult]]] | None = None,
     ) -> GAEBDocument:
         """Parse a GAEB file from disk and return a unified GAEBDocument.
 
         Set *keep_xml* to ``True`` to retain raw lxml elements on every
         model (``item.source_element``) and enable ``doc.xpath()``.
+
+        *max_file_size* overrides the configured ``max_file_size_mb``
+        limit (in bytes).  Pass ``0`` to disable the check.
+
+        *post_parse_hook* is called with ``(item, source_element)`` for
+        every parsed item — useful for extracting vendor-specific XML
+        elements into ``item.raw_data``.
+
+        *collect_raw_data* when ``True`` automatically populates
+        ``item.raw_data`` with any XML child elements not consumed by
+        the built-in parser.
+
+        *extra_validators* are per-call validation functions appended
+        after the built-in and globally-registered validators.
         """
         path = Path(path)
         if not path.exists():
             raise GAEBParseError(f"File not found: {path}")
 
+        _enforce_size_limit(path.stat().st_size, max_file_size)
+
         raw = path.read_bytes()
         route = detect_version(path)
-        return _parse_core(raw, route, path, validation, xsd_dir, keep_xml)
+        return _parse_core(
+            raw, route, path, validation, xsd_dir, keep_xml,
+            post_parse_hook=post_parse_hook,
+            collect_raw_data=collect_raw_data,
+            extra_validators=extra_validators,
+        )
 
     @staticmethod
     def parse_bytes(
@@ -54,11 +82,16 @@ class GAEBParser:
         validation: ValidationMode = ValidationMode.LENIENT,
         xsd_dir: str | None = None,
         keep_xml: bool = False,
+        max_file_size: int | None = None,
+        post_parse_hook: Callable[[Any, Any], None] | None = None,
+        collect_raw_data: bool = False,
+        extra_validators: list[Callable[[GAEBDocument], list[ValidationResult]]] | None = None,
     ) -> GAEBDocument:
         """Parse GAEB data from bytes (useful for web uploads, S3 streams, etc.).
 
         The filename hint is used for version/phase detection from the extension.
         """
+        _enforce_size_limit(len(data), max_file_size)
         hint_path = Path(filename)
         with tempfile.NamedTemporaryFile(suffix=hint_path.suffix, delete=False) as tmp:
             tmp.write(data)
@@ -67,6 +100,9 @@ class GAEBParser:
             route = detect_version(tmp_path)
             return _parse_core(
                 data, route, hint_path, validation, xsd_dir, keep_xml,
+                post_parse_hook=post_parse_hook,
+                collect_raw_data=collect_raw_data,
+                extra_validators=extra_validators,
             )
         finally:
             tmp_path.unlink(missing_ok=True)
@@ -78,6 +114,10 @@ class GAEBParser:
         validation: ValidationMode = ValidationMode.LENIENT,
         xsd_dir: str | None = None,
         keep_xml: bool = False,
+        max_file_size: int | None = None,
+        post_parse_hook: Callable[[Any, Any], None] | None = None,
+        collect_raw_data: bool = False,
+        extra_validators: list[Callable[[GAEBDocument], list[ValidationResult]]] | None = None,
     ) -> GAEBDocument:
         """Parse GAEB data from an XML string.
 
@@ -85,6 +125,30 @@ class GAEBParser:
         """
         return GAEBParser.parse_bytes(
             xml_text.encode("utf-8"), filename, validation, xsd_dir, keep_xml,
+            max_file_size,
+            post_parse_hook=post_parse_hook,
+            collect_raw_data=collect_raw_data,
+            extra_validators=extra_validators,
+        )
+
+
+def _enforce_size_limit(size_bytes: int, explicit_limit: int | None) -> None:
+    """Raise ``GAEBParseError`` if *size_bytes* exceeds the configured maximum.
+
+    *explicit_limit* (in bytes) overrides the global setting when provided.
+    Pass ``0`` to disable the check entirely.
+    """
+    if explicit_limit is not None:
+        limit = explicit_limit
+    else:
+        limit = get_settings().max_file_size_mb * 1024 * 1024
+    if limit > 0 and size_bytes > limit:
+        mb = size_bytes / (1024 * 1024)
+        limit_mb = limit / (1024 * 1024)
+        raise GAEBParseError(
+            f"File size ({mb:.1f} MB) exceeds the maximum allowed "
+            f"({limit_mb:.0f} MB). Increase max_file_size_mb in settings or "
+            f"pass max_file_size=0 to disable."
         )
 
 
@@ -95,6 +159,10 @@ def _parse_core(
     validation: ValidationMode,
     xsd_dir: str | None,
     keep_xml: bool = False,
+    *,
+    post_parse_hook: Callable[[Any, Any], None] | None = None,
+    collect_raw_data: bool = False,
+    extra_validators: list[Callable[[GAEBDocument], list[ValidationResult]]] | None = None,
 ) -> GAEBDocument:
     """Shared parsing pipeline for all entry points."""
     logger.debug(
@@ -106,11 +174,23 @@ def _parse_core(
         for w in route.warnings:
             logger.warning(w)
 
+    needs_xml_temporarily = (post_parse_hook is not None or collect_raw_data) and not keep_xml
+    effective_keep_xml = keep_xml or post_parse_hook is not None or collect_raw_data
+
     is_xml = route.format_family != FormatFamily.GAEB_90
     text, encoding_info = repair_encoding(raw, is_xml=is_xml)
     route.encoding_info = encoding_info
 
-    doc = _dispatch_parser(route, source_path, text, keep_xml)
+    doc = _dispatch_parser(route, source_path, text, effective_keep_xml)
+
+    if collect_raw_data:
+        _collect_raw_data(doc)
+
+    if post_parse_hook is not None:
+        _run_post_parse_hook(doc, post_parse_hook)
+
+    if needs_xml_temporarily:
+        doc.discard_xml()
 
     if xsd_dir is None:
         xsd_dir = get_settings().xsd_dir
@@ -121,7 +201,7 @@ def _parse_core(
         doc.add_info("XSD validation skipped: no schema directory configured")
 
     from pygaeb.validation import run_validation
-    run_validation(doc, route)
+    run_validation(doc, route, extra_validators=extra_validators)
 
     if validation == ValidationMode.STRICT:
         errors = [
@@ -140,6 +220,34 @@ def _parse_core(
     )
 
     return doc
+
+
+def _run_post_parse_hook(
+    doc: GAEBDocument,
+    hook: Callable[[Any, Any], None],
+) -> None:
+    """Call *hook(item, source_element)* for every item that has a source_element."""
+    for item in doc.iter_items():
+        hook(item, getattr(item, "source_element", None))
+
+
+def _collect_raw_data(doc: GAEBDocument) -> None:
+    """Populate ``item.raw_data`` with child XML elements not consumed by the parser."""
+    from pygaeb.parser.xml_v3.base_v3_parser import KNOWN_ITEM_TAGS
+
+    for item in doc.iter_items():
+        el = getattr(item, "source_element", None)
+        if el is None:
+            continue
+        extras: dict[str, Any] = {}
+        for child in el:
+            tag = child.tag
+            if "}" in tag:
+                tag = tag.split("}", 1)[1]
+            if tag not in KNOWN_ITEM_TAGS:
+                extras[tag] = child.text
+        if extras:
+            item.raw_data = extras
 
 
 _TRADE_PHASES = frozenset({
@@ -228,10 +336,16 @@ def _run_xsd_validation(
         doc.add_info(f"XSD validation skipped: no .xsd files in {version_dir}")
         return
 
+    from pygaeb.parser._xml_safety import SAFE_PARSER
+
     try:
-        schema_doc = etree.parse(str(xsd_files[0]))
+        with xsd_files[0].open("rb") as xsd_fh:
+            schema_doc = etree.parse(xsd_fh, parser=SAFE_PARSER)
         schema = etree.XMLSchema(schema_doc)
-        xml_doc = etree.fromstring(text.encode("utf-8"))
+        if doc.xml_root is not None:
+            xml_doc = doc.xml_root
+        else:
+            xml_doc = etree.fromstring(text.encode("utf-8"), parser=SAFE_PARSER)
         if not schema.validate(xml_doc):
             for error in schema.error_log:  # type: ignore[attr-defined]
                 doc.add_warning(

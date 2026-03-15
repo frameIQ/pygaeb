@@ -98,9 +98,11 @@ class BoQCtgy(BaseModel):
 
     def iter_items(self) -> Iterator[Item]:
         """Iterate all items in this category and its subcategories."""
-        yield from self.items
-        for subcat in self.subcategories:
-            yield from subcat.iter_items()
+        stack: list[BoQCtgy] = [self]
+        while stack:
+            current = stack.pop()
+            yield from current.items
+            stack.extend(reversed(current.subcategories))
 
     @property
     def subtotal(self) -> Decimal:
@@ -172,7 +174,12 @@ class BoQ(BaseModel):
                 yield from _walk_ctgy(ctgy, 1)
 
 
+_MAX_HIERARCHY_DEPTH = 50
+
+
 def _walk_ctgy(ctgy: BoQCtgy, depth: int) -> Iterator[tuple[int, str, BoQCtgy | None]]:
+    if depth > _MAX_HIERARCHY_DEPTH:
+        return
     yield (depth, ctgy.label, ctgy)
     for sub in ctgy.subcategories:
         yield from _walk_ctgy(sub, depth + 1)

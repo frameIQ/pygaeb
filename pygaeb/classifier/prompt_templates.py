@@ -41,10 +41,24 @@ CLASSIFICATION_PROMPT_V1 = (
     "- Always prefer specificity — classify to the most specific sub_type you can determine"
 )
 
-PROMPTS = {
+PROMPTS: dict[str, str] = {
     "v1": CLASSIFICATION_PROMPT_V1,
 }
 
+_custom_prompts: dict[str, str] = {}
+
+
+def register_prompt(version: str, template: str) -> None:
+    """Register a reusable prompt template under the given version key.
+
+    Registered prompts take precedence over built-in prompts when
+    retrieved via :func:`get_prompt`.
+    """
+    _custom_prompts[version] = template
+
 
 def get_prompt(version: str = CURRENT_PROMPT_VERSION) -> str:
+    """Return the prompt for *version*, checking user-registered prompts first."""
+    if version in _custom_prompts:
+        return _custom_prompts[version]
     return PROMPTS.get(version, CLASSIFICATION_PROMPT_V1)

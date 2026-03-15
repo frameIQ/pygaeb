@@ -88,6 +88,7 @@ nav:
     - Custom & Vendor Tags: guides/custom-tags.md
     - Writing & Export: guides/writing.md
     - Caching: guides/caching.md
+    - Extensibility: guides/extensibility.md
   - API Reference:
     - reference/index.md
     - GAEBParser: reference/parser.md

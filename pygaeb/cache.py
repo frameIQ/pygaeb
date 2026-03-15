@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import sqlite3
+from collections import OrderedDict
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -53,16 +54,28 @@ class CacheBackend(Protocol):
 
 
 class InMemoryCache:
-    """Default cache — plain dict, zero disk I/O, lives only for the session."""
+    """Default cache — LRU-bounded ``OrderedDict``, zero disk I/O.
 
-    def __init__(self) -> None:
-        self._store: dict[str, str] = {}
+    *maxsize* limits the number of entries.  When the limit is reached the
+    least-recently-used entry is evicted.  Pass ``0`` to disable the limit.
+    """
+
+    def __init__(self, maxsize: int = 10_000) -> None:
+        self._store: OrderedDict[str, str] = OrderedDict()
+        self._maxsize = maxsize
 
     def get(self, key: str) -> str | None:
-        return self._store.get(key)
+        value = self._store.get(key)
+        if value is not None:
+            self._store.move_to_end(key)
+        return value
 
     def put(self, key: str, value: str) -> None:
+        if key in self._store:
+            self._store.move_to_end(key)
         self._store[key] = value
+        if self._maxsize > 0 and len(self._store) > self._maxsize:
+            self._store.popitem(last=False)
 
     def delete(self, key: str) -> None:
         self._store.pop(key, None)
@@ -114,8 +127,11 @@ class SQLiteCache:
     def get(self, key: str) -> str | None:
         conn = self._get_conn()
         cursor = conn.execute("SELECT value FROM kv_cache WHERE key = ?", (key,))
-        row = cursor.fetchone()
-        return row[0] if row else None
+        try:
+            row = cursor.fetchone()
+            return row[0] if row else None
+        finally:
+            cursor.close()
 
     def put(self, key: str, value: str) -> None:
         conn = self._get_conn()
@@ -138,7 +154,10 @@ class SQLiteCache:
     def keys(self) -> list[str]:
         conn = self._get_conn()
         cursor = conn.execute("SELECT key FROM kv_cache")
-        return [row[0] for row in cursor.fetchall()]
+        try:
+            return [row[0] for row in cursor.fetchall()]
+        finally:
+            cursor.close()
 
     def close(self) -> None:
         if self._conn:
@@ -153,7 +172,14 @@ class SQLiteCache:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
+    def __del__(self) -> None:
+        with contextlib.suppress(Exception):
+            self.close()
+
     def __len__(self) -> int:
         conn = self._get_conn()
         cursor = conn.execute("SELECT COUNT(*) FROM kv_cache")
-        return int(cursor.fetchone()[0])
+        try:
+            return int(cursor.fetchone()[0])
+        finally:
+            cursor.close()

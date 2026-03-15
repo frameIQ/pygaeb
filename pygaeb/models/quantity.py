@@ -115,9 +115,11 @@ class QtyBoQCtgy(BaseModel):
 
     def iter_items(self) -> Iterator[QtyItem]:
         """Iterate all items in this category and its subcategories."""
-        yield from self.items
-        for subcat in self.subcategories:
-            yield from subcat.iter_items()
+        stack: list[QtyBoQCtgy] = [self]
+        while stack:
+            current = stack.pop()
+            yield from current.items
+            stack.extend(reversed(current.subcategories))
 
 
 class QtyBoQBody(BaseModel):
@@ -210,9 +212,14 @@ class QtyDetermination(BaseModel):
         return self.boq.iter_hierarchy()
 
 
+_MAX_HIERARCHY_DEPTH = 50
+
+
 def _walk_qty_ctgy(
     ctgy: QtyBoQCtgy, depth: int,
 ) -> Iterator[tuple[int, str, QtyBoQCtgy | None]]:
+    if depth > _MAX_HIERARCHY_DEPTH:
+        return
     yield (depth, ctgy.rno, ctgy)
     for sub in ctgy.subcategories:
         yield from _walk_qty_ctgy(sub, depth + 1)

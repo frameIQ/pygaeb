@@ -212,6 +212,90 @@ class GAEBDocument(BaseModel):
         return item_count / 1024 + attach_bytes / (1024 * 1024)
 
     # ------------------------------------------------------------------
+    # Memory management
+    # ------------------------------------------------------------------
+
+    def discard_xml(self) -> None:
+        """Release the retained lxml tree and all ``source_element`` references.
+
+        Call this after you are done with :meth:`xpath` and
+        ``source_element`` access to free the underlying C-level memory
+        held by lxml.
+        """
+        self.xml_root = None
+        self.gaeb_info.source_element = None
+        self.award.source_element = None
+
+        if self.order is not None:
+            self.order.source_element = None
+            for oi in self.order.items:
+                oi.source_element = None
+
+        if self.elemental_costing is not None:
+            self.elemental_costing.source_element = None
+            self._discard_ec_elements(self.elemental_costing.body)
+
+        if self.qty_determination is not None:
+            self._discard_qty_elements(self.qty_determination.boq)
+
+        for lot in self.award.boq.lots:
+            for ctgy in lot.body.categories:
+                self._discard_boq_ctgy_elements(ctgy)
+
+    @staticmethod
+    def _discard_boq_ctgy_elements(ctgy: Any) -> None:
+        stack = [ctgy]
+        while stack:
+            c = stack.pop()
+            if hasattr(c, "source_element"):
+                c.source_element = None
+            for item in getattr(c, "items", []):
+                if hasattr(item, "source_element"):
+                    item.source_element = None
+            stack.extend(getattr(c, "subcategories", []))
+
+    @staticmethod
+    def _discard_ec_elements(body: Any) -> None:
+        for ce in getattr(body, "cost_elements", []):
+            stack_ce: list[Any] = [ce]
+            while stack_ce:
+                el = stack_ce.pop()
+                el.source_element = None
+                stack_ce.extend(getattr(el, "children", []))
+        for dim in getattr(body, "dimension_elements", []):
+            if hasattr(dim, "source_element"):
+                dim.source_element = None
+        for cat in getattr(body, "category_elements", []):
+            if hasattr(cat, "source_element"):
+                cat.source_element = None
+        for sub in getattr(body, "categories", []):
+            if hasattr(sub, "source_element"):
+                sub.source_element = None
+            if sub.body is not None:
+                GAEBDocument._discard_ec_elements(sub.body)
+
+    @staticmethod
+    def _discard_qty_elements(boq: Any) -> None:
+        if hasattr(boq, "source_element"):
+            boq.source_element = None
+        body = getattr(boq, "body", None)
+        stack = list(getattr(body, "categories", []) if body else [])
+        while stack:
+            c = stack.pop()
+            if hasattr(c, "source_element"):
+                c.source_element = None
+            for qi in getattr(c, "items", []):
+                if hasattr(qi, "source_element"):
+                    qi.source_element = None
+                for di in getattr(qi, "determ_items", []):
+                    if hasattr(di, "source_element"):
+                        di.source_element = None
+                    tr = getattr(di, "takeoff_row", None)
+                    if tr is not None and hasattr(tr, "source_element"):
+                        tr.source_element = None
+            stack.extend(getattr(c, "subcategories", []))
+
+    # ------------------------------------------------------------------
     # Validation helpers
     # ------------------------------------------------------------------
 

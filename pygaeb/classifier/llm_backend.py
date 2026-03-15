@@ -21,8 +21,13 @@ async def classify_single_item(
     prompt_version: str = "v1",
     max_retries: int = 2,
     fallbacks: list[str] | None = None,
+    prompt_template: str | None = None,
+    taxonomy: dict[str, dict[str, list[str]]] | None = None,
 ) -> ClassificationResult:
     """Classify a single construction item using LiteLLM + instructor.
+
+    *prompt_template* overrides the prompt for this call.
+    *taxonomy* appends allowed-trade information to the prompt.
 
     Returns a validated ClassificationResult — guaranteed by instructor.
     """
@@ -35,7 +40,14 @@ async def classify_single_item(
         ) from err
 
     client = instructor.from_litellm(litellm.acompletion)
-    prompt = get_prompt(prompt_version)
+    prompt = prompt_template if prompt_template is not None else get_prompt(prompt_version)
+
+    if taxonomy is not None:
+        taxonomy_lines = ["\nAllowed taxonomy:"]
+        for trade, elements in taxonomy.items():
+            for elem, subs in elements.items():
+                taxonomy_lines.append(f"  {trade} > {elem}: {', '.join(subs)}")
+        prompt = prompt + "\n".join(taxonomy_lines)
 
     user_message = (
         f"Hierarchy: {hierarchy_path}\n"
