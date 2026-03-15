@@ -13,6 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from pygaeb.models.catalog import CtlgAssign
 from pygaeb.models.item import (
     ClassificationResult,
     ExtractionResult,
@@ -150,6 +151,7 @@ class CostElement(BaseModel):
     is_bill_element: bool = False
     properties: list[CostProperty] = Field(default_factory=list)
     ref_groups: list[RefGroup] = Field(default_factory=list)
+    ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
     children: list[CostElement] = Field(default_factory=list)
 
     @property
@@ -195,6 +197,7 @@ class ECCtgy(BaseModel):
     body: ECBody | None = None
     totals_net: Decimal | None = None
     totals_gross: Decimal | None = None
+    ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
     source_element: Any = Field(default=None, exclude=True, repr=False)
 
     def iter_cost_elements(self) -> Iterator[CostElement]:

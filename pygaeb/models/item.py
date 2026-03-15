@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from pygaeb.models.catalog import CtlgAssign
 from pygaeb.models.enums import ClassificationFlag, ItemType, ValidationSeverity
 
 
@@ -104,6 +105,13 @@ class ExtractionResult(BaseModel):
         return max(0.0, min(1.0, v))
 
 
+class MarkupSubQty(BaseModel):
+    """Reference to an item being marked up (X52 ``<MarkupSubQty>``)."""
+
+    ref_rno: str = ""
+    sub_qty: Decimal | None = None
+
+
 class CostApproach(BaseModel):
     """Per-item calculation approach (X52 Kalkulationsansätze)."""
 
@@ -150,6 +158,9 @@ class Item(BaseModel):
     cost_approaches: list[CostApproach] = Field(default_factory=list)
     up_components: list[Decimal] = Field(default_factory=list)
     discount_pct: Decimal | None = None
+    ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
+    markup_type: str | None = None
+    markup_sub_qtys: list[MarkupSubQty] = Field(default_factory=list)
     source_element: Any = Field(default=None, exclude=True, repr=False)
     raw_data: dict[str, Any] | None = Field(default=None, exclude=True)
 

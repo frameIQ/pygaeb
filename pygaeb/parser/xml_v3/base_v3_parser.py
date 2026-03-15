@@ -15,12 +15,13 @@ from lxml import etree
 
 from pygaeb.detector.version_detector import ParseRoute
 from pygaeb.models.boq import BoQ, BoQBkdn, BoQBody, BoQCtgy, BoQInfo, CostType, Lot
+from pygaeb.models.catalog import CtlgAssign
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
 from pygaeb.models.enums import (
     BkdnType,
     ItemType,
 )
-from pygaeb.models.item import CostApproach, Item, QtySplit
+from pygaeb.models.item import CostApproach, Item, MarkupSubQty, QtySplit
 from pygaeb.parser.recovery import parse_xml_safe
 from pygaeb.parser.xml_v3.richtext_parser import parse_plaintext, parse_richtext
 
@@ -196,6 +197,8 @@ class BaseV3Parser:
             )
             info.cost_types.append(ct)
 
+        info.ctlg_assigns = self._parse_ctlg_assigns(info_el)
+
         return info
 
     def _parse_bkdn_v33(self, bkdn_el: etree._Element, info: BoQInfo) -> None:
@@ -279,6 +282,9 @@ class BaseV3Parser:
             for it_el in self._findall(item_el, "Item"):
                 item = self._parse_item(it_el, doc, current_path, lot_label)
                 ctgy.items.append(item)
+            for mu_el in self._findall(item_el, "MarkupItem"):
+                markup_item = self._parse_markup_item(mu_el, doc, current_path, lot_label)
+                ctgy.items.append(markup_item)
 
         for it_el in self._findall(target, "Item"):
             if it_el.getparent() is not None:
@@ -287,6 +293,8 @@ class BaseV3Parser:
                     continue
             item = self._parse_item(it_el, doc, current_path, lot_label)
             ctgy.items.append(item)
+
+        ctgy.ctlg_assigns = self._parse_ctlg_assigns(ctgy_el)
 
         if self._keep_xml:
             ctgy.source_element = ctgy_el
@@ -374,8 +382,53 @@ class BaseV3Parser:
         if disc_str:
             item.discount_pct = _parse_decimal(disc_str)
 
+        item.ctlg_assigns = self._parse_ctlg_assigns(item_el)
+
         if self._keep_xml:
             item.source_element = item_el
+
+        return item
+
+    def _parse_markup_item(
+        self,
+        el: etree._Element,
+        doc: GAEBDocument,
+        hierarchy_path: list[str],
+        lot_label: str = "",
+    ) -> Item:
+        """Parse a ``<MarkupItem>`` element (X52) into an ``Item`` with ``ItemType.MARKUP``."""
+        oz = el.get("RNoPart", "")
+        item = Item(
+            oz=oz,
+            hierarchy_path=hierarchy_path,
+            lot_label=lot_label or None,
+            item_type=ItemType.MARKUP,
+        )
+
+        item.short_text = self._text(el, "ShortText") or ""
+        item.markup_type = self._text(el, "MarkupType")
+
+        it_str = self._text(el, "ITMarkup")
+        if it_str:
+            item.total_price = _parse_decimal(it_str)
+
+        markup_str = self._text(el, "Markup")
+        if markup_str:
+            item.unit_price = _parse_decimal(markup_str)
+
+        disc_str = self._text(el, "DiscountPcnt")
+        if disc_str:
+            item.discount_pct = _parse_decimal(disc_str)
+
+        for sub_el in self._findall(el, "MarkupSubQty"):
+            ref_rno = self._text(sub_el, "RefRNoPart") or sub_el.get("RNoPart", "")
+            sub_qty = _parse_decimal(self._text(sub_el, "SubQty"))
+            item.markup_sub_qtys.append(MarkupSubQty(ref_rno=ref_rno, sub_qty=sub_qty))
+
+        item.ctlg_assigns = self._parse_ctlg_assigns(el)
+
+        if self._keep_xml:
+            item.source_element = el
 
         return item
 
@@ -454,6 +507,18 @@ class BaseV3Parser:
             found = self._findall(child, target_tag)
             results.extend(found)
         return results
+
+    def _parse_ctlg_assign(self, el: etree._Element) -> CtlgAssign:
+        """Parse a single ``<CtlgAssign>`` element."""
+        return CtlgAssign(
+            ctlg_id=self._text(el, "CtlgID") or "",
+            ctlg_code=self._text(el, "CtlgCode") or "",
+            quantity=_parse_decimal(self._text(el, "Quantity")),
+        )
+
+    def _parse_ctlg_assigns(self, parent: etree._Element) -> list[CtlgAssign]:
+        """Parse all ``<CtlgAssign>`` children of *parent*."""
+        return [self._parse_ctlg_assign(el) for el in self._findall(parent, "CtlgAssign")]
 
     def _has_lot_bkdn(self) -> bool:
         return any(b.bkdn_type == BkdnType.LOT for b in self._bkdn)

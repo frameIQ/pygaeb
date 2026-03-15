@@ -116,6 +116,8 @@ class TradeParser(BaseV3Parser):
             item = self._parse_order_item(item_el, doc)
             order.items.append(item)
 
+        order.ctlg_assigns = self._parse_ctlg_assigns(order_el)
+
         if self._keep_xml:
             order.source_element = order_el
 
@@ -148,6 +150,8 @@ class TradeParser(BaseV3Parser):
         del_str = self._text(el, "DeliveryDate")
         if del_str:
             info.delivery_date = _parse_date(del_str)
+
+        info.ctlg_assigns = self._parse_ctlg_assigns(el)
 
         return info
 
@@ -235,6 +239,8 @@ class TradeParser(BaseV3Parser):
             item.delivery_date = _parse_date(dd)
 
         item.mode_of_shipment = self._text(item_el, "ModeOfShipment")
+
+        item.ctlg_assigns = self._parse_ctlg_assigns(item_el)
 
         if self._keep_xml:
             item.source_element = item_el
