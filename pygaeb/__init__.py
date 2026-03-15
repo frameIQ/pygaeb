@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.4.1"
+__version__ = "1.5.0"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
@@ -68,6 +68,8 @@ def __getattr__(name: str) -> object:
         "BoQCtgy": ("pygaeb.models.boq", "BoQCtgy"),
         "BoQInfo": ("pygaeb.models.boq", "BoQInfo"),
         "Lot": ("pygaeb.models.boq", "Lot"),
+        "Totals": ("pygaeb.models.boq", "Totals"),
+        "VATPart": ("pygaeb.models.boq", "VATPart"),
         # Trade models
         "TradeOrder": ("pygaeb.models.order", "TradeOrder"),
         "OrderItem": ("pygaeb.models.order", "OrderItem"),
@@ -209,7 +211,9 @@ __all__ = [
     "SourceVersion",
     "StructuredExtractor",
     "SupplierInfo",
+    "Totals",
     "TradeOrder",
+    "VATPart",
     "ValidationMode",
     "ValidationResult",
     "ValidationSeverity",

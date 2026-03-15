@@ -5,6 +5,7 @@ Supports iterparse for large files and two-pass recovery on malformed XML.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -14,14 +15,24 @@ from typing import Any
 from lxml import etree
 
 from pygaeb.detector.version_detector import ParseRoute
-from pygaeb.models.boq import BoQ, BoQBkdn, BoQBody, BoQCtgy, BoQInfo, CostType, Lot
+from pygaeb.models.boq import (
+    BoQ,
+    BoQBkdn,
+    BoQBody,
+    BoQCtgy,
+    BoQInfo,
+    CostType,
+    Lot,
+    Totals,
+    VATPart,
+)
 from pygaeb.models.catalog import CtlgAssign
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
 from pygaeb.models.enums import (
     BkdnType,
     ItemType,
 )
-from pygaeb.models.item import CostApproach, Item, MarkupSubQty, QtySplit
+from pygaeb.models.item import Attachment, CostApproach, Item, MarkupSubQty, QtySplit
 from pygaeb.parser.recovery import parse_xml_safe
 from pygaeb.parser.xml_v3.richtext_parser import parse_plaintext, parse_richtext
 
@@ -142,6 +153,26 @@ class BaseV3Parser:
             if not award.currency or award.currency == "EUR":
                 award.currency = self._text(prj_info_el, "Cur") or award.currency
 
+            award.prj_id = self._text(prj_info_el, "PrjID")
+            award.lbl_prj = self._text(prj_info_el, "LblPrj")
+            award.description = self._text(prj_info_el, "Descrip")
+            award.currency_label = self._text(prj_info_el, "CurLbl")
+
+            bcp = self._text(prj_info_el, "BidCommPerm")
+            if bcp and bcp.lower() in ("yes", "true", "1"):
+                award.bid_comm_perm = True
+
+            abp = self._text(prj_info_el, "AlterBidPerm")
+            if abp and abp.lower() in ("yes", "true", "1"):
+                award.alter_bid_perm = True
+
+            upfd = self._text(prj_info_el, "UPFracDig")
+            if upfd:
+                with contextlib.suppress(ValueError):
+                    award.up_frac_dig = int(upfd)
+
+            award.ctlg_assigns = self._parse_ctlg_assigns(prj_info_el)
+
         boq_el = self._find(award_el, "BoQ")
         if boq_el is not None:
             award.boq = self._parse_boq(boq_el, doc)
@@ -165,6 +196,7 @@ class BaseV3Parser:
         if boq_body_el is not None:
             lot = Lot(rno="1", label="Default", boq_info=boq.boq_info)
             lot.body = self._parse_boq_body(boq_body_el, doc)
+            lot.totals = self._parse_totals(boq_body_el)
             boq.lots.append(lot)
 
             lot_els = self._findall(boq_body_el, "BoQCtgy")
@@ -175,6 +207,7 @@ class BaseV3Parser:
                     label = self._text(lot_el, "LblTx") or f"Lot {i + 1}"
                     lot = Lot(rno=rno, label=label, boq_info=boq.boq_info)
                     lot.body = self._parse_ctgy_as_body(lot_el, doc, lot_label=label)
+                    lot.totals = self._parse_totals(lot_el)
                     boq.lots.append(lot)
 
         return boq
@@ -198,6 +231,7 @@ class BaseV3Parser:
             info.cost_types.append(ct)
 
         info.ctlg_assigns = self._parse_ctlg_assigns(info_el)
+        info.totals = self._parse_totals(info_el)
 
         return info
 
@@ -295,6 +329,7 @@ class BaseV3Parser:
             ctgy.items.append(item)
 
         ctgy.ctlg_assigns = self._parse_ctlg_assigns(ctgy_el)
+        ctgy.totals = self._parse_totals(ctgy_el)
 
         if self._keep_xml:
             ctgy.source_element = ctgy_el
@@ -353,6 +388,8 @@ class BaseV3Parser:
             if lt_str:
                 item.long_text = parse_plaintext(lt_str)
 
+        item.attachments = self._parse_item_attachments(item_el)
+
         bim_el = self._find(item_el, "GUID", "BIMRef")
         if bim_el is not None:
             item.bim_guid = bim_el.text.strip() if bim_el.text else None
@@ -381,6 +418,10 @@ class BaseV3Parser:
         disc_str = self._text(item_el, "DiscountPcnt")
         if disc_str:
             item.discount_pct = _parse_decimal(disc_str)
+
+        vat_str = self._text(item_el, "VAT")
+        if vat_str:
+            item.vat = _parse_decimal(vat_str)
 
         item.ctlg_assigns = self._parse_ctlg_assigns(item_el)
 
@@ -519,6 +560,87 @@ class BaseV3Parser:
     def _parse_ctlg_assigns(self, parent: etree._Element) -> list[CtlgAssign]:
         """Parse all ``<CtlgAssign>`` children of *parent*."""
         return [self._parse_ctlg_assign(el) for el in self._findall(parent, "CtlgAssign")]
+
+    def _parse_totals(self, parent: etree._Element) -> Totals | None:
+        """Parse a ``<Totals>`` child element into a :class:`Totals` model."""
+        totals_el = self._find(parent, "Totals")
+        if totals_el is None:
+            return None
+
+        t = Totals()
+        t.total = _parse_decimal(self._text(totals_el, "Total"))
+        t.discount_pcnt = _parse_decimal(self._text(totals_el, "DiscountPcnt"))
+        t.discount_amt = _parse_decimal(self._text(totals_el, "DiscountAmt"))
+        t.tot_after_disc = _parse_decimal(self._text(totals_el, "TotAfterDisc"))
+        t.total_lsum = _parse_decimal(self._text(totals_el, "TotalLSUM"))
+        t.vat = _parse_decimal(self._text(totals_el, "VAT"))
+        t.total_net = _parse_decimal(self._text(totals_el, "TotalNet"))
+
+        up_comp_el = self._find(totals_el, "TotalNetUpComp")
+        if up_comp_el is not None:
+            for i in range(1, 7):
+                val = _parse_decimal(self._text(up_comp_el, f"UpComp{i}"))
+                if val is not None:
+                    while len(t.total_net_up_comp) < i:
+                        t.total_net_up_comp.append(Decimal("0"))
+                    t.total_net_up_comp[i - 1] = val
+
+        for vp_el in self._findall(totals_el, "VATPart"):
+            pcnt = _parse_decimal(vp_el.get("VATPcnt")) or Decimal("0")
+            vp = VATPart(
+                vat_pcnt=pcnt,
+                total_net_part=_parse_decimal(self._text(vp_el, "TotalNetPart")),
+                vat_amount=_parse_decimal(self._text(vp_el, "VATAmount")),
+            )
+            t.vat_parts.append(vp)
+
+        t.vat_amount = _parse_decimal(self._text(totals_el, "VATAmount"))
+        t.total_gross = _parse_decimal(self._text(totals_el, "TotalGross"))
+        return t
+
+    def _parse_item_attachments(self, item_el: etree._Element) -> list[Attachment]:
+        """Extract attachments from a procurement item's ``<Description>`` subtree.
+
+        Handles two patterns defined in the GAEB Lib schema:
+        - URI references: ``<attachment>`` elements (plain URI strings)
+        - Embedded images: ``<image>`` elements with base64 content and
+          ``Type``/``Name`` attributes
+        """
+        import base64
+
+        attachments: list[Attachment] = []
+
+        desc = self._find(item_el, "Description")
+        if desc is None:
+            return attachments
+
+        for att_el in desc.iter():
+            local = self._local_tag(att_el.tag)
+            if local == "attachment" and att_el.text and att_el.text.strip():
+                uri = att_el.text.strip()
+                attachments.append(Attachment(
+                    filename=uri,
+                    mime_type="application/octet-stream",
+                    data=b"",
+                ))
+            elif local == "image":
+                b64_text = att_el.text or ""
+                if not b64_text.strip():
+                    continue
+                mime = att_el.get("Type", "image/png")
+                name = att_el.get("Name", "embedded_image")
+                try:
+                    data = base64.b64decode(b64_text.strip())
+                except Exception:
+                    logger.warning("Failed to decode embedded image %s", name)
+                    continue
+                attachments.append(Attachment(
+                    filename=name,
+                    mime_type=mime,
+                    data=data,
+                ))
+
+        return attachments
 
     def _has_lot_bkdn(self) -> bool:
         return any(b.bkdn_type == BkdnType.LOT for b in self._bkdn)

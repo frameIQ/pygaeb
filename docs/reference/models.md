@@ -56,6 +56,20 @@ The unified domain model that all parser tracks produce. Documents are **procure
       show_root_heading: true
       members_order: source
 
+## Totals & VAT
+
+Financial summary data from `<Totals>` elements on BoQInfo, BoQCtgy, and Lot. Includes discount breakdowns, per-rate VAT partitions, and net/gross totals.
+
+::: pygaeb.models.boq.Totals
+    options:
+      show_root_heading: true
+      members_order: source
+
+::: pygaeb.models.boq.VATPart
+    options:
+      show_root_heading: true
+      members_order: source
+
 ## Item (Procurement)
 
 ::: pygaeb.models.item.Item

@@ -158,6 +158,7 @@ class Item(BaseModel):
     cost_approaches: list[CostApproach] = Field(default_factory=list)
     up_components: list[Decimal] = Field(default_factory=list)
     discount_pct: Decimal | None = None
+    vat: Decimal | None = None
     ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
     markup_type: str | None = None
     markup_sub_qtys: list[MarkupSubQty] = Field(default_factory=list)

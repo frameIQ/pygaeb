@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from pygaeb.models.boq import BoQ
+from pygaeb.models.catalog import CtlgAssign
 from pygaeb.models.cost import ElementalCosting
 from pygaeb.models.enums import (
     DocumentKind,
@@ -35,7 +36,11 @@ class GAEBInfo(BaseModel):
 
 
 class AwardInfo(BaseModel):
-    """Project-level award information (procurement phases X80-X89)."""
+    """Project-level award information (procurement phases X80-X89).
+
+    Fields from both ``<AwardInfo>`` and ``<PrjInfo>`` are merged here
+    to give a single, developer-friendly project metadata object.
+    """
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -47,6 +52,17 @@ class AwardInfo(BaseModel):
     procurement_type: str | None = None
     date: datetime | None = None
     place: str | None = None
+
+    # --- PrjInfo fields ---
+    prj_id: str | None = None
+    lbl_prj: str | None = None
+    description: str | None = None
+    currency_label: str | None = None
+    bid_comm_perm: bool = False
+    alter_bid_perm: bool = False
+    up_frac_dig: int | None = None
+    ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
+
     boq: BoQ = Field(default_factory=BoQ)
     source_element: Any = Field(default=None, exclude=True, repr=False)
 

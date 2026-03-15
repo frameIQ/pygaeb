@@ -12,7 +12,7 @@ from typing import Any
 
 from lxml import etree
 
-from pygaeb.models.boq import BoQ, BoQBody, BoQCtgy, BoQInfo
+from pygaeb.models.boq import BoQ, BoQBody, BoQCtgy, BoQInfo, Totals
 from pygaeb.models.catalog import Catalog, CtlgAssign
 from pygaeb.models.cost import (
     CategoryElement,
@@ -186,6 +186,7 @@ def _build_xml(
     root.set("xmlns", ns)
 
     _add_gaeb_info(root, doc.gaeb_info, meta)
+    _add_prj_info(root, doc.award)
     _add_award(root, doc.award, phase, meta, warnings)
 
     return root, warnings
@@ -201,6 +202,39 @@ def _add_gaeb_info(parent: etree._Element, info: GAEBInfo, meta: VersionMeta) ->
         gaeb_info, "ProgSystemVersion", info.prog_system_version or __version__,
     )
     _add_text_el(gaeb_info, "Date", datetime.now().strftime("%Y-%m-%d"))
+
+
+def _add_prj_info(parent: etree._Element, award: AwardInfo) -> None:
+    """Serialize PrjInfo fields from ``AwardInfo`` into a ``<PrjInfo>`` element."""
+    has_prj_data = any([
+        award.prj_id, award.lbl_prj, award.description,
+        award.currency_label, award.bid_comm_perm, award.alter_bid_perm,
+        award.up_frac_dig is not None, award.ctlg_assigns,
+    ])
+    if not has_prj_data:
+        return
+
+    prj_el = etree.SubElement(parent, "PrjInfo")
+    if award.project_name:
+        _add_text_el(prj_el, "NamePrj", award.project_name)
+    if award.prj_id:
+        _add_text_el(prj_el, "PrjID", award.prj_id)
+    if award.lbl_prj:
+        _add_text_el(prj_el, "LblPrj", award.lbl_prj)
+    if award.description:
+        _add_text_el(prj_el, "Descrip", award.description)
+    if award.currency:
+        _add_text_el(prj_el, "Cur", award.currency)
+    if award.currency_label:
+        _add_text_el(prj_el, "CurLbl", award.currency_label)
+    if award.bid_comm_perm:
+        _add_text_el(prj_el, "BidCommPerm", "Yes")
+    if award.alter_bid_perm:
+        _add_text_el(prj_el, "AlterBidPerm", "Yes")
+    if award.up_frac_dig is not None:
+        _add_text_el(prj_el, "UPFracDig", str(award.up_frac_dig))
+    for ca in award.ctlg_assigns:
+        _add_ctlg_assign(prj_el, ca)
 
 
 def _add_award(
@@ -239,6 +273,8 @@ def _add_boq(
             lot_ctgy = etree.SubElement(boq_body, "BoQCtgy")
             lot_ctgy.set("RNoPart", lot.rno)
             _add_text_el(lot_ctgy, "LblTx", lot.label)
+            if lot.totals is not None:
+                _add_totals(lot_ctgy, lot.totals)
             lot_body = etree.SubElement(lot_ctgy, "BoQBody")
             _add_body_categories(lot_body, lot.body, phase, meta, warnings)
         else:
@@ -264,6 +300,9 @@ def _add_boq_info(parent: etree._Element, info: BoQInfo) -> None:
     for ca in info.ctlg_assigns:
         _add_ctlg_assign(info_el, ca)
 
+    if info.totals is not None:
+        _add_totals(info_el, info.totals)
+
 
 def _add_body_categories(
     parent: etree._Element, body: BoQBody, phase: ExchangePhase,
@@ -285,6 +324,9 @@ def _add_ctgy(
 
     for ca in ctgy.ctlg_assigns:
         _add_ctlg_assign(ctgy_el, ca)
+
+    if ctgy.totals is not None:
+        _add_totals(ctgy_el, ctgy.totals)
 
     for sub in ctgy.subcategories:
         sub_body = etree.SubElement(ctgy_el, "BoQBody")
@@ -366,6 +408,9 @@ def _add_item(
 
     if item.discount_pct is not None:
         _add_text_el(item_el, "DiscountPcnt", _fmt_decimal(item.discount_pct))
+
+    if item.vat is not None:
+        _add_text_el(item_el, "VAT", _fmt_decimal(item.vat))
 
     for ctlg in item.ctlg_assigns:
         _add_ctlg_assign(item_el, ctlg)
@@ -527,6 +572,49 @@ def _add_boq_info_cost_types(parent: etree._Element, info: BoQInfo) -> None:
             _add_text_el(ct_el, "Name", ct.name)
         if ct.label:
             _add_text_el(ct_el, "Label", ct.label)
+
+
+def _add_totals(parent: etree._Element, totals: Totals) -> None:
+    """Serialize a ``Totals`` model to a ``<Totals>`` XML element."""
+    t_el = etree.SubElement(parent, "Totals")
+
+    if totals.total is not None:
+        _add_text_el(t_el, "Total", _fmt_decimal(totals.total))
+
+    if totals.discount_pcnt is not None:
+        _add_text_el(t_el, "DiscountPcnt", _fmt_decimal(totals.discount_pcnt))
+    if totals.discount_amt is not None:
+        _add_text_el(t_el, "DiscountAmt", _fmt_decimal(totals.discount_amt))
+    if totals.tot_after_disc is not None:
+        _add_text_el(t_el, "TotAfterDisc", _fmt_decimal(totals.tot_after_disc))
+
+    if totals.total_lsum is not None:
+        _add_text_el(t_el, "TotalLSUM", _fmt_decimal(totals.total_lsum))
+
+    if totals.vat is not None:
+        _add_text_el(t_el, "VAT", _fmt_decimal(totals.vat))
+
+    if totals.total_net is not None:
+        _add_text_el(t_el, "TotalNet", _fmt_decimal(totals.total_net))
+
+    if totals.total_net_up_comp:
+        uc_el = etree.SubElement(t_el, "TotalNetUpComp")
+        for i, comp in enumerate(totals.total_net_up_comp, 1):
+            _add_text_el(uc_el, f"UpComp{i}", _fmt_decimal(comp))
+
+    for vp in totals.vat_parts:
+        vp_el = etree.SubElement(t_el, "VATPart")
+        vp_el.set("VATPcnt", _fmt_decimal(vp.vat_pcnt))
+        if vp.total_net_part is not None:
+            _add_text_el(vp_el, "TotalNetPart", _fmt_decimal(vp.total_net_part))
+        if vp.vat_amount is not None:
+            _add_text_el(vp_el, "VATAmount", _fmt_decimal(vp.vat_amount))
+
+    if totals.vat_amount is not None:
+        _add_text_el(t_el, "VATAmount", _fmt_decimal(totals.vat_amount))
+
+    if totals.total_gross is not None:
+        _add_text_el(t_el, "TotalGross", _fmt_decimal(totals.total_gross))
 
 
 # ------------------------------------------------------------------

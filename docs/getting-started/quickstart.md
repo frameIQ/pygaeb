@@ -54,6 +54,49 @@ Look up a specific item by its OZ (ordinal number):
 item = doc.award.boq.get_item("01.02.0030")
 ```
 
+## Financial Summaries & Project Info
+
+Procurement documents (X84 bids, X86 awards, X89 invoices) carry authoritative totals, VAT breakdowns, and discount data at the BoQ and category level:
+
+```python
+# BoQ-level totals (from the <Totals> element, not recomputed)
+totals = doc.award.boq.boq_info.totals
+if totals:
+    print(totals.total_net)      # Decimal("95000.00")
+    print(totals.total_gross)    # Decimal("113050.00")
+    print(totals.vat)            # Decimal("19.00")  — VAT rate %
+    print(totals.vat_amount)     # Decimal("18050.00")
+    print(totals.discount_pcnt)  # Decimal("5.000000") or None
+
+    # Multiple VAT rates (e.g., 19% + 7%)
+    for vp in totals.vat_parts:
+        print(f"{vp.vat_pcnt}%: net={vp.total_net_part}, vat={vp.vat_amount}")
+
+# Category-level subtotals
+for lot in doc.award.boq.lots:
+    for ctgy in lot.body.categories:
+        if ctgy.totals:
+            print(f"{ctgy.label}: net={ctgy.totals.total_net}")
+
+# Item-level VAT
+for item in doc.award.boq.iter_items():
+    if item.vat is not None:
+        print(f"{item.oz}: VAT {item.vat}%")
+```
+
+Project metadata from `<PrjInfo>` is merged into `AwardInfo`:
+
+```python
+print(doc.award.project_name)     # "Neubau Schule"
+print(doc.award.prj_id)           # project GUID
+print(doc.award.lbl_prj)          # project label
+print(doc.award.description)      # project description
+print(doc.award.currency_label)   # "Euro"
+print(doc.award.up_frac_dig)      # 2 or 3 — unit price decimal places
+print(doc.award.bid_comm_perm)    # True/False
+print(doc.award.alter_bid_perm)   # True/False
+```
+
 ## Document Navigation
 
 For advanced querying, use `DocumentAPI`:

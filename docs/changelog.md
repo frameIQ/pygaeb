@@ -4,6 +4,22 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-03-15
+
+### Added
+
+- **Procurement Totals + VAT** — `Totals` and `VATPart` models for authoritative financial summaries from `<Totals>` elements
+- `totals` field on `BoQInfo`, `BoQCtgy`, and `Lot` — parsed from and written back to XML
+- Full `<Totals>` schema coverage: `Total`, `DiscountPcnt`/`DiscountAmt`/`TotAfterDisc`, `TotalLSUM`, `VAT`, `TotalNet`, `TotalNetUpComp` (UpComp1–6), `VATPart` (multiple VAT rates with per-rate breakdown), `VATAmount`, `TotalGross`
+- **Item-level VAT** — `vat` field on `Item` for per-item VAT rate percentage
+- **Complete PrjInfo** — `AwardInfo` now exposes all `<PrjInfo>` fields: `prj_id`, `lbl_prj`, `description`, `currency_label`, `bid_comm_perm`, `alter_bid_perm`, `up_frac_dig`, `ctlg_assigns`
+- `<PrjInfo>` serialization in writer — round-trips project metadata correctly
+- `UPFracDig` (unit price decimal places) — parsed and exposed on `AwardInfo.up_frac_dig`
+- **Procurement Item Attachments** — URI references (`<attachment>`) and embedded base64 images (`<image>`) from `<DetailTxt>` are now parsed into `Item.attachments`
+- `DocumentAPI.summary()` now includes `total_net`, `total_gross`, `vat_rate`, `vat_amount`, and `up_frac_dig` for procurement documents
+- `Totals` and `VATPart` exported from top-level `pygaeb` module
+- 40 new tests for totals parsing/writing, VATPart, item VAT, PrjInfo, and attachments
+
 ## [1.4.1] - 2026-03-15
 
 ### Added
@@ -130,6 +146,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `py.typed` marker for PEP 561 compliance
 - Comprehensive test suite (193 tests)
 
+[1.5.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.5.0
 [1.4.1]: https://github.com/frameiq/pygaeb/releases/tag/v1.4.1
 [1.4.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.4.0
 [1.3.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.3.0
