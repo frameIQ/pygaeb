@@ -4,6 +4,22 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-15
+
+### Added
+
+- **GAEB Trade Phase Support (X93-X97)** — first-class parsing, writing, and LLM support for trade workflows
+- New models: `TradeOrder`, `OrderItem`, `OrderInfo`, `SupplierInfo`, `CustomerInfo`, `DeliveryPlaceInfo`, `PlannerInfo`, `InvoiceInfo`, `Address`
+- `DocumentKind` enum (`PROCUREMENT` / `TRADE`) and `ExchangePhase.X93/X94/X96/X97`
+- `GAEBDocument.is_trade`, `is_procurement`, `document_kind` properties for explicit discrimination
+- `GAEBDocument.iter_items()` universal iteration across both document kinds
+- `TradeParser` for `<Order>/<OrderItem>` XML structure
+- `GAEBWriter` support for trade document output with phase-specific namespaces
+- `DocumentAPI` trade-aware methods: `order`, `get_order_item()`, updated `summary()`
+- `LLMClassifier` and `StructuredExtractor` now work with both procurement and trade documents
+- Trade phases guide in documentation
+- 38 new tests for trade parsing, models, writer round-trip, and API
+
 ## [1.0.1] - 2026-03-14
 
 ### Added
@@ -47,5 +63,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `py.typed` marker for PEP 561 compliance
 - Comprehensive test suite (193 tests)
 
+[1.2.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.2.0
 [1.0.1]: https://github.com/frameiq/pygaeb/releases/tag/v1.0.1
 [1.0.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.0.0

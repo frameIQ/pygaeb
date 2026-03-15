@@ -8,6 +8,7 @@ import re
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from lxml import etree
 
@@ -15,10 +16,12 @@ from pygaeb.models.boq import BoQ, BoQBody, BoQCtgy, BoQInfo
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
 from pygaeb.models.enums import BkdnType, ExchangePhase, SourceVersion
 from pygaeb.models.item import Item
+from pygaeb.models.order import OrderItem, TradeOrder
 from pygaeb.writer.version_registry import (
     VERSION_REGISTRY,
     WRITABLE_VERSIONS,
     VersionMeta,
+    trade_namespace,
 )
 
 logger = logging.getLogger("pygaeb.writer")
@@ -124,7 +127,17 @@ def _build_xml(
     doc: GAEBDocument, phase: ExchangePhase, meta: VersionMeta,
 ) -> tuple[etree._Element, list[str]]:
     warnings: list[str] = []
-    ns_map: dict[str | None, str] = {None: meta.namespace}
+
+    if doc.is_trade and doc.order is not None:
+        ns = trade_namespace(phase, SourceVersion(meta.version_tag))
+        ns_map: dict[str | None, str] = {None: ns}
+        root = etree.Element("GAEB", nsmap=ns_map)  # type: ignore[arg-type]
+        root.set("xmlns", ns)
+        _add_gaeb_info(root, doc.gaeb_info, meta)
+        _add_order(root, doc.order, phase, warnings)
+        return root, warnings
+
+    ns_map = {None: meta.namespace}
     root = etree.Element("GAEB", nsmap=ns_map)  # type: ignore[arg-type]
     root.set("xmlns", meta.namespace)
 
@@ -289,6 +302,106 @@ def _add_item(
                 f"Item {item.oz}: {len(item.attachments)} attachment(s) dropped "
                 f"(not supported in DA XML {meta.version_tag})"
             )
+
+
+def _add_order(
+    parent: etree._Element, order: TradeOrder,
+    phase: ExchangePhase, warnings: list[str],
+) -> None:
+    """Serialize a TradeOrder to <Order> XML."""
+    order_el = etree.SubElement(parent, "Order")
+
+    _add_text_el(order_el, "DP", order.dp or phase.value.lstrip("X"))
+
+    if order.order_info:
+        oi_el = etree.SubElement(order_el, "OrderInfo")
+        if order.order_info.order_no:
+            _add_text_el(oi_el, "OrderNo", order.order_info.order_no)
+        if order.order_info.currency:
+            _add_text_el(oi_el, "Cur", order.order_info.currency)
+        if order.order_info.order_date:
+            _add_text_el(oi_el, "OrderDate", order.order_info.order_date.strftime("%Y-%m-%d"))
+        if order.order_info.delivery_date:
+            _add_text_el(oi_el, "DeliveryDate", order.order_info.delivery_date.strftime("%Y-%m-%d"))
+
+    for info_name, tag_name in [
+        ("supplier_info", "SupplierInfo"),
+        ("customer_info", "CustomerInfo"),
+        ("delivery_place_info", "DeliveryPlaceInfo"),
+        ("planner_info", "PlannerInfo"),
+        ("invoice_info", "InvoiceInfo"),
+    ]:
+        info_obj = getattr(order, info_name, None)
+        if info_obj is not None:
+            info_el = etree.SubElement(order_el, tag_name)
+            _add_address(info_el, info_obj.address)
+
+    for item in order.items:
+        _add_order_item(order_el, item, warnings)
+
+
+def _add_address(parent: etree._Element, addr: Any) -> None:
+    if addr is None:
+        return
+    addr_el = etree.SubElement(parent, "Address")
+    for field_name, tag_name in [
+        ("name", "Name"), ("name2", "Name2"), ("street", "Street"),
+        ("pcode", "PCode"), ("city", "City"), ("country", "Country"),
+        ("phone", "Phone"), ("fax", "Fax"), ("email", "EMail"),
+    ]:
+        val = getattr(addr, field_name, None)
+        if val:
+            _add_text_el(addr_el, tag_name, val)
+
+
+def _add_order_item(
+    parent: etree._Element, item: OrderItem, warnings: list[str],
+) -> None:
+    item_el = etree.SubElement(parent, "OrderItem")
+
+    if item.ean:
+        _add_text_el(item_el, "EAN", item.ean)
+    if item.art_no_id:
+        _add_text_el(item_el, "ArtNoID", item.art_no_id)
+    if item.art_no:
+        _add_text_el(item_el, "ArtNo", item.art_no)
+    if item.supplier_art_no_id:
+        _add_text_el(item_el, "SupplierArtNoID", item.supplier_art_no_id)
+    if item.supplier_art_no:
+        _add_text_el(item_el, "SupplierArtNo", item.supplier_art_no)
+    if item.customer_art_no:
+        _add_text_el(item_el, "CustomerArtNo", item.customer_art_no)
+    if item.catalog_art_no:
+        _add_text_el(item_el, "CatalogArtNo", item.catalog_art_no)
+    if item.catalog_no:
+        _add_text_el(item_el, "CatalogNo", item.catalog_no)
+
+    if item.qty is not None:
+        _add_text_el(item_el, "Qty", _fmt_decimal(item.qty))
+    if item.unit:
+        _add_text_el(item_el, "QU", item.unit)
+
+    if item.short_text:
+        desc_el = etree.SubElement(item_el, "Description")
+        ct_el = etree.SubElement(desc_el, "CompleteText")
+        ol_el = etree.SubElement(ct_el, "OutlineText")
+        otl_el = etree.SubElement(ol_el, "OutlTxt")
+        txt_el = etree.SubElement(otl_el, "TextOutlTxt")
+        txt_el.text = item.short_text
+
+    if item.offer_price is not None:
+        _add_text_el(item_el, "OfferPrice", _fmt_decimal(item.offer_price))
+    if item.net_price is not None:
+        _add_text_el(item_el, "NetPrice", _fmt_decimal(item.net_price))
+    if item.price_basis is not None:
+        _add_text_el(item_el, "PriceBasis", _fmt_decimal(item.price_basis))
+    if item.aqu:
+        _add_text_el(item_el, "AQU", item.aqu)
+
+    if item.mode_of_shipment:
+        _add_text_el(item_el, "ModeOfShipment", item.mode_of_shipment)
+    if item.delivery_date:
+        _add_text_el(item_el, "DeliveryDate", item.delivery_date.strftime("%Y-%m-%d"))
 
 
 def _translate_to_german(xml_text: str) -> str:

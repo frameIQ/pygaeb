@@ -25,7 +25,7 @@ from pygaeb.extractor.schema_utils import (
     schema_field_summary,
 )
 from pygaeb.models.document import GAEBDocument
-from pygaeb.models.item import ExtractionResult, Item
+from pygaeb.models.item import ExtractionResult
 
 logger = logging.getLogger("pygaeb.extractor")
 
@@ -82,8 +82,10 @@ class StructuredExtractor:
         on_progress: ProgressCallback | None = None,
         force_reextract: bool = False,
         attach: bool = True,
-    ) -> list[tuple[Item, T]]:
+    ) -> list[tuple[Any, T]]:
         """Extract structured data from items matching a classification filter.
+
+        Works for both procurement and trade documents.
 
         Args:
             doc: Parsed GAEB document (items should be classified first).
@@ -91,7 +93,7 @@ class StructuredExtractor:
             trade: Filter by classification trade (Level 1).
             element_type: Filter by classification element_type (Level 2).
             sub_type: Filter by classification sub_type (Level 3).
-            on_progress: Callback(completed, total, current_oz).
+            on_progress: Callback(completed, total, current_label).
             force_reextract: Bypass cache and re-extract all items.
             attach: If True, store results on item.extractions[schema_name].
 
@@ -127,14 +129,14 @@ class StructuredExtractor:
 
     async def extract_items(
         self,
-        items: list[Item],
+        items: list[Any],
         schema: type[T],
         trade_context: str = "",
         element_context: str = "",
         on_progress: ProgressCallback | None = None,
         force_reextract: bool = False,
         attach: bool = True,
-    ) -> list[tuple[Item, T]]:
+    ) -> list[tuple[Any, T]]:
         """Extract structured data from an explicit list of items.
 
         Use this when you want full control over which items to extract from,
@@ -162,7 +164,7 @@ class StructuredExtractor:
         on_progress: ProgressCallback | None = None,
         force_reextract: bool = False,
         attach: bool = True,
-    ) -> list[tuple[Item, T]]:
+    ) -> list[tuple[Any, T]]:
         """Synchronous convenience wrapper."""
         try:
             loop = asyncio.get_running_loop()
@@ -196,7 +198,7 @@ class StructuredExtractor:
         num_fields = len(schema.model_fields)
 
         cached_count = 0
-        to_extract: list[Item] = []
+        to_extract: list[Any] = []
         for item in items:
             item_hash = compute_item_hash(item.short_text, item.long_text_plain[:300])
             cache_key = compute_extraction_cache_key(item_hash, s_hash)
@@ -205,7 +207,10 @@ class StructuredExtractor:
             else:
                 to_extract.append(item)
 
-        avg_input_tokens = 300
+        avg_chars = sum(
+            len(i.short_text) + len(i.long_text_plain) for i in to_extract
+        ) / max(len(to_extract), 1)
+        avg_input_tokens = int(avg_chars / 3) + 200
         output_tokens_per_field = 30
         total_input = len(to_extract) * avg_input_tokens
         total_output = len(to_extract) * num_fields * output_tokens_per_field
@@ -223,14 +228,14 @@ class StructuredExtractor:
 
     async def _extract_batch(
         self,
-        items: list[Item],
+        items: list[Any],
         schema: type[T],
         trade_context: str,
         element_context: str,
         on_progress: ProgressCallback | None,
         force_reextract: bool,
         attach: bool,
-    ) -> list[tuple[Item, T]]:
+    ) -> list[tuple[Any, T]]:
         s_hash = compute_schema_hash(schema)
         s_name = get_schema_name(schema)
         system_prompt = build_extraction_prompt(schema, element_context, trade_context)
@@ -241,12 +246,17 @@ class StructuredExtractor:
         )
 
         semaphore = asyncio.Semaphore(self.concurrency)
-        results: list[tuple[Item, T]] = []
+        results: list[tuple[Any, T]] = []
         completed = 0
         total = len(items)
 
-        async def _extract_one(item: Item) -> tuple[Item, T]:
+        async def _extract_one(item: Any) -> tuple[Any, T]:
             nonlocal completed
+            label = str(
+                getattr(item, "oz", None)
+                or getattr(item, "art_no", None)
+                or getattr(item, "item_id", "")
+            )
 
             item_hash = compute_item_hash(item.short_text, item.long_text_plain[:300])
             cache_key = compute_extraction_cache_key(item_hash, s_hash)
@@ -266,7 +276,7 @@ class StructuredExtractor:
                         )
                     completed += 1
                     if on_progress:
-                        on_progress(completed, total, item.oz)
+                        on_progress(completed, total, label)
                     return item, instance
 
             async with semaphore:
@@ -288,7 +298,7 @@ class StructuredExtractor:
 
             completed += 1
             if on_progress:
-                on_progress(completed, total, item.oz)
+                on_progress(completed, total, label)
             return item, instance
 
         tasks = [_extract_one(item) for item in items]
@@ -307,7 +317,7 @@ class StructuredExtractor:
 
     async def _call_llm(
         self,
-        item: Item,
+        item: Any,
         schema: type[T],
         system_prompt: str,
     ) -> T:
@@ -330,10 +340,11 @@ class StructuredExtractor:
                 f"{item.classification.sub_type}"
             )
 
+        hierarchy = getattr(item, "hierarchy_path_str", "")
         user_message = build_extraction_user_message(
-            hierarchy_path=item.hierarchy_path_str,
+            hierarchy_path=hierarchy,
             short_text=item.short_text,
-            long_text_head=item.long_text_plain[:500],
+            long_text=item.long_text_plain,
             unit=item.unit or "",
             qty=str(item.qty) if item.qty else "",
         )
@@ -369,10 +380,10 @@ def _filter_items(
     trade: str | None = None,
     element_type: str | None = None,
     sub_type: str | None = None,
-) -> list[Item]:
-    """Filter items by classification fields."""
-    items: list[Item] = []
-    for item in doc.award.boq.iter_items():
+) -> list[Any]:
+    """Filter items by classification fields. Works for both document kinds."""
+    items: list[Any] = []
+    for item in doc.iter_items():
         if item.classification is None:
             continue
         cls = item.classification

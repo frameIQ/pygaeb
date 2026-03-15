@@ -105,7 +105,11 @@ class ExtractionResult(BaseModel):
 
 
 class Item(BaseModel):
-    """A single item (position) in a Bill of Quantities."""
+    """A single item (position) in a procurement Bill of Quantities (X80-X89).
+
+    Inherits text, quantity, and LLM fields; adds procurement-specific
+    pricing, hierarchy, and attachment support.
+    """
 
     model_config = {"arbitrary_types_allowed": True}
 

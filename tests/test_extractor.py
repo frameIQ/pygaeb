@@ -158,7 +158,7 @@ class TestExtractionUserMessage:
         msg = build_extraction_user_message(
             hierarchy_path="Ausbau > Türen",
             short_text="Innentür T30 einflügelig",
-            long_text_head="Holztür mit Stahlzarge",
+            long_text="Holztür mit Stahlzarge",
             unit="Stk",
         )
         assert "Ausbau > Türen" in msg
@@ -170,7 +170,7 @@ class TestExtractionUserMessage:
         msg = build_extraction_user_message(
             hierarchy_path="",
             short_text="Door item",
-            long_text_head="",
+            long_text="",
             unit="",
         )
         assert "Long text" not in msg

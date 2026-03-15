@@ -17,9 +17,17 @@ class SourceVersion(str, Enum):
     GAEB_90 = "90"
 
 
-class ExchangePhase(str, Enum):
-    """GAEB exchange phase — each step of the procurement workflow."""
+class DocumentKind(str, Enum):
+    """Discriminator for procurement vs. trade documents."""
 
+    PROCUREMENT = "procurement"
+    TRADE = "trade"
+
+
+class ExchangePhase(str, Enum):
+    """GAEB exchange phase — procurement and trade workflows."""
+
+    # Procurement phases (X80-X89)
     X80 = "X80"
     X81 = "X81"
     X82 = "X82"
@@ -35,6 +43,12 @@ class ExchangePhase(str, Enum):
     X86ZR = "X86ZR"
     X86ZE = "X86ZE"
 
+    # Trade phases (X93-X97)
+    X93 = "X93"
+    X94 = "X94"
+    X96 = "X96"
+    X97 = "X97"
+
     # DA XML 2.x D-prefixed aliases
     D80 = "D80"
     D81 = "D81"
@@ -47,14 +61,22 @@ class ExchangePhase(str, Enum):
     D31 = "D31"
 
     def normalized(self) -> ExchangePhase:
-        """Return the X-prefixed canonical form (D83 → X83, etc.)."""
+        """Return the X-prefixed canonical form (D83 -> X83, etc.)."""
         return _D_TO_X_PHASE.get(self, self)
+
+    @property
+    def is_trade(self) -> bool:
+        """True for trade phases (X93, X94, X96, X97)."""
+        return self in _TRADE_PHASES
 
 
 _D_TO_X_PHASE: dict[ExchangePhase, ExchangePhase] = {}
 
+_TRADE_PHASES: frozenset[ExchangePhase] = frozenset()
+
 
 def _init_phase_map() -> None:
+    global _TRADE_PHASES
     _D_TO_X_PHASE.update({
         ExchangePhase.D80: ExchangePhase.X80,
         ExchangePhase.D81: ExchangePhase.X81,
@@ -65,6 +87,12 @@ def _init_phase_map() -> None:
         ExchangePhase.D86: ExchangePhase.X86,
         ExchangePhase.D89: ExchangePhase.X89,
         ExchangePhase.D31: ExchangePhase.X31,
+    })
+    _TRADE_PHASES = frozenset({
+        ExchangePhase.X93,
+        ExchangePhase.X94,
+        ExchangePhase.X96,
+        ExchangePhase.X97,
     })
 
 
