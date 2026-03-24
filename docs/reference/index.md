@@ -18,4 +18,5 @@ Complete reference documentation for all public classes, functions, and enums in
 - **[Cache](cache.md)** — `CacheBackend` protocol, `InMemoryCache`, `SQLiteCache`
 - **[Validation](validation.md)** — `CrossPhaseValidator`, validation result types
 - **[Configuration](config.md)** — `PyGAEBSettings`, `configure()`, `get_settings()`
+- **[BoQ Tree](boq-tree.md)** — `BoQTree`, `BoQNode`, `NodeKind`
 - **[Exceptions](exceptions.md)** — exception hierarchy

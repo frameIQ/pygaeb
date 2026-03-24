@@ -4,6 +4,22 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-03-24
+
+### Added
+
+- **Read-only BoQ Tree API** — `BoQTree` adapter wraps an existing `BoQ` and builds a navigable node graph with parent references, depth tracking, and indexed lookups. The underlying Pydantic models are not modified.
+- **`BoQNode`** — Lightweight tree node with O(1) `parent`, `children`, `depth`, `index`, `siblings`, `ancestors`, `path`, `next_sibling`, `prev_sibling`, `is_leaf`, `is_root` properties.
+- **Type-safe model accessors** — `node.boq`, `node.lot`, `node.category`, `node.item` raise `TypeError` if accessed on the wrong node kind.
+- **Unified convenience properties** — `node.label`, `node.rno`, `node.label_path` work across all node kinds (root, lot, category, item).
+- **Subtree queries** — `node.iter_descendants()`, `node.iter_items()`, `node.iter_categories()`, `node.find(predicate)`, `node.find_all(predicate)`.
+- **`BoQTree` lookups** — `tree.find_item(oz)` (O(1) via index), `tree.find_category(rno)`, `tree.find_all_categories(rno)`.
+- **Tree traversal** — `tree.walk()` (depth-first) and `tree.walk_bfs()` (breadth-first) over all nodes.
+- **`NodeKind`** enum — `ROOT`, `LOT`, `CATEGORY`, `ITEM` discriminator for node types.
+- New exports: `BoQTree`, `BoQNode`, `NodeKind`.
+- New guide: [Tree Navigation](guides/tree-navigation.md).
+- 87 new tests covering root, lots, categories, items, children ordering, parent chains, ancestors, siblings, lookups, iteration, predicate search, DFS/BFS traversal, counts, multi-lot, type-safe accessors, empty categories, model identity, and repr.
+
 ## [1.7.1] - 2026-03-15
 
 ### Fixed
@@ -196,6 +212,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `py.typed` marker for PEP 561 compliance
 - Comprehensive test suite (193 tests)
 
+[1.8.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.8.0
 [1.7.1]: https://github.com/frameiq/pygaeb/releases/tag/v1.7.1
 [1.7.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.7.0
 [1.6.0]: https://github.com/frameiq/pygaeb/releases/tag/v1.6.0

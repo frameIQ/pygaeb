@@ -88,6 +88,7 @@ nav:
     - Custom & Vendor Tags: guides/custom-tags.md
     - Writing & Export: guides/writing.md
     - Caching: guides/caching.md
+    - Tree Navigation: guides/tree-navigation.md
     - Extensibility: guides/extensibility.md
   - API Reference:
     - reference/index.md
@@ -99,6 +100,7 @@ nav:
     - Writer & Export: reference/writer.md
     - Cache: reference/cache.md
     - DocumentAPI: reference/document-api.md
+    - BoQ Tree: reference/boq-tree.md
     - Validation: reference/validation.md
     - Configuration: reference/config.md
     - Exceptions: reference/exceptions.md
