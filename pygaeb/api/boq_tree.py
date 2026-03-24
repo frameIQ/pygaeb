@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Iterator
 from enum import Enum
-from typing import Any, Callable, Union
+from typing import Callable, Union
 
 from pygaeb.models.boq import BoQ, BoQCtgy, Lot
 from pygaeb.models.item import Item
@@ -46,7 +46,7 @@ class BoQNode:
     Children are stored as an immutable tuple to signal read-only intent.
     """
 
-    __slots__ = ("_kind", "_model", "_parent", "_children", "_depth", "_index")
+    __slots__ = ("_children", "_depth", "_index", "_kind", "_model", "_parent")
 
     def __init__(
         self,
@@ -65,7 +65,10 @@ class BoQNode:
         self._index = index
 
     def __repr__(self) -> str:
-        return f"BoQNode(kind={self._kind.value}, rno={self.rno!r}, label={self.label!r}, depth={self._depth})"
+        return (
+            f"BoQNode(kind={self._kind.value}, rno={self.rno!r},"
+            f" label={self.label!r}, depth={self._depth})"
+        )
 
     # ------------------------------------------------------------------
     # Core properties (precomputed, O(1))
@@ -255,7 +258,7 @@ class BoQTree:
     Construction is O(n) where n is the total number of nodes.
     """
 
-    __slots__ = ("_root", "_items_by_oz", "_node_count", "_item_count")
+    __slots__ = ("_item_count", "_items_by_oz", "_node_count", "_root")
 
     def __init__(self, boq: BoQ) -> None:
         self._items_by_oz: dict[str, BoQNode] = {}
@@ -264,7 +267,10 @@ class BoQTree:
         self._root = self._build_root(boq)
 
     def __repr__(self) -> str:
-        return f"BoQTree(lots={len(self._root._children)}, nodes={self._node_count}, items={self._item_count})"
+        return (
+            f"BoQTree(lots={len(self._root._children)},"
+            f" nodes={self._node_count}, items={self._item_count})"
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -394,7 +400,9 @@ class BoQTree:
 
         offset = len(child_nodes)
         for i, item_model in enumerate(ctgy.items):
-            item_node = self._build_item(item_model, parent=ctgy_node, depth=depth + 1, index=offset + i)
+            item_node = self._build_item(
+                item_model, parent=ctgy_node, depth=depth + 1, index=offset + i,
+            )
             child_nodes.append(item_node)
 
         ctgy_node._children = tuple(child_nodes)

@@ -1,6 +1,6 @@
 """Tests for the read-only BoQ tree API (BoQTree, BoQNode, NodeKind)."""
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 from decimal import Decimal
 
