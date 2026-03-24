@@ -126,6 +126,10 @@ def __getattr__(name: str) -> object:
         "ValidationSeverity": ("pygaeb.models.enums", "ValidationSeverity"),
         # Document navigation
         "DocumentAPI": ("pygaeb.api.document_api", "DocumentAPI"),
+        # Tree API
+        "BoQTree": ("pygaeb.api.boq_tree", "BoQTree"),
+        "BoQNode": ("pygaeb.api.boq_tree", "BoQNode"),
+        "NodeKind": ("pygaeb.api.boq_tree", "NodeKind"),
     }
 
     if name in _lazy_map:
@@ -149,6 +153,8 @@ __all__ = [
     "BoQCtgyRef",
     "BoQInfo",
     "BoQItemRef",
+    "BoQNode",
+    "BoQTree",
     "CacheBackend",
     "Catalog",
     "CategoryElement",
@@ -194,6 +200,7 @@ __all__ = [
     "LLMClassifier",
     "Lot",
     "MarkupSubQty",
+    "NodeKind",
     "OrderInfo",
     "OrderItem",
     "PlannerInfo",

@@ -195,6 +195,35 @@ for vp in totals.vat_parts:
 print(doc.award.prj_id, doc.award.description, doc.award.currency_label)
 ```
 
+### Tree Navigation (BoQ Hierarchy)
+
+Navigate the BoQ with parent references, depth tracking, and indexed lookups:
+
+```python
+from pygaeb import BoQTree, NodeKind
+
+tree = BoQTree(doc.award.boq)
+
+# Find an item and navigate up
+node = tree.find_item("01.01.0010")
+print(node.parent.label)       # "Mauerwerk"
+print(node.depth)              # level in tree
+print(node.label_path)         # ["BoQ", "Default", "Rohbau", "Mauerwerk", "..."]
+print(node.siblings)           # sibling nodes
+
+# Walk the hierarchy
+for node in tree.walk():
+    indent = "  " * node.depth
+    print(f"{indent}{node.kind.value}: {node.label}")
+
+# Subtree queries
+expensive = tree.root.find_all(
+    lambda n: n.kind == NodeKind.ITEM
+    and n.item.total_price
+    and n.item.total_price > 50000
+)
+```
+
 ### LLM Classification
 
 ```python
@@ -403,6 +432,7 @@ Full documentation is available at [Read the Docs](https://pygaeb.readthedocs.io
 - [Trade Phases](https://pygaeb.readthedocs.io/guides/trade-phases/)
 - [Cost & Calculation](https://pygaeb.readthedocs.io/guides/cost-phases/)
 - [Quantity Determination](https://pygaeb.readthedocs.io/guides/quantity-phases/)
+- [Tree Navigation](https://pygaeb.readthedocs.io/guides/tree-navigation/)
 - [Extensibility](https://pygaeb.readthedocs.io/guides/extensibility/)
 - [Classification](https://pygaeb.readthedocs.io/guides/classification/)
 - [Version Conversion](https://pygaeb.readthedocs.io/guides/conversion/)
