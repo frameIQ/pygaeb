@@ -14,3 +14,4 @@ In-depth guides for every pyGAEB capability.
 - **[Writing & Export](writing.md)** — round-trip editing, phase override, JSON/CSV export
 - **[Caching](caching.md)** — in-memory, SQLite, and custom cache backends
 - **[Tree Navigation](tree-navigation.md)** — BoQTree adapter with parent references, sibling navigation, depth tracking, and subtree queries
+- **[Document Diff](document-diff.md)** — compare two GAEB documents with significance-classified field changes, structural diff, and financial impact

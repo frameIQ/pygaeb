@@ -19,4 +19,5 @@ Complete reference documentation for all public classes, functions, and enums in
 - **[Validation](validation.md)** — `CrossPhaseValidator`, validation result types
 - **[Configuration](config.md)** — `PyGAEBSettings`, `configure()`, `get_settings()`
 - **[BoQ Tree](boq-tree.md)** — `BoQTree`, `BoQNode`, `NodeKind`
+- **[Document Diff](document-diff.md)** — `BoQDiff`, `DiffResult`, `Significance`, `DiffMode`
 - **[Exceptions](exceptions.md)** — exception hierarchy

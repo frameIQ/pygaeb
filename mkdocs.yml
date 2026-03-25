@@ -89,6 +89,7 @@ nav:
     - Writing & Export: guides/writing.md
     - Caching: guides/caching.md
     - Tree Navigation: guides/tree-navigation.md
+    - Document Diff: guides/document-diff.md
     - Extensibility: guides/extensibility.md
   - API Reference:
     - reference/index.md
@@ -101,6 +102,7 @@ nav:
     - Cache: reference/cache.md
     - DocumentAPI: reference/document-api.md
     - BoQ Tree: reference/boq-tree.md
+    - Document Diff: reference/document-diff.md
     - Validation: reference/validation.md
     - Configuration: reference/config.md
     - Exceptions: reference/exceptions.md

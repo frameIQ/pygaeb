@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-03-24
+
+### Added
+
+- **Document Diff Engine** — `BoQDiff.compare(doc_a, doc_b)` performs a deterministic, field-by-field comparison of two GAEB procurement documents with structured results.
+- **OZ-based item matching** — Lot-aware matching by OZ (ordinal number) with global fallback for items that moved between lots.
+- **Field-level change detection** — Each changed field carries a `Significance` level (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`) based on construction context impact.
+- **Structural diff** — Detects added, removed, and renamed sections (categories), as well as items that moved between categories or lots.
+- **`DiffMode`** enum — `DEFAULT` (warnings for mismatched projects), `STRICT` (raises `ValueError`), `FORCE` (suppresses warnings).
+- **`DiffResult`** Pydantic model — Complete comparison output with `summary`, `items`, `structure`, `metadata`, and `warnings` sections. Fully serializable to JSON.
+- **Financial impact** — Automatic computation of net financial impact (`grand_total_b - grand_total_a`).
+- **Match ratio & compatibility warnings** — Low match ratio detection, different project warnings, currency mismatch alerts, version difference notices.
+- **Result filtering** — `ItemModified.filter_changes(min_significance)` and `ItemDiffSummary.filter_modified(min_significance)` for targeted reporting.
+- New exports: `BoQDiff`, `DiffMode`, `DiffResult`, `DiffSummary`, `DiffDocInfo`, `Significance`, `FieldChange`, `ItemAdded`, `ItemRemoved`, `ItemModified`, `ItemMoved`, `ItemDiffSummary`, `MetadataChange`, `SectionChange`, `SectionRenamed`, `StructureDiffSummary`.
+- 53 new tests covering item matching, field comparison, structural diff, integration, models, lazy imports, and edge cases.
+
 ## [1.8.0] - 2026-03-24
 
 ### Added
