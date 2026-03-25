@@ -4,6 +4,20 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-03-24
+
+### Added
+
+- **BoQ Builder API** — `BoQBuilder` provides programmatic construction of GAEB documents from scratch with a fluent, explicit-object API.
+- **Auto OZ generation** — Ordinal numbers auto-generated from category `rno` + sequence when `oz` is omitted.
+- **Decimal convenience** — `int`/`float`/`str` auto-converted to `Decimal`; auto-computes `total_price` when missing.
+- **Field name validation** — Unknown kwargs raise `ValueError` with typo suggestions.
+- **Phase-aware rules** — Warns or errors when items violate exchange phase semantics.
+- **Version compatibility checks** — Detects fields incompatible with the target DA XML version.
+- **Duplicate OZ detection**, **auto totals & BoQBkdn**, **implicit lot shortcut**, **ItemHandle** for long text/attachments.
+- Optional XSD validation via `build(xsd_dir=...)`.
+- 46 new tests.
+
 ## [1.9.0] - 2026-03-24
 
 ### Added

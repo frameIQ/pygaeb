@@ -22,6 +22,7 @@ An optional LLM classification layer enriches each item with a semantic construc
 - **Extensible** — Custom validators, post-parse hooks, raw XML data collection, custom LLM taxonomy
 - **LLM classification** — 100+ provider support via LiteLLM with cost estimation and persistent caching
 - **Document diff** — Compare two BoQs with significance-classified field changes, structural diff, and financial impact
+- **BoQ Builder** — Programmatic document construction with auto OZ, Decimal convenience, phase rules, and version checks
 - **Round-trip** — Parse → modify → write back to any DA XML version
 - **Version conversion** — Upgrade/downgrade between DA XML 2.0–3.3
 
@@ -266,6 +267,23 @@ for sec in result.structure.sections_added:
 result = BoQDiff.compare(doc_a, doc_b, mode=DiffMode.STRICT)
 ```
 
+### Build a Document from Scratch
+
+```python
+from pygaeb import BoQBuilder, GAEBWriter
+
+builder = BoQBuilder(phase="X83", version="3.3")
+builder.project(no="PRJ-001", name="School Renovation", currency="EUR")
+
+lot = builder.add_lot("1", "Structural Work")
+concrete = lot.add_category("01", "Concrete")
+concrete.add_item("01.0010", "Foundation", qty=120, unit="m3", unit_price=85)
+concrete.add_item("01.0020", "Columns",   qty=40,  unit="m3", unit_price=95)
+
+doc = builder.build()               # GAEBDocument with auto totals
+GAEBWriter.write(doc, "output.X83") # Write to GAEB XML
+```
+
 ### LLM Classification
 
 ```python
@@ -476,6 +494,7 @@ Full documentation is available at [Read the Docs](https://pygaeb.readthedocs.io
 - [Quantity Determination](https://pygaeb.readthedocs.io/guides/quantity-phases/)
 - [Tree Navigation](https://pygaeb.readthedocs.io/guides/tree-navigation/)
 - [Document Diff](https://pygaeb.readthedocs.io/guides/document-diff/)
+- [BoQ Builder](https://pygaeb.readthedocs.io/guides/builder/)
 - [Extensibility](https://pygaeb.readthedocs.io/guides/extensibility/)
 - [Classification](https://pygaeb.readthedocs.io/guides/classification/)
 - [Version Conversion](https://pygaeb.readthedocs.io/guides/conversion/)

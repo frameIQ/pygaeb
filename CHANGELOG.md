@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-03-24
+
+### Added
+
+- **BoQ Builder API** — `BoQBuilder` provides programmatic construction of GAEB documents from scratch with a fluent, explicit-object API.
+- **Auto OZ generation** — Ordinal numbers auto-generated from category `rno` + sequence (10, 20, 30...) when `oz` is omitted. Explicit OZ overrides supported.
+- **Decimal convenience** — `int`, `float`, and `str` values auto-converted to `Decimal` for `qty`, `unit_price`, and `total_price`. Auto-computes `total_price` when missing.
+- **Field name validation** — Unknown kwargs raise `ValueError` with `difflib` suggestions for likely typos (e.g., `'unit_prce'` → `Did you mean: 'unit_price'?`).
+- **Phase-aware rules** — Warns or errors (strict mode) when items violate exchange phase semantics (e.g., prices in X80 blank BoQ, missing prices in X83 tender).
+- **Version compatibility checks** — Detects fields incompatible with the target DA XML version (e.g., `bim_guid` in DA XML < 3.3) with warnings or strict errors.
+- **Duplicate OZ detection** — Catches duplicate ordinal numbers within a lot at build time.
+- **Auto totals & BoQBkdn** — Lot subtotals computed from item prices; breakdown structure inferred from hierarchy depth.
+- **Implicit lot shortcut** — `builder.add_category()` creates a single implicit lot for simple documents.
+- **ItemHandle** — Fluent post-construction for long text (`.set_long_text()`) and attachments (`.add_attachment()`).
+- **Optional XSD validation** — `build(xsd_dir=...)` serializes to XML in memory and validates against official GAEB XSD schemas.
+- **Full writer compatibility** — Built documents work directly with `GAEBWriter.write()` and `GAEBWriter.to_bytes()`.
+- New export: `BoQBuilder` (top-level lazy import).
+- 46 new tests covering basic construction, multi-lot, nested categories, auto OZ, Decimal conversion, field validation, typo detection, phase rules, version compatibility, strict mode, duplicate OZ, auto totals, round-trip serialization, and edge cases.
+
 ## [1.9.0] - 2026-03-24
 
 ### Added

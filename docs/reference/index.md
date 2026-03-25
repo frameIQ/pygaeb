@@ -20,4 +20,5 @@ Complete reference documentation for all public classes, functions, and enums in
 - **[Configuration](config.md)** — `PyGAEBSettings`, `configure()`, `get_settings()`
 - **[BoQ Tree](boq-tree.md)** — `BoQTree`, `BoQNode`, `NodeKind`
 - **[Document Diff](document-diff.md)** — `BoQDiff`, `DiffResult`, `Significance`, `DiffMode`
+- **[BoQ Builder](builder.md)** — `BoQBuilder`, `LotBuilder`, `CategoryBuilder`, `ItemHandle`
 - **[Exceptions](exceptions.md)** — exception hierarchy
