@@ -566,4 +566,4 @@ def _apply_formatting_auto(ws: Any) -> None:
 
 def _col_letter(col_idx: int) -> str:
     from openpyxl.utils import get_column_letter
-    return get_column_letter(col_idx)
+    return str(get_column_letter(col_idx))
