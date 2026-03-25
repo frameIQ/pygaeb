@@ -21,6 +21,7 @@ An optional LLM classification layer enriches each item with a semantic construc
 - **Security-hardened** — XXE prevention, Billion Laughs protection, file size guards, recursion depth limits
 - **Extensible** — Custom validators, post-parse hooks, raw XML data collection, custom LLM taxonomy
 - **LLM classification** — 100+ provider support via LiteLLM with cost estimation and persistent caching
+- **Document diff** — Compare two BoQs with significance-classified field changes, structural diff, and financial impact
 - **Round-trip** — Parse → modify → write back to any DA XML version
 - **Version conversion** — Upgrade/downgrade between DA XML 2.0–3.3
 
@@ -222,6 +223,47 @@ expensive = tree.root.find_all(
     and n.item.total_price
     and n.item.total_price > 50000
 )
+```
+
+### Document Diff (Compare Two BoQs)
+
+Compare two GAEB documents and get structured, significance-classified changes:
+
+```python
+from pygaeb import GAEBParser, BoQDiff, DiffMode, Significance
+
+doc_a = GAEBParser.parse("tender_v1.X83")
+doc_b = GAEBParser.parse("tender_v2.X83")
+
+result = BoQDiff.compare(doc_a, doc_b)
+
+# Top-level summary
+print(result.summary.total_changes)      # 12
+print(result.summary.financial_impact)   # Decimal("45230.00")
+print(result.summary.max_significance)   # Significance.CRITICAL
+
+# Items added / removed / modified
+for item in result.items.added:
+    print(f"+ {item.oz}: {item.short_text}")
+
+for item in result.items.removed:
+    print(f"- {item.oz}: {item.short_text}")
+
+# Field-level changes with significance
+for mod in result.items.modified:
+    for change in mod.changes:
+        print(f"  {mod.oz} {change.field}: {change.old_value} → {change.new_value}"
+              f" [{change.significance.value}]")
+
+# Filter by significance
+critical_only = result.items.filter_modified(Significance.CRITICAL)
+
+# Structural changes (sections added/removed/renamed)
+for sec in result.structure.sections_added:
+    print(f"New section: {sec.label}")
+
+# Strict mode: raises ValueError if documents are from different projects
+result = BoQDiff.compare(doc_a, doc_b, mode=DiffMode.STRICT)
 ```
 
 ### LLM Classification
@@ -433,6 +475,7 @@ Full documentation is available at [Read the Docs](https://pygaeb.readthedocs.io
 - [Cost & Calculation](https://pygaeb.readthedocs.io/guides/cost-phases/)
 - [Quantity Determination](https://pygaeb.readthedocs.io/guides/quantity-phases/)
 - [Tree Navigation](https://pygaeb.readthedocs.io/guides/tree-navigation/)
+- [Document Diff](https://pygaeb.readthedocs.io/guides/document-diff/)
 - [Extensibility](https://pygaeb.readthedocs.io/guides/extensibility/)
 - [Classification](https://pygaeb.readthedocs.io/guides/classification/)
 - [Version Conversion](https://pygaeb.readthedocs.io/guides/conversion/)

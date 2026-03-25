@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.8.1"
+__version__ = "1.9.0"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
@@ -130,6 +130,23 @@ def __getattr__(name: str) -> object:
         "BoQTree": ("pygaeb.api.boq_tree", "BoQTree"),
         "BoQNode": ("pygaeb.api.boq_tree", "BoQNode"),
         "NodeKind": ("pygaeb.api.boq_tree", "NodeKind"),
+        # Diff engine
+        "BoQDiff": ("pygaeb.diff.boq_diff", "BoQDiff"),
+        "DiffMode": ("pygaeb.diff.models", "DiffMode"),
+        "DiffResult": ("pygaeb.diff.models", "DiffResult"),
+        "DiffSummary": ("pygaeb.diff.models", "DiffSummary"),
+        "DiffDocInfo": ("pygaeb.diff.models", "DiffDocInfo"),
+        "FieldChange": ("pygaeb.diff.models", "FieldChange"),
+        "ItemAdded": ("pygaeb.diff.models", "ItemAdded"),
+        "ItemDiffSummary": ("pygaeb.diff.models", "ItemDiffSummary"),
+        "ItemModified": ("pygaeb.diff.models", "ItemModified"),
+        "ItemMoved": ("pygaeb.diff.models", "ItemMoved"),
+        "ItemRemoved": ("pygaeb.diff.models", "ItemRemoved"),
+        "MetadataChange": ("pygaeb.diff.models", "MetadataChange"),
+        "SectionChange": ("pygaeb.diff.models", "SectionChange"),
+        "SectionRenamed": ("pygaeb.diff.models", "SectionRenamed"),
+        "Significance": ("pygaeb.diff.models", "Significance"),
+        "StructureDiffSummary": ("pygaeb.diff.models", "StructureDiffSummary"),
     }
 
     if name in _lazy_map:
@@ -151,6 +168,7 @@ __all__ = [
     "BoQBody",
     "BoQCtgy",
     "BoQCtgyRef",
+    "BoQDiff",
     "BoQInfo",
     "BoQItemRef",
     "BoQNode",
@@ -175,6 +193,10 @@ __all__ = [
     "CtlgAssign",
     "CustomerInfo",
     "DeliveryPlaceInfo",
+    "DiffDocInfo",
+    "DiffMode",
+    "DiffResult",
+    "DiffSummary",
     "DimensionElement",
     "DimensionElementRef",
     "DocumentAPI",
@@ -186,6 +208,7 @@ __all__ = [
     "ElementalCosting",
     "ExchangePhase",
     "ExtractionResult",
+    "FieldChange",
     "GAEBConverter",
     "GAEBDocument",
     "GAEBInfo",
@@ -196,10 +219,16 @@ __all__ = [
     "InMemoryCache",
     "InvoiceInfo",
     "Item",
+    "ItemAdded",
+    "ItemDiffSummary",
+    "ItemModified",
+    "ItemMoved",
+    "ItemRemoved",
     "ItemType",
     "LLMClassifier",
     "Lot",
     "MarkupSubQty",
+    "MetadataChange",
     "NodeKind",
     "OrderInfo",
     "OrderItem",
@@ -220,7 +249,11 @@ __all__ = [
     "RefGroup",
     "RichText",
     "SQLiteCache",
+    "SectionChange",
+    "SectionRenamed",
+    "Significance",
     "SourceVersion",
+    "StructureDiffSummary",
     "StructuredExtractor",
     "SupplierInfo",
     "Totals",
