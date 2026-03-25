@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from pygaeb.api.boq_tree import BoQTree, NodeKind
+from pygaeb.api.boq_tree import BoQTree
 
 
 @dataclass
