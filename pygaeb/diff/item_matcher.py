@@ -8,17 +8,18 @@ returned separately for optional fuzzy resolution.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
-from pygaeb.api.boq_tree import BoQTree
+from pygaeb.api.boq_tree import BoQNode, BoQTree
 
 
 @dataclass
 class MatchResult:
     """Result of matching items between two trees."""
 
-    matched: list[tuple[any, any]] = field(default_factory=list)
-    unmatched_a: list[any] = field(default_factory=list)
-    unmatched_b: list[any] = field(default_factory=list)
+    matched: list[tuple[BoQNode, BoQNode]] = field(default_factory=list)
+    unmatched_a: list[BoQNode] = field(default_factory=list)
+    unmatched_b: list[BoQNode] = field(default_factory=list)
 
     @property
     def match_ratio(self) -> float:
@@ -40,7 +41,7 @@ def match_items(tree_a: BoQTree, tree_b: BoQTree) -> MatchResult:
     index_a = _build_item_index(tree_a)
     index_b = _build_item_index(tree_b)
 
-    matched: list[tuple[any, any]] = []
+    matched: list[tuple[BoQNode, BoQNode]] = []
     used_b_keys: set[tuple[str, str]] = set()
 
     for key, node_a in index_a.items():
@@ -57,9 +58,9 @@ def match_items(tree_a: BoQTree, tree_b: BoQTree) -> MatchResult:
     return MatchResult(matched=matched, unmatched_a=unmatched_a, unmatched_b=unmatched_b)
 
 
-def _build_item_index(tree: BoQTree) -> dict[tuple[str, str], any]:
+def _build_item_index(tree: BoQTree) -> dict[tuple[str, str], BoQNode]:
     """Build (lot_rno, oz) → BoQNode index. Uses first occurrence for duplicates."""
-    index: dict[tuple[str, str], any] = {}
+    index: dict[tuple[str, str], BoQNode] = {}
     for lot_node in tree.lots:
         lot_rno = lot_node.rno
         for item_node in lot_node.iter_items():
@@ -70,21 +71,21 @@ def _build_item_index(tree: BoQTree) -> dict[tuple[str, str], any]:
 
 
 def _try_global_oz_fallback(
-    unmatched_a: list,
-    unmatched_b: list,
-    matched: list[tuple],
+    unmatched_a: list[BoQNode],
+    unmatched_b: list[BoQNode],
+    matched: list[tuple[BoQNode, BoQNode]],
 ) -> None:
     """For items unmatched within their lot, try matching by OZ alone.
 
     This handles cases where items moved between lots. Mutates the lists in place.
     """
-    oz_to_b: dict[str, any] = {}
+    oz_to_b: dict[str, BoQNode] = {}
     for node in unmatched_b:
         if node.rno not in oz_to_b:
             oz_to_b[node.rno] = node
 
-    newly_matched_a = []
-    newly_matched_b_rnos = set()
+    newly_matched_a: list[BoQNode] = []
+    newly_matched_b_rnos: set[str] = set()
 
     for node_a in unmatched_a:
         if node_a.rno in oz_to_b and node_a.rno not in newly_matched_b_rnos:

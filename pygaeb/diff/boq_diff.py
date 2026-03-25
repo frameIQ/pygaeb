@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from pygaeb.api.boq_tree import BoQTree
+from pygaeb.api.boq_tree import BoQNode, BoQTree, NodeKind
 from pygaeb.diff.field_comparator import compare_items
 from pygaeb.diff.item_matcher import match_items
 from pygaeb.diff.models import (
@@ -302,19 +302,19 @@ def _compute_financial_impact(
     return None
 
 
-def _node_lot_rno(node: object) -> str:
+def _node_lot_rno(node: BoQNode) -> str:
     """Walk up the tree to find the enclosing lot's rno."""
-    current = getattr(node, "parent", None)
+    current = node.parent
     while current is not None:
-        if hasattr(current, "kind") and current.kind.value == "lot":
+        if current.kind == NodeKind.LOT:
             return current.rno
-        current = getattr(current, "parent", None)
+        current = current.parent
     return ""
 
 
-def _node_category_rno(node: object) -> str:
+def _node_category_rno(node: BoQNode) -> str:
     """Get the rno of the immediate parent category."""
-    parent = getattr(node, "parent", None)
-    if parent is not None and hasattr(parent, "kind") and parent.kind.value == "category":
+    parent = node.parent
+    if parent is not None and parent.kind == NodeKind.CATEGORY:
         return parent.rno
     return ""
