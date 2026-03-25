@@ -8,7 +8,6 @@ returned separately for optional fuzzy resolution.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 from pygaeb.api.boq_tree import BoQNode, BoQTree
 
