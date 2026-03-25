@@ -23,6 +23,7 @@ An optional LLM classification layer enriches each item with a semantic construc
 - **LLM classification** — 100+ provider support via LiteLLM with cost estimation and persistent caching
 - **Document diff** — Compare two BoQs with significance-classified field changes, structural diff, and financial impact
 - **BoQ Builder** — Programmatic document construction with auto OZ, Decimal convenience, phase rules, and version checks
+- **Excel export** — Structured .xlsx workbooks with hierarchy-aware layout, phase-specific columns, and multi-sheet mode
 - **Round-trip** — Parse → modify → write back to any DA XML version
 - **Version conversion** — Upgrade/downgrade between DA XML 2.0–3.3
 
@@ -284,6 +285,24 @@ doc = builder.build()               # GAEBDocument with auto totals
 GAEBWriter.write(doc, "output.X83") # Write to GAEB XML
 ```
 
+### Excel Export
+
+```python
+from pygaeb import GAEBParser
+from pygaeb.convert import to_excel
+
+doc = GAEBParser.parse("tender.X83")
+
+# Single structured sheet with hierarchy
+to_excel(doc, "tender.xlsx")
+
+# Multi-sheet workbook (BoQ + Items + Summary + Info)
+to_excel(doc, "tender_full.xlsx", mode="full")
+
+# With optional columns
+to_excel(doc, "detailed.xlsx", include_long_text=True, include_classification=True)
+```
+
 ### LLM Classification
 
 ```python
@@ -495,6 +514,7 @@ Full documentation is available at [Read the Docs](https://pygaeb.readthedocs.io
 - [Tree Navigation](https://pygaeb.readthedocs.io/guides/tree-navigation/)
 - [Document Diff](https://pygaeb.readthedocs.io/guides/document-diff/)
 - [BoQ Builder](https://pygaeb.readthedocs.io/guides/builder/)
+- [Excel Export](https://pygaeb.readthedocs.io/guides/excel-export/)
 - [Extensibility](https://pygaeb.readthedocs.io/guides/extensibility/)
 - [Classification](https://pygaeb.readthedocs.io/guides/classification/)
 - [Version Conversion](https://pygaeb.readthedocs.io/guides/conversion/)

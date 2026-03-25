@@ -91,6 +91,7 @@ nav:
     - Tree Navigation: guides/tree-navigation.md
     - Document Diff: guides/document-diff.md
     - BoQ Builder: guides/builder.md
+    - Excel Export: guides/excel-export.md
     - Extensibility: guides/extensibility.md
   - API Reference:
     - reference/index.md
@@ -105,6 +106,7 @@ nav:
     - BoQ Tree: reference/boq-tree.md
     - Document Diff: reference/document-diff.md
     - BoQ Builder: reference/builder.md
+    - Excel Export: reference/excel-export.md
     - Validation: reference/validation.md
     - Configuration: reference/config.md
     - Exceptions: reference/exceptions.md

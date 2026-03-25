@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-03-24
+
+### Added
+
+- **Excel Export** — `to_excel()` exports any GAEB document to a structured Excel workbook (.xlsx) with hierarchy-aware layout and phase-specific columns.
+- **Two export modes** — `mode="structured"` for a single hierarchy-aware sheet; `mode="full"` for a multi-sheet workbook (BoQ + Items + Summary + Info).
+- **All document kinds** — Procurement (X80-X89), Trade (X93-X97), Cost (X50-X52), and Quantity Determination (X31) each get phase-appropriate columns.
+- **Optional columns** — `include_long_text`, `include_classification`, and `include_bim_guid` flags add extra columns on demand.
+- **Minimal formatting** — Bold headers, frozen panes, auto column widths, currency/quantity number formatting, bold subtotals.
+- Optional dependency: `openpyxl` via `pip install pyGAEB[excel]`.
+- New export: `to_excel` (top-level lazy import and via `pygaeb.convert`).
+- 34 new tests covering all 4 phases, both modes, column flags, formatting, and edge cases.
+
 ## [1.10.0] - 2026-03-24
 
 ### Added

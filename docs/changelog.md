@@ -4,6 +4,16 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-03-24
+
+### Added
+
+- **Excel Export** — `to_excel()` exports any GAEB document to structured Excel workbooks with hierarchy-aware layout and phase-specific columns.
+- Two export modes: `structured` (single sheet) and `full` (BoQ + Items + Summary + Info sheets).
+- All document kinds supported with phase-appropriate columns.
+- Optional columns via `include_long_text`, `include_classification`, `include_bim_guid`.
+- 34 new tests.
+
 ## [1.10.0] - 2026-03-24
 
 ### Added
