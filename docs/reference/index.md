@@ -21,4 +21,5 @@ Complete reference documentation for all public classes, functions, and enums in
 - **[BoQ Tree](boq-tree.md)** — `BoQTree`, `BoQNode`, `NodeKind`
 - **[Document Diff](document-diff.md)** — `BoQDiff`, `DiffResult`, `Significance`, `DiffMode`
 - **[BoQ Builder](builder.md)** — `BoQBuilder`, `LotBuilder`, `CategoryBuilder`, `ItemHandle`
+- **[Excel Export](excel-export.md)** — `to_excel`, `ColumnDef`
 - **[Exceptions](exceptions.md)** — exception hierarchy

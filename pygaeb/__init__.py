@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.10.0"
+__version__ = "1.11.0"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
@@ -132,6 +132,8 @@ def __getattr__(name: str) -> object:
         "NodeKind": ("pygaeb.api.boq_tree", "NodeKind"),
         # Builder
         "BoQBuilder": ("pygaeb.builder", "BoQBuilder"),
+        # Convert
+        "to_excel": ("pygaeb.convert.to_excel", "to_excel"),
         # Diff engine
         "BoQDiff": ("pygaeb.diff.boq_diff", "BoQDiff"),
         "DiffMode": ("pygaeb.diff.models", "DiffMode"),
@@ -272,4 +274,5 @@ __all__ = [
     "register_prompt",
     "register_validator",
     "reset_settings",
+    "to_excel",
 ]

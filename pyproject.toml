@@ -44,6 +44,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+excel = ["openpyxl>=3.1"]
 llm = ["litellm>=1.40", "instructor>=1.0"]
 dev = [
     "pytest",
@@ -54,6 +55,7 @@ dev = [
     "pytest-asyncio",
     "xmldiff>=2.6",
     "lxml-stubs",
+    "openpyxl>=3.1",
 ]
 docs = [
     "mkdocs-material>=9.5",
@@ -87,6 +89,10 @@ warn_unused_configs = true
 
 [[tool.mypy.overrides]]
 module = ["litellm", "litellm.*", "instructor", "instructor.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["openpyxl", "openpyxl.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
