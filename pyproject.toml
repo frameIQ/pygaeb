@@ -55,6 +55,7 @@ dev = [
     "pytest-asyncio",
     "xmldiff>=2.6",
     "lxml-stubs",
+    "openpyxl>=3.1",
 ]
 docs = [
     "mkdocs-material>=9.5",
