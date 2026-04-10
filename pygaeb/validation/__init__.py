@@ -12,6 +12,7 @@ from pygaeb.validation.item_validator import validate_items
 from pygaeb.validation.numeric_validator import validate_numerics
 from pygaeb.validation.phase_validator import validate_phase
 from pygaeb.validation.structural_validator import validate_structure
+from pygaeb.validation.totals_validator import validate_totals
 
 ValidatorFn = Callable[[GAEBDocument], list[ValidationResult]]
 
@@ -48,6 +49,7 @@ def run_validation(
     results.extend(validate_structure(doc))
     results.extend(validate_items(doc))
     results.extend(validate_numerics(doc))
+    results.extend(validate_totals(doc))
     results.extend(validate_phase(doc, route))
 
     for fn in _custom_validators:
@@ -69,4 +71,5 @@ __all__ = [
     "validate_numerics",
     "validate_phase",
     "validate_structure",
+    "validate_totals",
 ]

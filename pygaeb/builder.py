@@ -40,6 +40,7 @@ _PHASE_RULES: dict[str, dict[str, Any]] = {
     "X80": {"warn_if_present": {"unit_price", "total_price"}, "label": "blank BoQ"},
     "X83": {"warn_if_missing": {"unit_price"}, "label": "tender with prices"},
     "X84": {"warn_if_missing": {"unit_price"}, "label": "award"},
+    "X88": {"warn_if_missing": {"unit_price", "change_order_number"}, "label": "addendum/Nachtrag"},
 }
 
 _VERSION_COMPAT: dict[str, dict[str, Any]] = {

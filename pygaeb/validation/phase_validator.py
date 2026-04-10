@@ -8,16 +8,17 @@ from pygaeb.models.enums import ExchangePhase, ValidationSeverity
 from pygaeb.models.item import ValidationResult
 
 _PHASES_REQUIRING_QTY = {
-    ExchangePhase.X83, ExchangePhase.X89, ExchangePhase.X89B,
-    ExchangePhase.X83Z, ExchangePhase.X80,
+    ExchangePhase.X83, ExchangePhase.X88, ExchangePhase.X89,
+    ExchangePhase.X89B, ExchangePhase.X83Z,
 }
 _PHASES_REQUIRING_PRICE = {
-    ExchangePhase.X84, ExchangePhase.X86, ExchangePhase.X89,
-    ExchangePhase.X89B, ExchangePhase.X84Z, ExchangePhase.X86ZR,
-    ExchangePhase.X86ZE,
+    ExchangePhase.X84, ExchangePhase.X86, ExchangePhase.X88,
+    ExchangePhase.X89, ExchangePhase.X89B, ExchangePhase.X84Z,
+    ExchangePhase.X86ZR, ExchangePhase.X86ZE,
 }
 _PHASES_REQUIRING_DESCRIPTION = {
     ExchangePhase.X83, ExchangePhase.X81, ExchangePhase.X83Z,
+    ExchangePhase.X88,
 }
 
 
@@ -60,5 +61,19 @@ def validate_phase(doc: GAEBDocument, route: ParseRoute) -> list[ValidationResul
                 xpath_location=f"Item[@RNoPart='{item.oz}']/Description",
                 version_specific=True,
             ))
+
+    # X88-specific: Nachtrag items should have change order numbers
+    if phase == ExchangePhase.X88:
+        for item in doc.award.boq.iter_items():
+            if item.item_type.affects_total and not item.change_order_number:
+                results.append(ValidationResult(
+                    severity=ValidationSeverity.INFO,
+                    message=(
+                        f"Item {item.oz}: Nachtrag item (X88) missing change order "
+                        "number (CONo) — recommended for traceability"
+                    ),
+                    xpath_location=f"Item[@RNoPart='{item.oz}']/CONo",
+                    version_specific=True,
+                ))
 
     return results

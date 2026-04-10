@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/frameIQ/pygaeb/actions/workflows/test.yml/badge.svg)](https://github.com/frameIQ/pygaeb/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/frameIQ/pygaeb/branch/main/graph/badge.svg)](https://codecov.io/gh/frameIQ/pygaeb)
-[![PyPI version](https://img.shields.io/badge/version-1.7.0-blue.svg)](https://pypi.org/project/pyGAEB/)
+[![PyPI version](https://img.shields.io/badge/version-1.12.0-blue.svg)](https://pypi.org/project/pyGAEB/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
@@ -26,6 +26,7 @@ Eine optionale LLM-Klassifizierungsschicht ordnet jede LV-Position semantisch ei
 - **Sicherheitsgehärtet** — XXE-Schutz, Billion-Laughs-Abwehr, Dateigrößenbegrenzung, Rekursionstiefenlimit
 - **Erweiterbar** — Eigene Validierungsregeln, Post-Parse-Hooks, Rohdatenerfassung, eigene LLM-Taxonomie
 - **LLM-Klassifizierung** — 100+ Anbieter via LiteLLM mit Kostenvoranschlag und persistentem Caching
+- **Phasenübergreifende Validierung** — X83→X84 Strukturidentität, X86→X89 EP-Abgleich, X86→X88 Nachtragsverfolgung
 - **Round-Trip** — Einlesen → Bearbeiten → Zurückschreiben in jede DA-XML-Version
 - **Versionskonvertierung** — Upgrade/Downgrade zwischen DA XML 2.0–3.3
 
@@ -291,10 +292,20 @@ doc.discard_xml()  # Speicher freigeben
 ```python
 from pygaeb import GAEBParser, CrossPhaseValidator
 
+# Ausschreibung → Angebot: Strukturidentität
 ausschreibung = GAEBParser.parse("ausschreibung.X83")
 angebot = GAEBParser.parse("angebot.X84")
-
 probleme = CrossPhaseValidator.check(source=ausschreibung, response=angebot)
+
+# Vertrag → Rechnung: Einheitspreise müssen übereinstimmen
+vertrag = GAEBParser.parse("vertrag.X86")
+rechnung = GAEBParser.parse("rechnung.X89")
+probleme = CrossPhaseValidator.check(source=vertrag, response=rechnung)
+
+# Vertrag → Nachtrag: Nachverfolgbarkeit über Auftragsnummer
+nachtrag = GAEBParser.parse("nachtrag.X88")
+probleme = CrossPhaseValidator.check(source=vertrag, response=nachtrag)
+
 for p in probleme:
     print(p.severity, p.message)
 ```
@@ -315,7 +326,9 @@ for p in probleme:
 |-------|-------------|------|
 | X31 | Mengenermittlung / Aufmaß | v1.4.0 |
 | X50, X51, X52 | Kosten & Kalkulation | v1.3.0 |
-| X80–X89 | Vergabe (Ausschreibung, Angebot, Auftrag, Abrechnung) | v1.0.0 |
+| X80–X86 | Vergabe (Ausschreibung, Angebot, Auftrag) | v1.0.0 |
+| X88 | Nachtrag / Nachtragsangebot | v1.12.0 |
+| X89, X89B | Abrechnung / erweiterte Abrechnung | v1.0.0 |
 | X93, X94, X96, X97 | Handel (Materialbestellung) | v1.2.0 |
 
 ## Konfiguration

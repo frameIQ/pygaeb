@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/frameIQ/pygaeb/actions/workflows/test.yml/badge.svg)](https://github.com/frameIQ/pygaeb/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/frameIQ/pygaeb/branch/main/graph/badge.svg)](https://codecov.io/gh/frameIQ/pygaeb)
-[![PyPI version](https://img.shields.io/badge/version-1.7.0-blue.svg)](https://pypi.org/project/pyGAEB/)
+[![PyPI version](https://img.shields.io/badge/version-1.12.0-blue.svg)](https://pypi.org/project/pyGAEB/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
@@ -21,6 +21,7 @@ An optional LLM classification layer enriches each item with a semantic construc
 - **Security-hardened** — XXE prevention, Billion Laughs protection, file size guards, recursion depth limits
 - **Extensible** — Custom validators, post-parse hooks, raw XML data collection, custom LLM taxonomy
 - **LLM classification** — 100+ provider support via LiteLLM with cost estimation and persistent caching
+- **Cross-phase validation** — X83→X84 structural identity, X86→X89 unit price matching, X86→X88 addendum traceability
 - **Document diff** — Compare two BoQs with significance-classified field changes, structural diff, and financial impact
 - **BoQ Builder** — Programmatic document construction with auto OZ, Decimal convenience, phase rules, and version checks
 - **Excel export** — Structured .xlsx workbooks with hierarchy-aware layout, phase-specific columns, and multi-sheet mode
@@ -442,10 +443,20 @@ classifier = LLMClassifier(cache=RedisCache())
 ```python
 from pygaeb import GAEBParser, CrossPhaseValidator
 
+# Tender → Bid: structural identity check
 tender = GAEBParser.parse("tender.X83")
 bid = GAEBParser.parse("bid.X84")
-
 issues = CrossPhaseValidator.check(source=tender, response=bid)
+
+# Contract → Invoice: unit prices must match
+contract = GAEBParser.parse("contract.X86")
+invoice = GAEBParser.parse("invoice.X89")
+issues = CrossPhaseValidator.check(source=contract, response=invoice)
+
+# Contract → Addendum: change order traceability
+addendum = GAEBParser.parse("nachtrag.X88")
+issues = CrossPhaseValidator.check(source=contract, response=addendum)
+
 for issue in issues:
     print(issue.severity, issue.message)
 ```
@@ -466,7 +477,9 @@ for issue in issues:
 |-------|-------------|-------|
 | X31 | Quantity Determination | v1.4.0 |
 | X50, X51, X52 | Cost & Calculation | v1.3.0 |
-| X80–X89 | Procurement (tender, bid, award, invoice) | v1.0.0 |
+| X80–X86 | Procurement (tender, bid, award) | v1.0.0 |
+| X88 | Addendum / Nachtrag (claims & variations) | v1.12.0 |
+| X89, X89B | Invoice / extended invoice | v1.0.0 |
 | X93, X94, X96, X97 | Trade (material ordering) | v1.2.0 |
 
 ## Configuration

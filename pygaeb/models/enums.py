@@ -42,6 +42,7 @@ class ExchangePhase(str, Enum):
     X84 = "X84"
     X85 = "X85"
     X86 = "X86"
+    X88 = "X88"
     X89 = "X89"
     X89B = "X89B"
     X31 = "X31"
@@ -64,6 +65,7 @@ class ExchangePhase(str, Enum):
     D84 = "D84"
     D85 = "D85"
     D86 = "D86"
+    D88 = "D88"
     D89 = "D89"
     D31 = "D31"
 
@@ -106,6 +108,7 @@ def _init_phase_map() -> None:
         ExchangePhase.D84: ExchangePhase.X84,
         ExchangePhase.D85: ExchangePhase.X85,
         ExchangePhase.D86: ExchangePhase.X86,
+        ExchangePhase.D88: ExchangePhase.X88,
         ExchangePhase.D89: ExchangePhase.X89,
         ExchangePhase.D31: ExchangePhase.X31,
     })

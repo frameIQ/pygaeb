@@ -6,7 +6,7 @@ import base64
 import logging
 import re
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -284,12 +284,13 @@ def _add_award(
     elif award.client:
         _add_text_el(award_info_el, "OWN", award.client)
 
-    _add_boq(award_el, award.boq, phase, meta, warnings)
+    _add_boq(award_el, award.boq, phase, meta, warnings, award.up_frac_dig)
 
 
 def _add_boq(
     parent: etree._Element, boq: BoQ, phase: ExchangePhase,
     meta: VersionMeta, warnings: list[str],
+    up_frac_dig: int | None = None,
 ) -> None:
     boq_el = etree.SubElement(parent, "BoQ")
 
@@ -306,9 +307,9 @@ def _add_boq(
             if lot.totals is not None:
                 _add_totals(lot_ctgy, lot.totals)
             lot_body = etree.SubElement(lot_ctgy, "BoQBody")
-            _add_body_categories(lot_body, lot.body, phase, meta, warnings)
+            _add_body_categories(lot_body, lot.body, phase, meta, warnings, up_frac_dig)
         else:
-            _add_body_categories(boq_body, lot.body, phase, meta, warnings)
+            _add_body_categories(boq_body, lot.body, phase, meta, warnings, up_frac_dig)
 
 
 def _add_boq_info(parent: etree._Element, info: BoQInfo) -> None:
@@ -337,14 +338,16 @@ def _add_boq_info(parent: etree._Element, info: BoQInfo) -> None:
 def _add_body_categories(
     parent: etree._Element, body: BoQBody, phase: ExchangePhase,
     meta: VersionMeta, warnings: list[str],
+    up_frac_dig: int | None = None,
 ) -> None:
     for ctgy in body.categories:
-        _add_ctgy(parent, ctgy, phase, meta, warnings)
+        _add_ctgy(parent, ctgy, phase, meta, warnings, up_frac_dig)
 
 
 def _add_ctgy(
     parent: etree._Element, ctgy: BoQCtgy, phase: ExchangePhase,
     meta: VersionMeta, warnings: list[str],
+    up_frac_dig: int | None = None,
 ) -> None:
     ctgy_el = etree.SubElement(parent, "BoQCtgy")
     if ctgy.rno:
@@ -360,7 +363,7 @@ def _add_ctgy(
 
     for sub in ctgy.subcategories:
         sub_body = etree.SubElement(ctgy_el, "BoQBody")
-        _add_ctgy(sub_body, sub, phase, meta, warnings)
+        _add_ctgy(sub_body, sub, phase, meta, warnings, up_frac_dig)
 
     if ctgy.items:
         itemlist = etree.SubElement(ctgy_el, "Itemlist")
@@ -368,12 +371,13 @@ def _add_ctgy(
             if item.item_type == ItemType.MARKUP:
                 _add_markup_item(itemlist, item)
             else:
-                _add_item(itemlist, item, phase, meta, warnings)
+                _add_item(itemlist, item, phase, meta, warnings, up_frac_dig)
 
 
 def _add_item(
     parent: etree._Element, item: Item, phase: ExchangePhase,
     meta: VersionMeta, warnings: list[str],
+    up_frac_dig: int | None = None,
 ) -> None:
     item_el = etree.SubElement(parent, "Item")
     item_el.set("RNoPart", item.oz)
@@ -388,7 +392,7 @@ def _add_item(
         _add_text_el(item_el, "QU", item.unit)
 
     if item.unit_price is not None:
-        _add_text_el(item_el, "UP", _fmt_decimal(item.unit_price))
+        _add_text_el(item_el, "UP", _fmt_decimal(item.unit_price, up_frac_dig))
 
     if item.total_price is not None:
         _add_text_el(item_el, "IT", _fmt_decimal(item.total_price))
@@ -1132,7 +1136,16 @@ def _add_text_el(parent: etree._Element, tag: str, text: str) -> None:
     el.text = text
 
 
-def _fmt_decimal(value: Decimal) -> str:
+def _fmt_decimal(value: Decimal, decimal_places: int | None = None) -> str:
+    """Format a Decimal value for XML output.
+
+    When *decimal_places* is given the value is quantized to that precision
+    (ROUND_HALF_UP).  Otherwise the native ``str()`` representation is used
+    which preserves the precision from parsing.
+    """
+    if decimal_places is not None:
+        quantizer = Decimal(10) ** -decimal_places
+        return str(value.quantize(quantizer, rounding=ROUND_HALF_UP))
     return str(value)
 
 
