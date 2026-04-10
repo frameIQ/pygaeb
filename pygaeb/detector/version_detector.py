@@ -31,6 +31,7 @@ _PHASE_FROM_EXT: dict[str, ExchangePhase] = {
     ".X84": ExchangePhase.X84,
     ".X85": ExchangePhase.X85,
     ".X86": ExchangePhase.X86,
+    ".X88": ExchangePhase.X88,
     ".X89": ExchangePhase.X89,
     ".X31": ExchangePhase.X31,
     # Trade phases
@@ -50,6 +51,7 @@ _PHASE_FROM_EXT: dict[str, ExchangePhase] = {
     ".D84": ExchangePhase.D84,
     ".D85": ExchangePhase.D85,
     ".D86": ExchangePhase.D86,
+    ".D88": ExchangePhase.D88,
     ".D89": ExchangePhase.D89,
     ".D31": ExchangePhase.D31,
 }

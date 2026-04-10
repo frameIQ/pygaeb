@@ -103,10 +103,13 @@ class SQLiteCache:
 
     def __init__(self, cache_dir: str) -> None:
         self._cache_dir = Path(cache_dir).expanduser()
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._db_path = self._cache_dir / "pygaeb_cache.db"
         self._conn: sqlite3.Connection | None = None
         self._ensure_db()
+        # Restrict DB file permissions — cache may contain business-sensitive data
+        if self._db_path.exists():
+            self._db_path.chmod(0o600)
 
     def _ensure_db(self) -> None:
         conn = self._get_conn()

@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-04-11
+
+### Added
+
+- **X88 (Nachtrag/Addendum) exchange phase** — Full support for claims and variations: enum values (`X88`, `D88`), file extension detection, parser recognition, phase-specific validation (quantity, price, description required; change order number recommended), and round-trip serialization.
+- **Cross-phase validation: X86→X89 (contract→invoice)** — `CrossPhaseValidator.check()` now validates that invoice unit prices match the contract exactly, flags invented invoice items, and warns on missing executed quantities.
+- **Cross-phase validation: X86→X88 (contract→addendum)** — Validates that new Nachtrag items have change order numbers (CONo) for traceability, and flags contract items modified without CONo.
+- **Totals validation** — New `validate_totals()` checks XML-declared totals against computed subtotals at BoQ, lot, and category levels. Also detects when alternative/eventual items are incorrectly included in totals (VOB/A compliance).
+- **GAEB precision limit validation** — `validate_numerics()` now enforces GAEB Fachdokumentation limits: unit price max 10 pre-decimal digits, total price max 11, quantity max 8 pre-decimal / 3 decimal places, and max 6 unit price components per item.
+- **Writer `up_frac_dig` support** — `GAEBWriter` now formats unit prices to the correct number of decimal places when `UPFracDig` is set in the document's `PrjInfo` (e.g., 3 decimals when `UPFracDig=3`).
+- **Explicit cross-phase methods** — `CrossPhaseValidator.check_tender_bid()`, `.check_contract_invoice()`, and `.check_contract_addendum()` for direct invocation without auto-dispatch.
+- 92 new tests covering all gap fixes and coverage improvements across classifier, extractor, version compat, detector, and validation modules. Total test count: 927.
+
+### Fixed
+
+- **X80 phase validation false positives** — X80 (BoQ Catalogue) no longer incorrectly warns about missing quantities. X80 is a reusable item library without quantities or prices per the GAEB standard.
+- **README version badge** — Updated from 1.7.0 to 1.11.0 (both English and German).
+
+### Security
+
+- **SQLiteCache file permissions** — Database files are now created with `0o600` permissions and cache directories with `0o700`, restricting access to the owning user. Classification results may contain business-sensitive construction data.
+
 ## [1.11.0] - 2026-03-24
 
 ### Added
