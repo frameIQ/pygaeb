@@ -83,6 +83,20 @@ def detect_version(path: str | Path, text: str | None = None) -> ParseRoute:
             exchange_phase=_phase_from_extension(path),
         )
 
+    if fmt == FormatFamily.ONORM_B2063:
+        return ParseRoute(
+            format_family=FormatFamily.ONORM_B2063,
+            track=ParserTrack.TRACK_B,
+            version=SourceVersion.DA_XML_33,
+            exchange_phase=_phase_from_extension(path),
+            warnings=[
+                "ÖNORM B 2063 (Austrian standard) is not supported. "
+                "pyGAEB only handles German GAEB DA XML files. "
+                "Please convert ÖNORM files to GAEB format using "
+                "an Austrian AVA tool such as ABK or California.pro."
+            ],
+        )
+
     if fmt == FormatFamily.UNKNOWN:
         return ParseRoute(
             format_family=FormatFamily.UNKNOWN,

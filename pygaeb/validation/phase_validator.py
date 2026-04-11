@@ -8,17 +8,17 @@ from pygaeb.models.enums import ExchangePhase, ValidationSeverity
 from pygaeb.models.item import ValidationResult
 
 _PHASES_REQUIRING_QTY = {
-    ExchangePhase.X83, ExchangePhase.X88, ExchangePhase.X89,
-    ExchangePhase.X89B, ExchangePhase.X83Z,
+    ExchangePhase.X82, ExchangePhase.X83, ExchangePhase.X88,
+    ExchangePhase.X89, ExchangePhase.X89B, ExchangePhase.X83Z,
 }
 _PHASES_REQUIRING_PRICE = {
-    ExchangePhase.X84, ExchangePhase.X86, ExchangePhase.X88,
-    ExchangePhase.X89, ExchangePhase.X89B, ExchangePhase.X84Z,
-    ExchangePhase.X86ZR, ExchangePhase.X86ZE,
+    ExchangePhase.X82, ExchangePhase.X84, ExchangePhase.X86,
+    ExchangePhase.X88, ExchangePhase.X89, ExchangePhase.X89B,
+    ExchangePhase.X84Z, ExchangePhase.X86ZR, ExchangePhase.X86ZE,
 }
 _PHASES_REQUIRING_DESCRIPTION = {
-    ExchangePhase.X83, ExchangePhase.X81, ExchangePhase.X83Z,
-    ExchangePhase.X88,
+    ExchangePhase.X81, ExchangePhase.X82, ExchangePhase.X83,
+    ExchangePhase.X83Z, ExchangePhase.X88,
 }
 
 

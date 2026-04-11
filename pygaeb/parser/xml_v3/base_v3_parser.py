@@ -32,7 +32,14 @@ from pygaeb.models.enums import (
     BkdnType,
     ItemType,
 )
-from pygaeb.models.item import Attachment, CostApproach, Item, MarkupSubQty, QtySplit
+from pygaeb.models.item import (
+    Attachment,
+    BidderPrice,
+    CostApproach,
+    Item,
+    MarkupSubQty,
+    QtySplit,
+)
 from pygaeb.models.order import Address
 from pygaeb.parser.recovery import parse_xml_safe
 from pygaeb.parser.xml_v3.richtext_parser import parse_plaintext, parse_richtext
@@ -45,6 +52,7 @@ KNOWN_ITEM_TAGS: frozenset[str] = frozenset({
     "QtySplit", "ItemTag", "GUID", "BIMRef", "CONo",
     "CostApproach", "UPComp1", "UPComp2", "UPComp3",
     "UPComp4", "UPComp5", "UPComp6", "DiscountPcnt", "VAT",
+    "BidderUP", "BidderTender", "TenderingPty",
     "CtlgAssign", "Attachment", "ATTImage", "ATTBinary",
     "LumpSumItem", "GlobItem", "AlternativeItem", "AltItem",
     "ContingencyItem", "EventualItem", "TextItem",
@@ -461,6 +469,31 @@ class BaseV3Parser:
             if self._keep_xml:
                 ca.source_element = ca_el
             item.cost_approaches.append(ca)
+
+        # Preisspiegel (X82) bidder prices — vendor formats vary, accept several
+        for tag in ("BidderUP", "BidderTender", "TenderingPty"):
+            for bp_el in self._findall(item_el, tag):
+                bidder_name = (
+                    self._text(bp_el, "BidderName")
+                    or self._text(bp_el, "Name")
+                    or bp_el.get("name")
+                    or bp_el.get("BidderName")
+                    or ""
+                )
+                bidder_id = (
+                    self._text(bp_el, "BidderID")
+                    or bp_el.get("id")
+                    or bp_el.get("BidderID")
+                )
+                bp = BidderPrice(
+                    bidder_name=bidder_name,
+                    bidder_id=bidder_id,
+                    unit_price=_parse_decimal(self._text(bp_el, "UP")),
+                    total_price=_parse_decimal(self._text(bp_el, "IT")),
+                )
+                if self._keep_xml:
+                    bp.source_element = bp_el
+                item.bidder_prices.append(bp)
 
         for i in range(1, 7):
             val = _parse_decimal(self._text(item_el, f"UPComp{i}"))

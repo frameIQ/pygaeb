@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.12.0"
+__version__ = "1.13.0"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
@@ -107,6 +107,31 @@ def __getattr__(name: str) -> object:
         "CostApproach": ("pygaeb.models.item", "CostApproach"),
         "MarkupSubQty": ("pygaeb.models.item", "MarkupSubQty"),
         "CostType": ("pygaeb.models.boq", "CostType"),
+        # X82 Preisspiegel — bidder prices and analysis
+        "BidderPrice": ("pygaeb.models.item", "BidderPrice"),
+        "BidAnalysis": ("pygaeb.bid_analysis", "BidAnalysis"),
+        # Quality scoring
+        "QualityScore": ("pygaeb.quality", "QualityScore"),
+        "quality_score": ("pygaeb.quality", "quality_score"),
+        # Unit normalization
+        "normalize_unit": ("pygaeb.units", "normalize_unit"),
+        "normalize_units_in_doc": ("pygaeb.units", "normalize_units_in_doc"),
+        # Async API
+        "aparse": ("pygaeb.async_api", "aparse"),
+        "aparse_bytes": ("pygaeb.async_api", "aparse_bytes"),
+        "awrite": ("pygaeb.async_api", "awrite"),
+        # Events
+        "EventType": ("pygaeb.events", "EventType"),
+        "on_event": ("pygaeb.events", "on_event"),
+        "off_event": ("pygaeb.events", "off_event"),
+        "clear_subscribers": ("pygaeb.events", "clear_subscribers"),
+        # Diff exports
+        "diff_to_html": ("pygaeb.diff.exports", "diff_to_html"),
+        "diff_to_excel": ("pygaeb.diff.exports", "diff_to_excel"),
+        # Other exports
+        "to_pdf": ("pygaeb.convert.to_pdf", "to_pdf"),
+        "to_database": ("pygaeb.convert.to_database", "to_database"),
+        "to_xrechnung": ("pygaeb.convert.to_xrechnung", "to_xrechnung"),
         # Quantity determination models (X31)
         "QtyDetermination": ("pygaeb.models.quantity", "QtyDetermination"),
         "QtyDetermInfo": ("pygaeb.models.quantity", "QtyDetermInfo"),
@@ -116,6 +141,7 @@ def __getattr__(name: str) -> object:
         "QtyItem": ("pygaeb.models.quantity", "QtyItem"),
         "QDetermItem": ("pygaeb.models.quantity", "QDetermItem"),
         "QTakeoffRow": ("pygaeb.models.quantity", "QTakeoffRow"),
+        "ParsedTakeoff": ("pygaeb.models.quantity", "ParsedTakeoff"),
         "QtyAttachment": ("pygaeb.models.quantity", "QtyAttachment"),
         "Catalog": ("pygaeb.models.catalog", "Catalog"),
         "CtlgAssign": ("pygaeb.models.catalog", "CtlgAssign"),
@@ -132,6 +158,8 @@ def __getattr__(name: str) -> object:
         "NodeKind": ("pygaeb.api.boq_tree", "NodeKind"),
         # Builder
         "BoQBuilder": ("pygaeb.builder", "BoQBuilder"),
+        # Phase transitions
+        "PhaseTransition": ("pygaeb.transition", "PhaseTransition"),
         # Convert
         "to_excel": ("pygaeb.convert.to_excel", "to_excel"),
         # Diff engine
@@ -166,6 +194,8 @@ __all__ = [
     "Address",
     "Attachment",
     "AwardInfo",
+    "BidAnalysis",
+    "BidderPrice",
     "BkdnType",
     "BoQ",
     "BoQBkdn",
@@ -211,6 +241,7 @@ __all__ = [
     "ECCtgy",
     "ECInfo",
     "ElementalCosting",
+    "EventType",
     "ExchangePhase",
     "ExtractionResult",
     "FieldChange",
@@ -237,6 +268,8 @@ __all__ = [
     "NodeKind",
     "OrderInfo",
     "OrderItem",
+    "ParsedTakeoff",
+    "PhaseTransition",
     "PlannerInfo",
     "PrjInfoQD",
     "PyGAEBError",
@@ -251,6 +284,7 @@ __all__ = [
     "QtyDetermination",
     "QtyItem",
     "QtySplit",
+    "QualityScore",
     "RefGroup",
     "RichText",
     "SQLiteCache",
@@ -268,11 +302,25 @@ __all__ = [
     "ValidationResult",
     "ValidationSeverity",
     "__version__",
+    "aparse",
+    "aparse_bytes",
+    "awrite",
+    "clear_subscribers",
     "clear_validators",
     "configure",
+    "diff_to_excel",
+    "diff_to_html",
     "get_settings",
+    "normalize_unit",
+    "normalize_units_in_doc",
+    "off_event",
+    "on_event",
+    "quality_score",
     "register_prompt",
     "register_validator",
     "reset_settings",
+    "to_database",
     "to_excel",
+    "to_pdf",
+    "to_xrechnung",
 ]

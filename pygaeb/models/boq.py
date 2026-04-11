@@ -108,6 +108,27 @@ class BoQCtgy(BaseModel):
     def subtotal(self) -> Decimal:
         return _items_subtotal(self.iter_items())
 
+    def add_item(self, **kwargs: Any) -> Item:
+        """Add a new item to this category.
+
+        Returns:
+            The newly created Item.
+        """
+        item = Item(**kwargs)
+        self.items.append(item)
+        return item
+
+    def remove_item(self, oz: str) -> Item | None:
+        """Remove an item by OZ from this category (non-recursive).
+
+        Returns:
+            The removed Item, or None if not found.
+        """
+        for i, item in enumerate(self.items):
+            if item.oz == oz:
+                return self.items.pop(i)
+        return None
+
 
 class BoQBody(BaseModel):
     """Top-level BoQ body containing categories."""
@@ -166,6 +187,85 @@ class BoQ(BaseModel):
                 return item
         return None
 
+    def add_item(self, oz: str, category_rno: str, **kwargs: Any) -> Item:
+        """Add a new item to the category matching *category_rno*.
+
+        Searches across all lots. Raises ``ValueError`` if the category
+        is not found.
+
+        Args:
+            oz: Ordinal number for the new item.
+            category_rno: Target category ``rno``.
+            **kwargs: Additional Item fields (short_text, qty, unit, etc.).
+
+        Returns:
+            The newly created Item.
+        """
+        ctgy = self._find_category(category_rno)
+        if ctgy is None:
+            raise ValueError(
+                f"Category with rno={category_rno!r} not found in BoQ"
+            )
+        return ctgy.add_item(oz=oz, **kwargs)
+
+    def remove_item(self, oz: str) -> Item | None:
+        """Remove an item by OZ from any category across all lots.
+
+        Returns:
+            The removed Item, or None if not found.
+        """
+        for lot in self.lots:
+            for ctgy in lot.body.categories:
+                result = _remove_from_ctgy(ctgy, oz)
+                if result is not None:
+                    return result
+        return None
+
+    def move_item(self, oz: str, target_category_rno: str) -> Item:
+        """Move an item from its current category to another.
+
+        Args:
+            oz: OZ of the item to move.
+            target_category_rno: Destination category ``rno``.
+
+        Returns:
+            The moved Item.
+
+        Raises:
+            ValueError: If item or target category not found.
+        """
+        item = self.remove_item(oz)
+        if item is None:
+            raise ValueError(f"Item with oz={oz!r} not found in BoQ")
+        target = self._find_category(target_category_rno)
+        if target is None:
+            raise ValueError(
+                f"Target category with rno={target_category_rno!r} not found"
+            )
+        target.items.append(item)
+        return item
+
+    def recalculate_totals(self) -> None:
+        """Recompute all Totals from items at category, lot, and BoQ levels."""
+        for lot in self.lots:
+            for ctgy in lot.body.categories:
+                _recalc_ctgy_totals(ctgy)
+            if lot.totals is not None:
+                lot.totals.total = lot.subtotal
+        if self.boq_info and self.boq_info.totals is not None:
+            self.boq_info.totals.total = sum(
+                (lot.subtotal for lot in self.lots), Decimal("0")
+            )
+
+    def _find_category(self, rno: str) -> BoQCtgy | None:
+        """Find a category by rno across all lots (depth-first)."""
+        for lot in self.lots:
+            for ctgy in lot.body.categories:
+                found = _find_ctgy(ctgy, rno)
+                if found is not None:
+                    return found
+        return None
+
     def iter_hierarchy(self) -> Iterator[tuple[int, str, BoQCtgy | None]]:
         """Walk the hierarchy tree yielding (depth, label, category_or_none)."""
         for lot in self.lots:
@@ -183,3 +283,40 @@ def _walk_ctgy(ctgy: BoQCtgy, depth: int) -> Iterator[tuple[int, str, BoQCtgy | 
     yield (depth, ctgy.label, ctgy)
     for sub in ctgy.subcategories:
         yield from _walk_ctgy(sub, depth + 1)
+
+
+def _remove_from_ctgy(ctgy: BoQCtgy, oz: str, depth: int = 0) -> Item | None:
+    """Recursively search and remove an item by OZ."""
+    if depth > _MAX_HIERARCHY_DEPTH:
+        return None
+    removed = ctgy.remove_item(oz)
+    if removed is not None:
+        return removed
+    for sub in ctgy.subcategories:
+        removed = _remove_from_ctgy(sub, oz, depth + 1)
+        if removed is not None:
+            return removed
+    return None
+
+
+def _find_ctgy(ctgy: BoQCtgy, rno: str, depth: int = 0) -> BoQCtgy | None:
+    """Recursively find a category by rno."""
+    if depth > _MAX_HIERARCHY_DEPTH:
+        return None
+    if ctgy.rno == rno:
+        return ctgy
+    for sub in ctgy.subcategories:
+        found = _find_ctgy(sub, rno, depth + 1)
+        if found is not None:
+            return found
+    return None
+
+
+def _recalc_ctgy_totals(ctgy: BoQCtgy, depth: int = 0) -> None:
+    """Recursively recompute totals from items."""
+    if depth > _MAX_HIERARCHY_DEPTH:
+        return
+    for sub in ctgy.subcategories:
+        _recalc_ctgy_totals(sub, depth + 1)
+    if ctgy.totals is not None:
+        ctgy.totals.total = ctgy.subtotal
