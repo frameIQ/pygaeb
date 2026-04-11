@@ -12,6 +12,7 @@ logger = logging.getLogger("pygaeb.detector")
 class FormatFamily(str, Enum):
     DA_XML = "DA_XML"
     GAEB_90 = "GAEB_90"
+    ONORM_B2063 = "ONORM_B2063"
     UNKNOWN = "UNKNOWN"
 
 
@@ -31,6 +32,14 @@ def detect_format(path: str | Path) -> FormatFamily:
         return FormatFamily.UNKNOWN
 
     header_lower = header.lower()
+
+    # ÖNORM B 2063 (Austrian standard) — distinct from German GAEB
+    if b"onorm" in header_lower or b"\xc3\x96norm" in header_lower or b"b 2063" in header_lower:
+        logger.debug("Detected ÖNORM B 2063 for %s", path.name)
+        return FormatFamily.ONORM_B2063
+    if path.suffix.lower() in (".onlv", ".onlb"):
+        logger.debug("Detected ÖNORM B 2063 from extension for %s", path.name)
+        return FormatFamily.ONORM_B2063
 
     if b"<?xml" in header_lower or b"<gaeb" in header_lower:
         logger.debug("Detected DA XML family for %s", path.name)

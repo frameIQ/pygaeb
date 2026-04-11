@@ -38,6 +38,7 @@ _AWARD_FIELDS = set(AwardInfo.model_fields.keys())
 
 _PHASE_RULES: dict[str, dict[str, Any]] = {
     "X80": {"warn_if_present": {"unit_price", "total_price"}, "label": "blank BoQ"},
+    "X82": {"warn_if_missing": {"unit_price"}, "label": "cost estimate/Preisspiegel"},
     "X83": {"warn_if_missing": {"unit_price"}, "label": "tender with prices"},
     "X84": {"warn_if_missing": {"unit_price"}, "label": "award"},
     "X88": {"warn_if_missing": {"unit_price", "change_order_number"}, "label": "addendum/Nachtrag"},

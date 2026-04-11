@@ -446,6 +446,17 @@ def _add_item(
     if item.vat is not None:
         _add_text_el(item_el, "VAT", _fmt_decimal(item.vat))
 
+    for bp in item.bidder_prices:
+        bp_el = etree.SubElement(item_el, "BidderUP")
+        if bp.bidder_name:
+            _add_text_el(bp_el, "BidderName", bp.bidder_name)
+        if bp.bidder_id:
+            _add_text_el(bp_el, "BidderID", bp.bidder_id)
+        if bp.unit_price is not None:
+            _add_text_el(bp_el, "UP", _fmt_decimal(bp.unit_price, up_frac_dig))
+        if bp.total_price is not None:
+            _add_text_el(bp_el, "IT", _fmt_decimal(bp.total_price))
+
     for ctlg in item.ctlg_assigns:
         _add_ctlg_assign(item_el, ctlg)
 

@@ -53,11 +53,29 @@ class QtyAttachment(BaseModel):
         return base64.b64encode(self.data).decode("ascii") if self.data else ""
 
 
+class ParsedTakeoff(BaseModel):
+    """Structured result of parsing a REB 23.003 takeoff row.
+
+    Extracted from the raw fixed-width string via
+    :meth:`QTakeoffRow.parse`.
+    """
+
+    description: str = ""
+    dimensions: list[Decimal] = Field(default_factory=list)
+    operator: str = ""
+    computed_qty: Decimal | None = None
+    unit: str = ""
+    formula: str = ""
+
+
 class QTakeoffRow(BaseModel):
     """Single quantity take-off row (REB 23.003 format).
 
     The ``raw`` field stores the full fixed-width formatted string
     (typically 80 characters) as specified by the REB 23.003 standard.
+
+    Call :meth:`parse` to extract structured dimensions and computed
+    quantity from the raw string.
     """
 
     model_config = {"arbitrary_types_allowed": True}
@@ -65,6 +83,23 @@ class QTakeoffRow(BaseModel):
     raw: str = ""
     ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
     source_element: Any = Field(default=None, exclude=True, repr=False)
+    parsed: ParsedTakeoff | None = Field(default=None, exclude=True)
+
+    def parse(self) -> ParsedTakeoff:
+        """Parse the raw REB 23.003 string into structured fields.
+
+        Extracts description, dimensions, formula, and computed quantity
+        from common REB row formats::
+
+            "Fundament A  5,00 * 3,20 * 0,75 = 12,000 m3"
+            "Wand Nord   12,50 * 3,00 = 37,500 m2"
+
+        Returns:
+            A :class:`ParsedTakeoff` with extracted fields.
+        """
+        from pygaeb.parser.reb_parser import parse_reb_row
+        self.parsed = parse_reb_row(self.raw)
+        return self.parsed
 
 
 class QDetermItem(BaseModel):

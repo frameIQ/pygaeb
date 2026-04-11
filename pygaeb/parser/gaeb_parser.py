@@ -40,6 +40,7 @@ class GAEBParser:
         post_parse_hook: Callable[[Any, Any], None] | None = None,
         collect_raw_data: bool = False,
         extra_validators: list[Callable[[GAEBDocument], list[ValidationResult]]] | None = None,
+        suppress: list[str] | None = None,
     ) -> GAEBDocument:
         """Parse a GAEB file from disk and return a unified GAEBDocument.
 
@@ -73,6 +74,7 @@ class GAEBParser:
             post_parse_hook=post_parse_hook,
             collect_raw_data=collect_raw_data,
             extra_validators=extra_validators,
+            suppress=suppress,
         )
 
     @staticmethod
@@ -86,6 +88,7 @@ class GAEBParser:
         post_parse_hook: Callable[[Any, Any], None] | None = None,
         collect_raw_data: bool = False,
         extra_validators: list[Callable[[GAEBDocument], list[ValidationResult]]] | None = None,
+        suppress: list[str] | None = None,
     ) -> GAEBDocument:
         """Parse GAEB data from bytes (useful for web uploads, S3 streams, etc.).
 
@@ -103,6 +106,7 @@ class GAEBParser:
                 post_parse_hook=post_parse_hook,
                 collect_raw_data=collect_raw_data,
                 extra_validators=extra_validators,
+                suppress=suppress,
             )
         finally:
             tmp_path.unlink(missing_ok=True)
@@ -118,6 +122,7 @@ class GAEBParser:
         post_parse_hook: Callable[[Any, Any], None] | None = None,
         collect_raw_data: bool = False,
         extra_validators: list[Callable[[GAEBDocument], list[ValidationResult]]] | None = None,
+        suppress: list[str] | None = None,
     ) -> GAEBDocument:
         """Parse GAEB data from an XML string.
 
@@ -129,6 +134,7 @@ class GAEBParser:
             post_parse_hook=post_parse_hook,
             collect_raw_data=collect_raw_data,
             extra_validators=extra_validators,
+            suppress=suppress,
         )
 
 
@@ -163,6 +169,7 @@ def _parse_core(
     post_parse_hook: Callable[[Any, Any], None] | None = None,
     collect_raw_data: bool = False,
     extra_validators: list[Callable[[GAEBDocument], list[ValidationResult]]] | None = None,
+    suppress: list[str] | None = None,
 ) -> GAEBDocument:
     """Shared parsing pipeline for all entry points."""
     logger.debug(
@@ -200,8 +207,20 @@ def _parse_core(
     else:
         doc.add_info("XSD validation skipped: no schema directory configured")
 
-    from pygaeb.validation import run_validation
-    run_validation(doc, route, extra_validators=extra_validators)
+    from pygaeb.validation import _compile_suppress, _suppress_matches, run_validation
+    run_validation(
+        doc, route,
+        extra_validators=extra_validators,
+        suppress=suppress,
+    )
+
+    # Apply suppress to any pre-existing entries (e.g. XSD info) too
+    if suppress:
+        compiled = _compile_suppress(suppress)
+        doc.validation_results = [
+            r for r in doc.validation_results
+            if not _suppress_matches(r.message, compiled)
+        ]
 
     if validation == ValidationMode.STRICT:
         errors = [
@@ -217,6 +236,16 @@ def _parse_core(
     logger.debug(
         "Parsed %s: %d items, %d validation results",
         source_path.name, doc.item_count, len(doc.validation_results),
+    )
+
+    from pygaeb.events import EventType, emit
+    emit(
+        EventType.PARSE_COMPLETED,
+        file=str(source_path),
+        item_count=doc.item_count,
+        version=doc.source_version.value,
+        phase=doc.exchange_phase.value,
+        validation_count=len(doc.validation_results),
     )
 
     return doc
@@ -271,15 +300,22 @@ def _dispatch_parser(
     route: ParseRoute, path: Path, text: str, keep_xml: bool = False,
 ) -> GAEBDocument:
     """Route to the correct parser track based on detection result."""
-    if route.track == ParserTrack.TRACK_C:
+    if route.format_family == FormatFamily.ONORM_B2063:
         raise GAEBParseError(
-            "GAEB 90 (fixed-width) parsing is not yet supported — planned for v1.1"
+            "ÖNORM B 2063 (Austrian standard) files are not supported. "
+            "pyGAEB only handles German GAEB DA XML files. "
+            "Please use an Austrian AVA tool to convert to GAEB format."
         )
+
+    if route.track == ParserTrack.TRACK_C:
+        from pygaeb.parser.track_c.gaeb90_parser import GAEB90Parser
+        gaeb90_parser = GAEB90Parser(route)
+        return gaeb90_parser.parse(path, text)
 
     if route.exchange_phase in _TRADE_PHASES:
         from pygaeb.parser.xml_v3.trade_parser import TradeParser
-        parser = TradeParser(route, keep_xml=keep_xml)
-        return parser.parse(path, text)
+        trade_parser = TradeParser(route, keep_xml=keep_xml)
+        return trade_parser.parse(path, text)
 
     if route.exchange_phase in _COST_PHASES:
         from pygaeb.parser.xml_v3.cost_parser import CostParser
@@ -293,7 +329,7 @@ def _dispatch_parser(
 
     if route.track == ParserTrack.TRACK_A:
         from pygaeb.parser.xml_v2.v2_parser import V2Parser
-        parser = V2Parser(route, keep_xml=keep_xml)  # type: ignore[assignment]
+        parser = V2Parser(route, keep_xml=keep_xml)
         return parser.parse(path, text)
 
     if route.version == SourceVersion.DA_XML_30:

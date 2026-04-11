@@ -1,0 +1,136 @@
+{
+  "source_version": "3.3",
+  "exchange_phase": "X86",
+  "gaeb_info": {
+    "version": "3.3",
+    "prog_system": null,
+    "prog_system_version": null,
+    "date": null
+  },
+  "award": {
+    "project_no": "PRJ-CLI",
+    "project_name": "CLI Testprojekt",
+    "client": null,
+    "currency": "EUR",
+    "currency_short": null,
+    "procurement_type": null,
+    "date": null,
+    "place": null,
+    "category": null,
+    "open_date": null,
+    "open_time": null,
+    "eval_end": null,
+    "submit_location": null,
+    "construction_start": null,
+    "construction_end": null,
+    "contract_no": null,
+    "contract_date": null,
+    "accept_type": null,
+    "warranty_duration": null,
+    "warranty_unit": null,
+    "owner_address": null,
+    "award_no": null,
+    "prj_id": null,
+    "lbl_prj": null,
+    "description": null,
+    "currency_label": null,
+    "bid_comm_perm": false,
+    "alter_bid_perm": false,
+    "up_frac_dig": null,
+    "ctlg_assigns": [],
+    "boq": {
+      "boq_info": null,
+      "lots": [
+        {
+          "rno": "1",
+          "label": "Default",
+          "boq_info": null,
+          "body": {
+            "categories": [
+              {
+                "rno": "01",
+                "label": "Rohbau",
+                "items": [
+                  {
+                    "oz": "0010",
+                    "short_text": "Mauerwerk KS 240mm",
+                    "long_text": null,
+                    "qty": "100",
+                    "unit": "m2",
+                    "unit_price": "45.50",
+                    "total_price": "4550.00",
+                    "item_type": "Normal",
+                    "qty_splits": [],
+                    "hierarchy_path": [
+                      "Rohbau"
+                    ],
+                    "lot_label": null,
+                    "classification": null,
+                    "extractions": {},
+                    "attachments": [],
+                    "bim_guid": null,
+                    "change_order_number": null,
+                    "cost_approaches": [],
+                    "up_components": [],
+                    "discount_pct": null,
+                    "vat": null,
+                    "ctlg_assigns": [],
+                    "markup_type": null,
+                    "markup_sub_qtys": [],
+                    "bidder_prices": []
+                  },
+                  {
+                    "oz": "0020",
+                    "short_text": "Beton C25/30",
+                    "long_text": null,
+                    "qty": "50",
+                    "unit": "m3",
+                    "unit_price": "180.00",
+                    "total_price": "9000.00",
+                    "item_type": "Normal",
+                    "qty_splits": [],
+                    "hierarchy_path": [
+                      "Rohbau"
+                    ],
+                    "lot_label": null,
+                    "classification": null,
+                    "extractions": {},
+                    "attachments": [],
+                    "bim_guid": null,
+                    "change_order_number": null,
+                    "cost_approaches": [],
+                    "up_components": [],
+                    "discount_pct": null,
+                    "vat": null,
+                    "ctlg_assigns": [],
+                    "markup_type": null,
+                    "markup_sub_qtys": [],
+                    "bidder_prices": []
+                  }
+                ],
+                "subcategories": [],
+                "lbl_tx": "Rohbau",
+                "ctlg_assigns": [],
+                "totals": null
+              }
+            ]
+          },
+          "totals": null
+        }
+      ]
+    }
+  },
+  "order": null,
+  "elemental_costing": null,
+  "qty_determination": null,
+  "validation_results": [
+    {
+      "severity": "INFO",
+      "message": "XSD validation skipped: no schema directory configured",
+      "xpath_location": null,
+      "version_specific": false
+    }
+  ],
+  "source_file": "/private/var/folders/yn/5cv_3lxj4qb1qxh4v5dsdf940000gn/T/pytest-of-kalyanakannanpadivasu/pytest-110/test_export_default_output_nam0/tender.X86",
+  "raw_namespace": "http://www.gaeb.de/GAEB_DA_XML/DA86/3.3"
+}

@@ -157,6 +157,7 @@ def to_excel(
     include_long_text: bool = False,
     include_classification: bool = False,
     include_bim_guid: bool = False,
+    formulas: bool = False,
 ) -> None:
     """Export a GAEBDocument to an Excel workbook.
 
@@ -168,6 +169,9 @@ def to_excel(
         include_long_text: Add a "Long Text" column.
         include_classification: Add classification columns (trade, element_type, confidence).
         include_bim_guid: Add a "BIM GUID" column (procurement only).
+        formulas: When ``True``, replace static computed totals on item rows
+            with live ``=Qty*UnitPrice`` formulas so changing input values
+            in Excel updates downstream cells. Procurement only.
     """
     openpyxl = _ensure_openpyxl()
     if mode not in ("structured", "full"):
@@ -194,7 +198,50 @@ def to_excel(
         _write_info_sheet(ws_info, doc)
         _apply_formatting_auto(ws_info)
 
+    if formulas and doc.is_procurement:
+        _inject_formulas(ws_boq, columns)
+        if mode == "full":
+            _inject_formulas(ws_items, columns)
+
     wb.save(Path(path))
+
+
+def _inject_formulas(ws: Any, columns: list[ColumnDef]) -> None:
+    """Replace static Total cells with =Qty*UnitPrice formulas.
+
+    Walks all data rows and rewrites the "Total Price" column when both
+    Qty and Unit Price columns are present and contain numeric values.
+    """
+    qty_col = _column_index(columns, "Qty")
+    up_col = _column_index(columns, "Unit Price")
+    total_col = _column_index(columns, "Total Price")
+    if qty_col == 0 or up_col == 0 or total_col == 0:
+        return
+
+    from openpyxl.utils import get_column_letter
+    qty_letter = get_column_letter(qty_col)
+    up_letter = get_column_letter(up_col)
+
+    for row_idx in range(2, ws.max_row + 1):
+        qty_val = ws.cell(row=row_idx, column=qty_col).value
+        up_val = ws.cell(row=row_idx, column=up_col).value
+        total_val = ws.cell(row=row_idx, column=total_col).value
+        if qty_val is None or up_val is None or total_val is None:
+            continue
+        if not isinstance(qty_val, (int, float)) or not isinstance(up_val, (int, float)):
+            continue
+        ws.cell(
+            row=row_idx, column=total_col,
+            value=f"={qty_letter}{row_idx}*{up_letter}{row_idx}",
+        )
+
+
+def _column_index(columns: list[ColumnDef], header: str) -> int:
+    """Return 1-based column index by header label, or 0 if not found."""
+    for i, col in enumerate(columns, start=1):
+        if col.header == header:
+            return i
+    return 0
 
 
 # ---------------------------------------------------------------------------

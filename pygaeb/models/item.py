@@ -121,6 +121,24 @@ class CostApproach(BaseModel):
     source_element: Any = Field(default=None, exclude=True, repr=False)
 
 
+class BidderPrice(BaseModel):
+    """A single bidder's price for an item in a Preisspiegel (X82).
+
+    GAEB X82 carries multiple bidder prices per item for tender comparison.
+    Each ``BidderPrice`` represents one bidder's submitted price.
+
+    The optional ``rank`` field is populated by ``BidAnalysis`` after
+    sorting bidders by total price (1 = lowest).
+    """
+
+    bidder_name: str = ""
+    bidder_id: str | None = None
+    unit_price: Decimal | None = None
+    total_price: Decimal | None = None
+    rank: int | None = None
+    source_element: Any = Field(default=None, exclude=True, repr=False)
+
+
 class Item(BaseModel):
     """A single item (position) in a procurement Bill of Quantities (X80-X89).
 
@@ -162,6 +180,7 @@ class Item(BaseModel):
     ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
     markup_type: str | None = None
     markup_sub_qtys: list[MarkupSubQty] = Field(default_factory=list)
+    bidder_prices: list[BidderPrice] = Field(default_factory=list)
     source_element: Any = Field(default=None, exclude=True, repr=False)
     raw_data: dict[str, Any] | None = Field(default=None, exclude=True)
 

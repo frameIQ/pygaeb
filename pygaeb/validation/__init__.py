@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 from pygaeb.detector.version_detector import ParseRoute
@@ -34,15 +35,55 @@ def clear_validators() -> None:
     _custom_validators.clear()
 
 
+def _suppress_matches(message: str, patterns: list[re.Pattern[str]]) -> bool:
+    """Return True if *message* matches any compiled suppress pattern."""
+    return any(p.search(message) is not None for p in patterns)
+
+
+def _compile_suppress(suppress: list[str] | None) -> list[re.Pattern[str]]:
+    """Compile each suppress pattern as a regex with word boundaries.
+
+    Plain words like ``"XSD"`` become ``r"\\bXSD\\b"`` so they only match
+    whole tokens — preventing accidental matches such as ``"price"``
+    silencing ``"unit_price"``. Patterns containing regex metacharacters
+    are compiled as-is so callers can opt in to free-form regex.
+    """
+    if not suppress:
+        return []
+    compiled: list[re.Pattern[str]] = []
+    metachars = set(r".^$*+?{}[]\|()")
+    for pat in suppress:
+        if any(c in metachars for c in pat):
+            compiled.append(re.compile(pat))
+        else:
+            compiled.append(re.compile(rf"\b{re.escape(pat)}\b"))
+    return compiled
+
+
 def run_validation(
     doc: GAEBDocument,
     route: ParseRoute,
     extra_validators: list[ValidatorFn] | None = None,
+    suppress: list[str] | None = None,
 ) -> list[ValidationResult]:
     """Run all validation passes and append results to the document.
 
     *extra_validators* are per-call validators that run in addition to the
     globally registered ones.
+
+    *suppress* is a list of patterns. Plain words are matched as whole
+    tokens (word-boundary regex), so ``suppress=["price"]`` will *not*
+    silence ``"unit_price expected"``. Patterns containing regex
+    metacharacters (``.^$*+?{}[]|()``) are compiled as free-form regex.
+    Useful for acknowledging known vendor quirks.
+
+    Examples::
+
+        # Suppress only the literal token "XSD" (won't match "XSDValidator"):
+        suppress=["XSD"]
+
+        # Suppress any message starting with "Item ":
+        suppress=[r"^Item "]
     """
     results: list[ValidationResult] = []
 
@@ -57,6 +98,10 @@ def run_validation(
 
     for fn in extra_validators or []:
         results.extend(fn(doc))
+
+    if suppress:
+        compiled = _compile_suppress(suppress)
+        results = [r for r in results if not _suppress_matches(r.message, compiled)]
 
     doc.validation_results.extend(results)
     return results
