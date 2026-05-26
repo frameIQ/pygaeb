@@ -2,9 +2,18 @@
 
 Thank you for considering contributing to pyGAEB! This guide will help you get started.
 
-## Licence Agreement
+## Contributor License Agreement (CLA)
 
-By submitting a pull request you agree that your contributions are licensed under the MIT License and that the project maintainers retain the right to relicence the project under alternative terms.
+Before your first contribution can be merged, you must sign the
+[pyGAEB Contributor License Agreement](CLA.md). It confirms you have the right to
+contribute your work and grants FrameIQ a broad licence to your contribution —
+including the right to offer the Project under multiple licences (open-source and
+commercial). **You keep full ownership of your contributions.**
+
+Signing is automated: when you open your first pull request, the CLA assistant bot
+will post a one-time link/comment to sign. You only sign once, and it covers all
+your future contributions. Contributing on behalf of a company? See the Corporate
+section of [CLA.md](CLA.md).
 
 ## Development Setup
 
