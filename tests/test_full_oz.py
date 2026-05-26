@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from textwrap import dedent
 
-from pygaeb import GAEBParser
+from pygaeb import BoQTree, GAEBParser
 from pygaeb.models.item import Item
 
 NESTED = dedent("""\
@@ -134,3 +134,10 @@ class TestFullOz:
         item = next(i for i in doc.award.boq.iter_items() if i.oz == "0004")
         restored = Item.model_validate(item.model_dump())
         assert restored.full_oz == "01.02.0004"
+
+    def test_tree_find_item_by_leaf_or_full_oz(self) -> None:
+        # Parsed items keep a leaf oz; the tree must resolve either form.
+        doc = GAEBParser.parse_string(NESTED)
+        tree = BoQTree(doc.award.boq)
+        assert tree.find_item("01.02.0004") is tree.find_item("0004")
+        assert tree.find_item("01.02.0004").item.short_text == "Deep item"

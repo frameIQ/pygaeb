@@ -299,7 +299,9 @@ class BoQTree:
         return self._item_count
 
     def find_item(self, oz: str) -> BoQNode | None:
-        """O(1) item lookup by OZ. Returns None if not found."""
+        """O(1) item lookup by OZ. Accepts either the leaf ``RNoPart``
+        (e.g. ``"0004"``) or the full OZ (e.g. ``"01.02.0004"``). Returns
+        None if not found."""
         return self._items_by_oz.get(oz)
 
     def find_category(self, rno: str) -> BoQNode | None:
@@ -422,5 +424,10 @@ class BoQTree:
 
         if item_model.oz:
             self._items_by_oz.setdefault(item_model.oz, item_node)
+        # Also index by the full OZ (e.g. "01.02.0004") so lookups work with
+        # either the leaf RNoPart or the complete ordinal number.
+        full_oz = item_model.full_oz
+        if full_oz and full_oz != item_model.oz:
+            self._items_by_oz.setdefault(full_oz, item_node)
 
         return item_node
