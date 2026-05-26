@@ -9,6 +9,7 @@ from pygaeb.models.document import GAEBDocument
 
 _HEADERS = [
     "oz",
+    "full_oz",
     "short_text",
     "qty",
     "unit",
@@ -48,6 +49,7 @@ def to_csv(
         for item in doc.award.boq.iter_items():
             row = {
                 "oz": item.oz,
+                "full_oz": item.full_oz,
                 "short_text": item.short_text,
                 "qty": str(item.qty) if item.qty is not None else "",
                 "unit": item.unit or "",
