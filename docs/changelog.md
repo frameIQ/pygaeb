@@ -4,6 +4,18 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-05-26
+
+### Added
+
+- **`Item.full_oz`** — Complete ordinal number (e.g. `"01.02.0004"`), joining the ancestor category/lot chain with the item's leaf `RNoPart`. `Item.full_oz_with(separator)` for a custom separator; backed by the new `Item.oz_path` field.
+- **`BoQTree.find_item()`** now resolves by either the leaf `RNoPart` or the full OZ.
+- **CSV export** gains a `full_oz` column.
+
+### Fixed
+
+- **Crash parsing files with XML comments (iTWO / RIB Software)** — comments embedded inside elements no longer raise `TypeError`; the v3 parser now skips comment/processing-instruction nodes during iteration. Applies to DA XML 2.x and 3.x.
+
 ## [1.11.0] - 2026-03-24
 
 ### Added

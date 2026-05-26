@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-05-26
+
+### Added
+
+- **`Item.full_oz`** — New property returning the complete ordinal number (e.g. `"01.02.0004"`) by joining the ancestor category/lot chain with the item's leaf `RNoPart`. Use `Item.full_oz_with(separator)` for a custom separator. Backed by the new `Item.oz_path` field (the ancestor `RNoPart` chain, populated during parsing). For multi-lot documents the lot number prefixes the OZ; programmatically built items fall back to the bare `oz`.
+- **`BoQTree.find_item()` accepts full OZ** — Lookups now resolve by either the leaf `RNoPart` (`"0004"`) or the full OZ (`"01.02.0004"`).
+- **CSV export `full_oz` column** — `to_csv()` now includes a `full_oz` column alongside `oz`.
+
+### Fixed
+
+- **Crash parsing files with XML comments (iTWO / RIB Software)** — GAEB DA XML 3.3 exports that embed `<!-- ... -->` comments inside elements no longer raise `TypeError`. lxml reports comment and processing-instruction nodes during iteration with a callable `.tag`; the v3 parser now skips these non-element nodes in `_parse_item_attachments`, `_classify_item_type`, and `_parse_bkdn_v33` (the last of which also previously produced a spurious breakdown entry per comment). Covers DA XML 2.x as well, since the 2.x parser delegates to the same base.
+
 ## [1.12.0] - 2026-04-11
 
 ### Added

@@ -90,11 +90,19 @@ print(node.prev_sibling)       # None (first item)
 
 ### Find item by OZ (O(1))
 
+`find_item()` accepts either the leaf `RNoPart` (`"0010"`) or the full OZ
+(`"01.01.0010"`):
+
 ```python
-node = tree.find_item("01.01.0010")
+node = tree.find_item("01.01.0010")   # or tree.find_item("0010")
 if node:
     print(node.item.short_text, node.item.total_price)
+    print(node.item.full_oz)           # "01.01.0010"
 ```
+
+> `Item.oz` holds only this item's own segment (the leaf `RNoPart`). Use
+> `item.full_oz` for the complete ordinal number built from the whole
+> category/lot chain, or `item.full_oz_with("-")` for a custom separator.
 
 ### Find category by rno
 

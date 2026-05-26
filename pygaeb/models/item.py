@@ -158,6 +158,7 @@ class Item(BaseModel):
         return f"Item({', '.join(parts)})"
 
     oz: str = ""
+    oz_path: list[str] = Field(default_factory=list)
     short_text: str = ""
     long_text: RichText | None = None
     qty: Decimal | None = None
@@ -212,3 +213,20 @@ class Item(BaseModel):
     @property
     def hierarchy_path_str(self) -> str:
         return " > ".join(self.hierarchy_path)
+
+    @property
+    def full_oz(self) -> str:
+        """The complete ordinal number (Ordnungszahl), e.g. ``"01.02.0004"``.
+
+        Joins the ancestor category/lot ``RNoPart`` chain (``oz_path``) with
+        this item's own leaf ``oz`` using ``.`` as the separator. Falls back to
+        the bare ``oz`` when no ancestor chain is available (e.g. items built
+        programmatically). Use :meth:`full_oz_with` for a custom separator.
+        """
+        return self.full_oz_with(".")
+
+    def full_oz_with(self, separator: str = ".") -> str:
+        """Like :attr:`full_oz` but with a caller-chosen *separator*."""
+        if self.oz_path:
+            return separator.join([*self.oz_path, self.oz])
+        return self.oz

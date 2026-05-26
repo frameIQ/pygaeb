@@ -260,7 +260,9 @@ class BaseV3Parser:
                     rno = lot_el.get("RNoPart", str(i + 1))
                     label = self._text(lot_el, "LblTx") or f"Lot {i + 1}"
                     lot = Lot(rno=rno, label=label, boq_info=boq.boq_info)
-                    lot.body = self._parse_ctgy_as_body(lot_el, doc, lot_label=label)
+                    lot.body = self._parse_ctgy_as_body(
+                        lot_el, doc, lot_label=label, oz_path=[rno] if rno else []
+                    )
                     lot.totals = self._parse_totals(lot_el)
                     boq.lots.append(lot)
 
@@ -292,6 +294,8 @@ class BaseV3Parser:
     def _parse_bkdn_v33(self, bkdn_el: etree._Element, info: BoQInfo) -> None:
         """v3.3 format: single <BoQBkdn> with <BoQLevel Length="2"/> children."""
         for level_el in bkdn_el:
+            if callable(level_el.tag):  # skip comments / processing instructions
+                continue
             tag = self._local_tag(level_el.tag)
             length_str = level_el.get("Length", "0")
             try:
@@ -326,20 +330,29 @@ class BaseV3Parser:
     def _parse_boq_body(self, body_el: etree._Element, doc: GAEBDocument) -> BoQBody:
         body = BoQBody()
         for ctgy_el in self._findall(body_el, "BoQCtgy"):
-            ctgy = self._parse_ctgy(ctgy_el, doc, [])
+            ctgy = self._parse_ctgy(ctgy_el, doc, [], oz_path=[])
             body.categories.append(ctgy)
         return body
 
     def _parse_ctgy_as_body(
-        self, ctgy_el: etree._Element, doc: GAEBDocument, lot_label: str = ""
+        self,
+        ctgy_el: etree._Element,
+        doc: GAEBDocument,
+        lot_label: str = "",
+        oz_path: list[str] | None = None,
     ) -> BoQBody:
+        oz_path = oz_path or []
         body = BoQBody()
         for sub_el in self._findall(ctgy_el, "BoQBody"):
             for inner_ctgy_el in self._findall(sub_el, "BoQCtgy"):
-                ctgy = self._parse_ctgy(inner_ctgy_el, doc, [], lot_label=lot_label)
+                ctgy = self._parse_ctgy(
+                    inner_ctgy_el, doc, [], lot_label=lot_label, oz_path=oz_path
+                )
                 body.categories.append(ctgy)
         if not body.categories:
-            ctgy = self._parse_ctgy(ctgy_el, doc, [], lot_label=lot_label)
+            ctgy = self._parse_ctgy(
+                ctgy_el, doc, [], lot_label=lot_label, oz_path=oz_path
+            )
             body.categories.append(ctgy)
         return body
 
@@ -349,12 +362,16 @@ class BaseV3Parser:
         doc: GAEBDocument,
         parent_path: list[str],
         lot_label: str = "",
+        oz_path: list[str] | None = None,
     ) -> BoQCtgy:
+        oz_path = oz_path or []
         rno = ctgy_el.get("RNoPart", "")
         label = self._text(ctgy_el, "LblTx") or ""
         ctgy = BoQCtgy(rno=rno, label=label, lbl_tx=label)
 
         current_path = parent_path + ([label] if label else [rno] if rno else [])
+        # OZ chain carries only the numeric RNoParts (skip unnumbered groups).
+        current_oz = oz_path + ([rno] if rno else [])
 
         if rno:
             self._category_labels[rno] = label or rno
@@ -363,15 +380,21 @@ class BaseV3Parser:
         target = boq_body_el if boq_body_el is not None else ctgy_el
 
         for sub_ctgy_el in self._findall(target, "BoQCtgy"):
-            sub = self._parse_ctgy(sub_ctgy_el, doc, current_path, lot_label)
+            sub = self._parse_ctgy(
+                sub_ctgy_el, doc, current_path, lot_label, oz_path=current_oz
+            )
             ctgy.subcategories.append(sub)
 
         for item_el in self._findall(target, "Itemlist"):
             for it_el in self._findall(item_el, "Item"):
-                item = self._parse_item(it_el, doc, current_path, lot_label)
+                item = self._parse_item(
+                    it_el, doc, current_path, lot_label, oz_path=current_oz
+                )
                 ctgy.items.append(item)
             for mu_el in self._findall(item_el, "MarkupItem"):
-                markup_item = self._parse_markup_item(mu_el, doc, current_path, lot_label)
+                markup_item = self._parse_markup_item(
+                    mu_el, doc, current_path, lot_label, oz_path=current_oz
+                )
                 ctgy.items.append(markup_item)
 
         for it_el in self._findall(target, "Item"):
@@ -379,7 +402,9 @@ class BaseV3Parser:
                 parent_tag = self._local_tag(it_el.getparent().tag)
                 if parent_tag == "Itemlist":
                     continue
-            item = self._parse_item(it_el, doc, current_path, lot_label)
+            item = self._parse_item(
+                it_el, doc, current_path, lot_label, oz_path=current_oz
+            )
             ctgy.items.append(item)
 
         ctgy.ctlg_assigns = self._parse_ctlg_assigns(ctgy_el)
@@ -396,11 +421,13 @@ class BaseV3Parser:
         doc: GAEBDocument,
         hierarchy_path: list[str],
         lot_label: str = "",
+        oz_path: list[str] | None = None,
     ) -> Item:
         oz = item_el.get("RNoPart", "")
 
         item = Item(
             oz=oz,
+            oz_path=oz_path or [],
             hierarchy_path=hierarchy_path,
             lot_label=lot_label or None,
         )
@@ -523,11 +550,13 @@ class BaseV3Parser:
         doc: GAEBDocument,
         hierarchy_path: list[str],
         lot_label: str = "",
+        oz_path: list[str] | None = None,
     ) -> Item:
         """Parse a ``<MarkupItem>`` element (X52) into an ``Item`` with ``ItemType.MARKUP``."""
         oz = el.get("RNoPart", "")
         item = Item(
             oz=oz,
+            oz_path=oz_path or [],
             hierarchy_path=hierarchy_path,
             lot_label=lot_label or None,
             item_type=ItemType.MARKUP,
@@ -577,6 +606,8 @@ class BaseV3Parser:
             return tag_map.get(item_tag, ItemType.NORMAL)
 
         for child in item_el:
+            if callable(child.tag):  # skip comments / processing instructions
+                continue
             tag = self._local_tag(child.tag)
             if tag in ("LumpSumItem", "GlobItem"):
                 return ItemType.LUMP_SUM
@@ -702,6 +733,8 @@ class BaseV3Parser:
             return attachments
 
         for att_el in desc.iter():
+            if callable(att_el.tag):  # skip comments / processing instructions
+                continue
             local = self._local_tag(att_el.tag)
             if local == "attachment" and att_el.text and att_el.text.strip():
                 uri = att_el.text.strip()
