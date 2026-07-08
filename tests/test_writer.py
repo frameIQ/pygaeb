@@ -31,6 +31,18 @@ class TestGAEBWriter:
         assert "Mauerwerk Innenwand" in content
         assert "45.50" in content
 
+    def test_output_is_strictly_well_formed(self, sample_document):
+        """Regression: the root element used to carry the default namespace
+        twice (once via nsmap, once as a literal xmlns attribute), producing
+        malformed XML that strict parsers reject and recover-mode parsers
+        truncate. Written output must survive a *strict* lxml parse."""
+        from lxml import etree
+
+        xml_bytes, _ = GAEBWriter.to_bytes(sample_document)
+        root = etree.fromstring(xml_bytes)  # strict parse — raises on dup xmlns
+        assert xml_bytes.count(b"xmlns=") == 1
+        assert etree.QName(root.tag).localname == "GAEB"
+
     def test_round_trip_v33(self, sample_v33_file, tmp_path):
         doc = GAEBParser.parse(sample_v33_file)
         output = tmp_path / "roundtrip.X83"

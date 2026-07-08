@@ -153,10 +153,12 @@ def _build_xml(
 ) -> tuple[etree._Element, list[str]]:
     warnings: list[str] = []
 
+    # NOTE: the default namespace is written as a literal ``xmlns`` attribute
+    # (not via ``nsmap``): passing both used to emit the declaration twice,
+    # producing malformed XML that strict parsers reject.
     if doc.is_quantity and doc.qty_determination is not None:
         ns = qty_namespace(phase, SourceVersion(meta.version_tag))
-        ns_map: dict[str | None, str] = {None: ns}
-        root = etree.Element("GAEB", nsmap=ns_map)  # type: ignore[arg-type]
+        root = etree.Element("GAEB")
         root.set("xmlns", ns)
         _add_gaeb_info(root, doc.gaeb_info, meta)
         _add_qty_determination(root, doc.qty_determination, warnings)
@@ -164,8 +166,7 @@ def _build_xml(
 
     if doc.is_cost and doc.elemental_costing is not None:
         ns = cost_namespace(phase, SourceVersion(meta.version_tag))
-        ns_map = {None: ns}
-        root = etree.Element("GAEB", nsmap=ns_map)  # type: ignore[arg-type]
+        root = etree.Element("GAEB")
         root.set("xmlns", ns)
         _add_gaeb_info(root, doc.gaeb_info, meta)
         _add_elemental_costing(root, doc.elemental_costing, warnings)
@@ -173,16 +174,14 @@ def _build_xml(
 
     if doc.is_trade and doc.order is not None:
         ns = trade_namespace(phase, SourceVersion(meta.version_tag))
-        ns_map = {None: ns}
-        root = etree.Element("GAEB", nsmap=ns_map)  # type: ignore[arg-type]
+        root = etree.Element("GAEB")
         root.set("xmlns", ns)
         _add_gaeb_info(root, doc.gaeb_info, meta)
         _add_order(root, doc.order, phase, warnings)
         return root, warnings
 
     ns = procurement_namespace(phase, SourceVersion(meta.version_tag))
-    ns_map = {None: ns}
-    root = etree.Element("GAEB", nsmap=ns_map)  # type: ignore[arg-type]
+    root = etree.Element("GAEB")
     root.set("xmlns", ns)
 
     _add_gaeb_info(root, doc.gaeb_info, meta)
@@ -361,17 +360,20 @@ def _add_ctgy(
     if ctgy.totals is not None:
         _add_totals(ctgy_el, ctgy.totals)
 
-    for sub in ctgy.subcategories:
-        sub_body = etree.SubElement(ctgy_el, "BoQBody")
-        _add_ctgy(sub_body, sub, phase, meta, warnings, up_frac_dig)
-
-    if ctgy.items:
-        itemlist = etree.SubElement(ctgy_el, "Itemlist")
-        for item in ctgy.items:
-            if item.item_type == ItemType.MARKUP:
-                _add_markup_item(itemlist, item)
-            else:
-                _add_item(itemlist, item, phase, meta, warnings, up_frac_dig)
+    # GAEB schema: a BoQCtgy holds exactly ONE BoQBody, which contains the
+    # sub-BoQCtgy elements and/or the Itemlist. A body per subcategory used
+    # to be written here — parsers then read only the first one back.
+    if ctgy.subcategories or ctgy.items:
+        body_el = etree.SubElement(ctgy_el, "BoQBody")
+        for sub in ctgy.subcategories:
+            _add_ctgy(body_el, sub, phase, meta, warnings, up_frac_dig)
+        if ctgy.items:
+            itemlist = etree.SubElement(body_el, "Itemlist")
+            for item in ctgy.items:
+                if item.item_type == ItemType.MARKUP:
+                    _add_markup_item(itemlist, item)
+                else:
+                    _add_item(itemlist, item, phase, meta, warnings, up_frac_dig)
 
 
 def _add_item(
