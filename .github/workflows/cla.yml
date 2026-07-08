@@ -7,9 +7,11 @@ on:
     types: [opened, closed, synchronize]
 
 # Required so the action can comment on PRs and store signatures.
+# PR conversation comments go through the Issues API, hence issues: write.
 permissions:
   actions: write
   contents: write
+  issues: write
   pull-requests: write
   statuses: write
 
