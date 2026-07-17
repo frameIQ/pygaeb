@@ -137,8 +137,9 @@ class BaseV3Parser:
             return info
 
         info.version = self._text(gaeb_info_el, "Version")
+        info.vers_date = self._text(gaeb_info_el, "VersDate")
         info.prog_system = self._text(gaeb_info_el, "ProgSystem")
-        info.prog_system_version = self._text(gaeb_info_el, "ProgSystemVersion")
+        info.prog_system_version = self._text(gaeb_info_el, "ProgSystemVersion", "ProgName")
 
         date_str = self._text(gaeb_info_el, "Date")
         if date_str:
@@ -208,8 +209,18 @@ class BaseV3Parser:
                 award.currency = self._text(prj_info_el, "Cur") or award.currency
 
             award.prj_id = self._text(prj_info_el, "PrjID")
+            # Round-trip home for the project number: the schema has no Prj
+            # element, so builders serialize project_no as PrjID.
+            if not award.project_no and award.prj_id:
+                award.project_no = award.prj_id
             award.lbl_prj = self._text(prj_info_el, "LblPrj")
-            award.description = self._text(prj_info_el, "Descrip")
+            # Descrip is formatted text (tgFText: p/span/…), not plain — join
+            # all text runs; falls back transparently for legacy plain text.
+            descrip_el = self._find(prj_info_el, "Descrip")
+            if descrip_el is not None:
+                award.description = " ".join(
+                    "".join(str(t) for t in descrip_el.itertext()).split()
+                ) or None
             award.currency_label = self._text(prj_info_el, "CurLbl")
 
             bcp = self._text(prj_info_el, "BidCommPerm")

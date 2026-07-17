@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from decimal import Decimal
-from typing import Any, Callable
+from typing import Any
 
 from pygaeb.models.boq import BoQ, Lot
 from pygaeb.models.cost import CostElement, ElementalCosting

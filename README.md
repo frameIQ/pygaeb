@@ -4,8 +4,8 @@
 
 [![CI](https://github.com/frameIQ/pygaeb/actions/workflows/test.yml/badge.svg)](https://github.com/frameIQ/pygaeb/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/frameIQ/pygaeb/branch/main/graph/badge.svg)](https://codecov.io/gh/frameIQ/pygaeb)
-[![PyPI version](https://img.shields.io/badge/version-1.14.0-blue.svg)](https://pypi.org/project/pyGAEB/)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![PyPI version](https://img.shields.io/badge/version-1.15.0-blue.svg)](https://pypi.org/project/pyGAEB/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 > **[Deutsche Version (README.de.md)](README.de.md)**
@@ -27,6 +27,7 @@ An optional LLM classification layer enriches each item with a semantic construc
 - **Excel export** — Structured .xlsx workbooks with hierarchy-aware layout, phase-specific columns, and multi-sheet mode
 - **Round-trip** — Parse → modify → write back to any DA XML version
 - **Version conversion** — Upgrade/downgrade between DA XML 2.0–3.3
+- **MCP server** — Expose GAEB documents to LLM agents (ChatGPT, Gemini, Claude, Copilot, Cursor) over a bounded, query-oriented tool surface
 
 ## Installation
 
@@ -36,7 +37,12 @@ pip install pyGAEB
 
 # With LLM classification (supports 100+ providers via LiteLLM)
 pip install pyGAEB[llm]
+
+# With the MCP server (works with any MCP client; no provider lock-in)
+pip install pyGAEB[mcp]
 ```
+
+Python 3.10+.
 
 ## Quick Start
 

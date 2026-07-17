@@ -19,9 +19,8 @@ All navigation properties are precomputed at construction time (O(1) access).
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from enum import Enum
-from typing import Callable, Union
 
 from pygaeb.models.boq import BoQ, BoQCtgy, Lot
 from pygaeb.models.item import Item
@@ -36,7 +35,7 @@ class NodeKind(str, Enum):
     ITEM = "item"
 
 
-_ModelType = Union[BoQ, Lot, BoQCtgy, Item]
+_ModelType = BoQ | Lot | BoQCtgy | Item
 
 
 class BoQNode:

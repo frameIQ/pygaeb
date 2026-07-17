@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-07-17
+
+### Added
+
+- **MCP server** — `pip install pyGAEB[mcp]` and `pygaeb-mcp --root ~/tenders` exposes GAEB documents to any [Model Context Protocol](https://modelcontextprotocol.io) client (ChatGPT, Gemini, Claude, Copilot, Cursor, …). MCP is a vendor-neutral standard stewarded by the Agentic AI Foundation; the server calls no model itself and adds no provider dependency or API key. It runs as a local subprocess over stdio — there is nothing to host.
+- **Nine read tools** — `open_document`, `list_structure`, `list_items`, `get_item`, `get_item_long_text`, `search_items`, `list_validation_issues`, `compare_documents`, `analyze_bids`. Two more (`export_document`, `convert_document`) are registered only under `--allow-write`, which also requires `--output-dir`.
+- **Context-safety contract** — a GAEB tender serialized whole is megabytes, so the tool surface is query-oriented rather than dump-oriented. Attachment bytes, `raw_data`, and whole-document JSON are structurally unreachable; `short_text` (120 chars), `long_text_preview` (500), and validation messages (200) are clipped with their true lengths reported; every list is paginated with `total_matched` and `has_more`; and responses are capped at `PYGAEB_MCP_MAX_RESPONSE_CHARS` (default 20 000). `list_items(sort="total_desc", limit=20)` answers "where is the money?" on a 5 000-item tender in ~2 KB.
+- **VOB/A-conform sums** — `list_items.sum_of_matched_totals` follows the library's `ItemType.affects_total` convention: alternative and eventual positions are excluded, matching `grand_total`, and each item row carries an `affects_total` field so a model can see which prices count toward the contract value.
+- **Event-loop safety** — the heavy tools (`open_document`, `search_items`, `compare_documents`, `analyze_bids`, and both write tools) are async and run their expensive work in a worker thread via `asyncio.to_thread`, so parsing a 50 MB file cannot stall protocol heartbeats or, over HTTP, other sessions. Diff results are cached per document pair, so paging through `compare_documents` never re-runs the diff engine.
+- **MCP tool annotations** — every tool declares `readOnlyHint`/`destructiveHint`/`idempotentHint`/`openWorldHint`, so clients can skip confirmation prompts for the nine read-only tools and confirm only the write tools.
+- **Document handles** — `open_document` parses once and returns a handle derived from path, mtime, size, and validation mode. Re-opening an unchanged file is free and returns the same handle; a changed file yields a new one, so stale reads are impossible. The LRU cache is bounded by both document count and total megabytes.
+- **Filesystem safety** — `open_document` is the only path-taking read tool. Paths are resolved before the roots-containment check (so symlink escapes are caught), checked against a GAEB extension allowlist, and size-checked before any bytes are read. Writes are off by default.
+- **Three MCP prompts** — `tender_review`, `compare_tenders`, `bid_evaluation`.
+- New settings: `mcp_roots`, `mcp_allow_write`, `mcp_output_dir`, `mcp_max_open_documents`, `mcp_max_cache_mb`, `mcp_max_page_size`, `mcp_max_response_chars` (all `PYGAEB_MCP_*`).
+- New export: `create_server` (top-level lazy import). Only `pygaeb.mcp.server` imports the MCP SDK, and that import is function-local — so `import pygaeb` never pulls it in, and the tool surface is unit-testable without it.
+- 79 new tests covering path safety, handle derivation and eviction, every tool, cross-kind tolerance, VOB-conform summation, event-loop safety, tool annotations, write gating, the import guard, and the context-budget contract. Total test count: 1152.
+
+### Changed
+
+- **Dropped Python 3.9 support**; `requires-python` is now `>=3.10`. Python 3.9 reached end of life in October 2025, and the MCP SDK requires 3.10+. The `eval_type_backport` dependency (3.9-only) has been removed, and the CI matrix, ruff target, and mypy target now start at 3.10.
+- **Modernised dependency floors** (`lxml>=5.0`, `pydantic-settings>=2.5`, `litellm>=1.61`, `click>=8.1`). These were stale enough that a fresh install pulled transitive dependencies flagged by security scanners. pyGAEB itself is not affected by the advisories against those older versions — see the new [SECURITY.md](SECURITY.md) for the per-CVE non-exposure rationale (lxml's XXE is in the default parser pyGAEB never uses; litellm's CVEs are all in its proxy server, which pyGAEB doesn't run).
+
+### Security
+
+- **Added [SECURITY.md](SECURITY.md)** — disclosure process, threat model, hardening summary, and a dependency non-exposure table for the notable litellm / lxml / pydantic-settings advisories.
+- **MCP server input hardening** — `list_items` price filters now reject non-finite values (`NaN`/`±inf`) with a clear error instead of letting `NaN` poison downstream `Decimal` comparisons.
+- **MCP HTTP transport warning** — the guide now states explicitly that `sse`/`streamable-http` carry no authentication and must not be exposed to untrusted networks.
+
+### Fixed
+
+- **`AwardInfo.description` type error under Python 3.10+** — `lxml`'s `itertext()` is typed `Iterator[str | bytes]`, so joining it directly failed strict type checking. Now uses the same `str(t)` coercion idiom as `_text` elsewhere in the parser.
+- **Stale README badges** — the version badge still read 1.14.0 after the 1.14.1 release; both READMEs now track the current version and the 3.10+ floor.
+
+## [1.14.1] - 2026-07-08
+
+### Fixed
+
+- **Writer emitted the default namespace twice** — the `<GAEB>` root element carried `xmlns` both via lxml `nsmap` and as a literal attribute, producing malformed XML (`Attribute xmlns redefined`). Strict parsers rejected written files outright; recover-mode parsers silently truncated them. The declaration is now written exactly once. Applies to all document kinds (procurement, trade, cost).
+- **Writer nested one `BoQBody` per subcategory** — per the GAEB DA XML schema a `BoQCtgy` contains a single `BoQBody` holding all sub-`BoQCtgy` elements and the `Itemlist`. The writer previously created a separate `BoQBody` per subcategory (with `Itemlist` as a direct `BoQCtgy` child), so conforming parsers — including pyGAEB's own — read back only the first subcategory of every category. Deeply structured BoQs now round-trip completely (verified against the BVBS GAEB Muster file: 28/28 items, cross-phase validation clean).
+
 ## [1.14.0] - 2026-05-26
 
 ### Added
