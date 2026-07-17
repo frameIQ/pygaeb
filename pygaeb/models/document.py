@@ -29,6 +29,9 @@ class GAEBInfo(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
     version: str | None = None
+    #: GAEB schema release date (``<VersDate>``, e.g. "2021-05" for DA XML 3.3).
+    #: Required by the official XSD; preserved on round-trip.
+    vers_date: str | None = None
     prog_system: str | None = None
     prog_system_version: str | None = None
     date: datetime | None = None

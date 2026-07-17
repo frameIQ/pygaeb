@@ -92,6 +92,7 @@ nav:
     - Document Diff: guides/document-diff.md
     - BoQ Builder: guides/builder.md
     - Excel Export: guides/excel-export.md
+    - MCP Server: guides/mcp-server.md
     - Extensibility: guides/extensibility.md
   - API Reference:
     - reference/index.md
@@ -107,6 +108,7 @@ nav:
     - Document Diff: reference/document-diff.md
     - BoQ Builder: reference/builder.md
     - Excel Export: reference/excel-export.md
+    - MCP Server: reference/mcp-server.md
     - Validation: reference/validation.md
     - Configuration: reference/config.md
     - Exceptions: reference/exceptions.md

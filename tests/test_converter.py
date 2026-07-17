@@ -355,7 +355,7 @@ class TestRoundTrips:
         assert doc2.item_count == doc.item_count
         items1 = list(doc.award.boq.iter_items())
         items2 = list(doc2.award.boq.iter_items())
-        for i1, i2 in zip(items1, items2):
+        for i1, i2 in zip(items1, items2, strict=True):
             assert i1.short_text == i2.short_text
             assert i1.qty == i2.qty
 

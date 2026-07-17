@@ -247,7 +247,7 @@ class TestTenderToBid:
     def test_quantities_preserved(self) -> None:
         tender = _make_doc(phase=ExchangePhase.X83)
         bid = PhaseTransition.tender_to_bid(tender)
-        for t_item, b_item in zip(tender.iter_items(), bid.iter_items()):
+        for t_item, b_item in zip(tender.iter_items(), bid.iter_items(), strict=True):
             assert t_item.qty == b_item.qty
 
     def test_validation_results_cleared(self) -> None:
@@ -289,7 +289,7 @@ class TestContractToAddendum:
     def test_prices_preserved(self) -> None:
         contract = _make_doc(phase=ExchangePhase.X86)
         addendum = PhaseTransition.contract_to_addendum(contract, "NT-001")
-        for c_item, a_item in zip(contract.iter_items(), addendum.iter_items()):
+        for c_item, a_item in zip(contract.iter_items(), addendum.iter_items(), strict=True):
             assert c_item.unit_price == a_item.unit_price
 
 
@@ -302,13 +302,13 @@ class TestContractToInvoice:
     def test_prices_preserved(self) -> None:
         contract = _make_doc(phase=ExchangePhase.X86)
         invoice = PhaseTransition.contract_to_invoice(contract)
-        for c_item, i_item in zip(contract.iter_items(), invoice.iter_items()):
+        for c_item, i_item in zip(contract.iter_items(), invoice.iter_items(), strict=True):
             assert c_item.unit_price == i_item.unit_price
 
     def test_quantities_carried_over(self) -> None:
         contract = _make_doc(phase=ExchangePhase.X86)
         invoice = PhaseTransition.contract_to_invoice(contract)
-        for c_item, i_item in zip(contract.iter_items(), invoice.iter_items()):
+        for c_item, i_item in zip(contract.iter_items(), invoice.iter_items(), strict=True):
             assert c_item.qty == i_item.qty
 
     def test_invoice_round_trip(self, tmp_path: Path) -> None:

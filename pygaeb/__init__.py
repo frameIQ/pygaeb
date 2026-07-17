@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.14.1"
+__version__ = "1.15.0"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
@@ -51,6 +51,8 @@ def __getattr__(name: str) -> object:
         "configure": ("pygaeb.config", "configure"),
         "get_settings": ("pygaeb.config", "get_settings"),
         "reset_settings": ("pygaeb.config", "reset_settings"),
+        # MCP server (optional 'mcp' extra; the import itself is SDK-free)
+        "create_server": ("pygaeb.mcp.server", "create_server"),
         # Validation
         "CrossPhaseValidator": ("pygaeb.validation.cross_phase_validator", "CrossPhaseValidator"),
         "register_validator": ("pygaeb.validation", "register_validator"),
@@ -308,6 +310,7 @@ __all__ = [
     "clear_subscribers",
     "clear_validators",
     "configure",
+    "create_server",
     "diff_to_excel",
     "diff_to_html",
     "get_settings",

@@ -22,4 +22,5 @@ Complete reference documentation for all public classes, functions, and enums in
 - **[Document Diff](document-diff.md)** — `BoQDiff`, `DiffResult`, `Significance`, `DiffMode`
 - **[BoQ Builder](builder.md)** — `BoQBuilder`, `LotBuilder`, `CategoryBuilder`, `ItemHandle`
 - **[Excel Export](excel-export.md)** — `to_excel`, `ColumnDef`
+- **[MCP Server](mcp-server.md)** — `create_server`, `DocumentCache`, `build_tools`
 - **[Exceptions](exceptions.md)** — exception hierarchy

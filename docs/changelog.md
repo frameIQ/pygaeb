@@ -4,6 +4,35 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-07-17
+
+### Added
+
+- **[MCP server](guides/mcp-server.md)** — `pip install pyGAEB[mcp]` and `pygaeb-mcp --root ~/tenders` exposes GAEB documents to any Model Context Protocol client (ChatGPT, Gemini, Claude, Copilot, Cursor). Vendor-neutral: the server calls no model and adds no provider dependency. Runs as a local subprocess over stdio — nothing to host.
+- **Nine read tools** — `open_document`, `list_structure`, `list_items`, `get_item`, `get_item_long_text`, `search_items`, `list_validation_issues`, `compare_documents`, `analyze_bids`. `export_document` and `convert_document` register only under `--allow-write`.
+- **Context-safety contract** — attachment bytes, `raw_data`, and whole-document dumps are structurally unreachable; text fields are clipped with true lengths reported; every list is paginated with `total_matched`/`has_more`; responses are capped at `PYGAEB_MCP_MAX_RESPONSE_CHARS` (default 20 000).
+- **VOB/A-conform sums** — `sum_of_matched_totals` excludes alternative/eventual positions (matching `grand_total`); each item row carries `affects_total`.
+- **Event-loop safety** — heavy tools run their work in a worker thread (`asyncio.to_thread`); diffs are cached per document pair. Every tool declares MCP annotations (`readOnlyHint` etc.) so clients confirm only the write tools.
+- **Document handles** — parse once, reuse; deterministic from path + mtime + size + validation mode, so re-opening is free and stale reads are impossible. LRU bounded by count and megabytes.
+- **Filesystem safety** — roots allowlist (symlink-escape safe), extension allowlist, size precheck; writes off by default.
+- **Three prompts** — `tender_review`, `compare_tenders`, `bid_evaluation`.
+- New export: `create_server` (top-level lazy import).
+
+### Changed
+
+- **Dropped Python 3.9**; `requires-python` is now `>=3.10`. 3.9 reached end of life in October 2025 and the MCP SDK requires 3.10+.
+
+### Fixed
+
+- **`AwardInfo.description`** type error under strict checking on Python 3.10+ (`lxml`'s `itertext()` is typed `Iterator[str | bytes]`).
+
+## [1.14.1] - 2026-07-08
+
+### Fixed
+
+- **Writer emitted the default namespace twice** — the `<GAEB>` root carried `xmlns` via both lxml `nsmap` and a literal attribute, producing malformed XML that strict parsers rejected outright.
+- **Writer nested one `BoQBody` per subcategory** — per the schema a `BoQCtgy` holds a single `BoQBody`. Conforming parsers previously read back only the first subcategory of every category; deeply structured BoQs now round-trip completely.
+
 ## [1.14.0] - 2026-05-26
 
 ### Added

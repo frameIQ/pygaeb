@@ -17,3 +17,4 @@ In-depth guides for every pyGAEB capability.
 - **[Document Diff](document-diff.md)** — compare two GAEB documents with significance-classified field changes, structural diff, and financial impact
 - **[BoQ Builder](builder.md)** — programmatic document construction with auto OZ, Decimal convenience, phase rules, and version checks
 - **[Excel Export](excel-export.md)** — export any GAEB document to structured Excel workbooks with phase-specific columns
+- **[MCP Server](mcp-server.md)** — expose GAEB documents to LLM agents over the Model Context Protocol with a bounded, query-oriented tool surface

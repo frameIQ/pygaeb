@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from pygaeb.cache import CacheBackend
 from pygaeb.classifier.cache import ClassificationCache, compute_hash
