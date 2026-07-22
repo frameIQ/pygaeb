@@ -41,6 +41,11 @@ from pygaeb.models.item import (
     QtySplit,
 )
 from pygaeb.models.order import Address
+from pygaeb.models.position_types import (
+    ITEMTAG_TEXT_TO_TYPE,
+    KNOWN_POSITION_FLAGS,
+    MARKER_ELEMENT_TO_TYPE,
+)
 from pygaeb.parser.recovery import parse_xml_safe
 from pygaeb.parser.xml_v3.richtext_parser import parse_plaintext, parse_richtext
 
@@ -58,7 +63,7 @@ KNOWN_ITEM_TAGS: frozenset[str] = frozenset({
     "ContingencyItem", "EventualItem", "TextItem",
     "SurchargeItem", "SupplementItem", "IndexItem",
     "Itemlist", "Item",
-})
+}) | KNOWN_POSITION_FLAGS
 
 
 class BaseV3Parser:
@@ -472,7 +477,9 @@ class BaseV3Parser:
 
         long_text_el = self._find(item_el, "LongText", "Textblock")
         if long_text_el is not None:
-            html_content = etree.tostring(long_text_el, encoding="unicode", method="html")
+            # Store the INNER content only, not the wrapping <LongText> tag — otherwise
+            # the writer re-wraps it and each round trip nests one layer deeper.
+            html_content = _inner_xml(long_text_el)
             item.long_text = parse_richtext(html_content)
 
         if not item.long_text:
@@ -601,37 +608,19 @@ class BaseV3Parser:
         return item
 
     def _detect_item_type(self, item_el: etree._Element) -> ItemType:
+        # Synthetic pyGAEB <ItemTag>Text</ItemTag> convention (kept for back-compat).
         item_tag = self._text(item_el, "ItemTag")
         if item_tag:
-            tag_map = {
-                "NormalItem": ItemType.NORMAL,
-                "LumpSumItem": ItemType.LUMP_SUM,
-                "AlternativeItem": ItemType.ALTERNATIVE,
-                "ContingencyItem": ItemType.EVENTUAL,
-                "EventualItem": ItemType.EVENTUAL,
-                "TextItem": ItemType.TEXT_ONLY,
-                "SurchargeItem": ItemType.BASE_SURCHARGE,
-                "IndexItem": ItemType.INDEX,
-                "SupplementItem": ItemType.SUPPLEMENT,
-            }
-            return tag_map.get(item_tag, ItemType.NORMAL)
+            return ITEMTAG_TEXT_TO_TYPE.get(item_tag, ItemType.NORMAL)
 
+        # Real GAEB child-element markers (<Provis>, <LumpSumItem>, …) plus the legacy
+        # synthetic child elements — see MARKER_ELEMENT_TO_TYPE. First match wins.
         for child in item_el:
             if callable(child.tag):  # skip comments / processing instructions
                 continue
-            tag = self._local_tag(child.tag)
-            if tag in ("LumpSumItem", "GlobItem"):
-                return ItemType.LUMP_SUM
-            if tag in ("AlternativeItem", "AltItem"):
-                return ItemType.ALTERNATIVE
-            if tag in ("ContingencyItem", "EventualItem"):
-                return ItemType.EVENTUAL
-            if tag == "TextItem":
-                return ItemType.TEXT_ONLY
-            if tag == "SurchargeItem":
-                return ItemType.BASE_SURCHARGE
-            if tag == "SupplementItem":
-                return ItemType.SUPPLEMENT
+            item_type = MARKER_ELEMENT_TO_TYPE.get(self._local_tag(child.tag))
+            if item_type is not None:
+                return item_type
 
         return ItemType.NORMAL
 
@@ -806,6 +795,22 @@ class BaseV3Parser:
         if "}" in tag:
             return tag.split("}", 1)[1]
         return tag
+
+
+def _inner_xml(el: etree._Element) -> str:
+    """Serialize an element's children + text content, WITHOUT its own wrapping tag.
+
+    Used for long text so ``raw_html`` holds only the inner content; the writer then
+    wraps it in exactly one ``<LongText>`` on the way out (no compounding nesting).
+    """
+    parts: list[str] = []
+    if el.text:
+        parts.append(el.text)
+    for child in el:
+        if callable(child.tag):  # comments / processing instructions
+            continue
+        parts.append(etree.tostring(child, encoding="unicode", method="html"))
+    return "".join(parts)
 
 
 def _parse_decimal(text: str | None) -> Decimal | None:

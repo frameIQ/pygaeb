@@ -29,6 +29,7 @@ from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
 from pygaeb.models.enums import BkdnType, ExchangePhase, ItemType, SourceVersion
 from pygaeb.models.item import CostApproach, Item
 from pygaeb.models.order import OrderItem, TradeOrder
+from pygaeb.models.position_types import NON_INTEROP_TYPES, WRITER_MARKER
 from pygaeb.models.quantity import (
     QDetermItem,
     QtyAttachment,
@@ -384,6 +385,20 @@ def _add_item(
     item_el = etree.SubElement(parent, "Item")
     item_el.set("RNoPart", item.oz)
 
+    # Position type (Bedarfs-/Alternativ-/Pauschalposition …). MARKUP is handled by
+    # the _add_markup_item branch; NORMAL carries no marker. Emitting the marker keeps
+    # the "priced but not summed" rule intact on re-read — without it every non-Normal
+    # position silently becomes Normal and its price joins the total.
+    marker = WRITER_MARKER.get(item.item_type)
+    if marker is not None:
+        etree.SubElement(item_el, marker)
+        if item.item_type in NON_INTEROP_TYPES:
+            warnings.append(
+                f"Item {item.oz}: {item.item_type.value} written as pyGAEB-internal "
+                f"<{marker}> — round-trips within pyGAEB but is not read by other AVA "
+                f"software yet (real GAEB serialization not implemented)"
+            )
+
     if item.short_text:
         _add_text_el(item_el, "ShortText", item.short_text)
 
@@ -399,9 +414,27 @@ def _add_item(
     if item.total_price is not None:
         _add_text_el(item_el, "IT", _fmt_decimal(item.total_price))
 
-    if item.long_text and item.long_text.raw_html and meta.supports_long_text_cdata:
-        lt_el = etree.SubElement(item_el, "LongText")
-        lt_el.text = etree.CDATA(item.long_text.raw_html)
+    # Partial-quantity breakdown (Zuordnung der Teilmengen). Symmetric with the
+    # parser's _parse_qty_splits (reads Label/Description, Qty, QU).
+    for split in item.qty_splits:
+        qs_el = etree.SubElement(item_el, "QtySplit")
+        if split.label:
+            _add_text_el(qs_el, "Label", split.label)
+        if split.qty is not None:
+            _add_text_el(qs_el, "Qty", _fmt_decimal(split.qty))
+        if split.unit:
+            _add_text_el(qs_el, "QU", split.unit)
+
+    if item.long_text and meta.supports_long_text_cdata:
+        # raw_html holds the INNER long-text content only (the parser strips the
+        # wrapping <LongText> tag), so we wrap exactly once — no compounding nesting.
+        # Fall back to plain text so plaintext long texts are not dropped.
+        inner = item.long_text.raw_html
+        if inner is None:
+            inner = item.long_text.plain_text or "\n".join(item.long_text.paragraphs)
+        if inner:
+            lt_el = etree.SubElement(item_el, "LongText")
+            lt_el.text = etree.CDATA(inner)
 
     if item.bim_guid:
         if meta.supports_bim_guid:
