@@ -16,8 +16,6 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-import pytest
-
 from pygaeb import ExchangePhase, GAEBParser, GAEBWriter
 from pygaeb.models.enums import ItemType
 from pygaeb.models.item import QtySplit
@@ -36,7 +34,7 @@ def _roundtrip(xml: bytes, times: int = 1):
 
 # A window tender with a normal position, a Bedarfsposition (real <Provis>, excluded
 # from the sum), and a Pauschalposition (real <LumpSumItem>, included).
-TENDER_WITH_TYPES = """\
+TENDER_WITH_TYPES = b"""\
 <?xml version="1.0" encoding="UTF-8"?>
 <GAEB xmlns="http://www.gaeb.de/GAEB_DA_XML/DA86/3.3">
   <GAEBInfo><Version>3.3</Version><Date>2026-07-21</Date></GAEBInfo>
@@ -49,7 +47,7 @@ TENDER_WITH_TYPES = """\
           <Qty>20.000</Qty><QU>St</QU><UP>300.00</UP><IT>6000.00</IT></Item>
         <Item RNoPart="0030"><LumpSumItem/><ShortText>Pauschal: BE</ShortText>
           <Qty>1.000</Qty><QU>psch</QU><UP>2000.00</UP><IT>2000.00</IT></Item>
-      </Itemlist></BoQBody></BoQCtgy></BoQBody></BoQ></Award></GAEB>""".encode()
+      </Itemlist></BoQBody></BoQCtgy></BoQBody></BoQ></Award></GAEB>"""
 
 
 class TestPositionTypeSerialization:
@@ -88,7 +86,7 @@ class TestPositionTypeSerialization:
 class TestNonInteropWarning:
     """Types without a confirmed real serialization round-trip, but the writer warns."""
 
-    ALT = """\
+    ALT = b"""\
 <?xml version="1.0" encoding="UTF-8"?>
 <GAEB xmlns="http://www.gaeb.de/GAEB_DA_XML/DA86/3.3">
   <GAEBInfo><Version>3.3</Version><Date>2026-07-21</Date></GAEBInfo>
@@ -97,10 +95,10 @@ class TestNonInteropWarning:
       <BoQBody><BoQCtgy RNoPart="01"><LblTx>X</LblTx><BoQBody><Itemlist>
         <Item RNoPart="0010"><AlternativeItem/><ShortText>Alt: 3-fach</ShortText>
           <Qty>100.000</Qty><QU>St</QU><UP>650.00</UP><IT>65000.00</IT></Item>
-      </Itemlist></BoQBody></BoQCtgy></BoQBody></BoQ></Award></GAEB>""".encode()
+      </Itemlist></BoQBody></BoQCtgy></BoQBody></BoQ></Award></GAEB>"""
 
     def test_alternative_roundtrips_and_stays_excluded(self):
-        doc, warnings = _roundtrip(self.ALT)
+        doc, _ = _roundtrip(self.ALT)
         item = next(doc.iter_items())
         assert item.item_type == ItemType.ALTERNATIVE
         assert not item.item_type.affects_total
@@ -131,7 +129,7 @@ class TestQtySplitRoundtrip:
 
 
 class TestLongTextRoundtrip:
-    RICH = """\
+    RICH = b"""\
 <?xml version="1.0" encoding="UTF-8"?>
 <GAEB xmlns="http://www.gaeb.de/GAEB_DA_XML/DA86/3.3">
   <GAEBInfo><Version>3.3</Version><Date>2026-07-21</Date></GAEBInfo>
@@ -141,7 +139,7 @@ class TestLongTextRoundtrip:
         <Item RNoPart="0010"><ShortText>Fenster</ShortText>
           <Qty>1.000</Qty><QU>St</QU><UP>500.00</UP><IT>500.00</IT>
           <LongText><span>Kunststofffenster,</span><span>Uw 1,3 W/m2K</span></LongText></Item>
-      </Itemlist></BoQBody></BoQCtgy></BoQBody></BoQ></Award></GAEB>""".encode()
+      </Itemlist></BoQBody></BoQCtgy></BoQBody></BoQ></Award></GAEB>"""
 
     def test_long_text_does_not_compound(self):
         doc1, _ = _roundtrip(self.RICH, times=1)
