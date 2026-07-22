@@ -4,6 +4,16 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.0] - 2026-07-22
+
+### Fixed
+
+- **Position type lost on write — a €50,000 bid could export as €121,000.** `_add_item` never serialized `Item.item_type`, so every Bedarfs-/Alternativ-/Zuschlags-/Textposition was written as a Normalposition and its price silently joined the sum on re-read. The writer now emits the position-type marker (real `<Provis>` for Bedarfsposition/Eventual, real `<LumpSumItem>` for Pauschalposition; other non-standard types via a pyGAEB-internal marker **with a warning** that it is not yet interoperable). Blast radius was every written phase — X84 bid export, X86 contract, X83 tender issue.
+- **Parser read no real GAEB position-type markers.** `_detect_item_type` recognised only pyGAEB-internal names (`<AlternativeItem/>`, `<ContingencyItem/>`, `<ItemTag>…`) that no real exporter emits, so a genuine tender's `<Provis>` Bedarfspositionen were mis-read as Normal on import. It now reads the real `tgItem` markers (`<Provis>`, `<LumpSumItem>`, …) **in addition to** the legacy synthetic forms. Parser and writer now share one mapping table ([position-types reference](reference/position-types.md)) so they cannot drift again.
+- **`qty_splits` never serialized** — the partial-quantity breakdown (`QtySplit`) parsed into `Item.qty_splits` was dropped on write. Now round-trips symmetrically.
+- **Long text corrupted and compounded on round trip.** The parser stored the wrapping `<LongText>` tag inside `raw_html` and the writer re-wrapped it, nesting one layer deeper each round trip; plaintext long texts (no `raw_html`) were dropped entirely. The parser now stores inner content only, the writer wraps exactly once and falls back to `plain_text`/`paragraphs`, so long text is stable across repeated round trips.
+- New field-level round-trip tests (`tests/test_position_type_roundtrip.py`) assert per-item `item_type`, sum inclusion, `qty_splits`, and long-text stability — the pre-existing round-trip test asserted only item *count* and passed while all four defects fired.
+
 ## [1.15.0] - 2026-07-17
 
 ### Added
