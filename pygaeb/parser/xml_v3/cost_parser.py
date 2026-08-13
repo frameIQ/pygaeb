@@ -11,6 +11,7 @@ import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
 from lxml import etree
 
@@ -89,9 +90,9 @@ class CostParser(BaseV3Parser):
         if ec_info_el is not None:
             ec.ec_info = self._parse_ec_info(ec_info_el)
 
-        ec_body_el = self._find(ec_el, "ECBody")
-        if ec_body_el is not None:
-            ec.body = self._parse_ec_body(ec_body_el, doc)
+        body_els = self._findall(ec_el, "ECBody")
+        if body_els:
+            ec.body = self._parse_ec_body(body_els, doc)
 
         if self._keep_xml:
             ec.source_element = ec_el
@@ -158,24 +159,26 @@ class CostParser(BaseV3Parser):
 
         return info
 
-    def _parse_ec_body(self, el: etree._Element, doc: GAEBDocument) -> ECBody:
+    def _parse_ec_body(self, els: list[Any], doc: GAEBDocument) -> ECBody:
+        """Read one ECBody into a single model; several are merged in order."""
         body = ECBody()
 
-        for ctgy_el in self._findall(el, "ECCtgy"):
-            ctgy = self._parse_ec_ctgy(ctgy_el, doc)
-            body.categories.append(ctgy)
+        for el in els:
+            for ctgy_el in self._findall(el, "ECCtgy"):
+                ctgy = self._parse_ec_ctgy(ctgy_el, doc)
+                body.categories.append(ctgy)
 
-        for ce_el in self._findall(el, "CostElement"):
-            ce = self._parse_cost_element(ce_el, doc)
-            body.cost_elements.append(ce)
+            for ce_el in self._findall(el, "CostElement"):
+                ce = self._parse_cost_element(ce_el, doc)
+                body.cost_elements.append(ce)
 
-        for de_el in self._findall(el, "DimensionElement"):
-            de = self._parse_dimension_element(de_el)
-            body.dimension_elements.append(de)
+            for de_el in self._findall(el, "DimensionElement"):
+                de = self._parse_dimension_element(de_el)
+                body.dimension_elements.append(de)
 
-        for cat_el in self._findall(el, "CategoryElement"):
-            cat = self._parse_category_element(cat_el)
-            body.category_elements.append(cat)
+            for cat_el in self._findall(el, "CategoryElement"):
+                cat = self._parse_category_element(cat_el)
+                body.category_elements.append(cat)
 
         return body
 
@@ -191,9 +194,11 @@ class CostParser(BaseV3Parser):
         for prop_el in self._findall(el, "Property"):
             ctgy.properties.append(self._parse_property(prop_el))
 
-        ec_body_el = self._find(el, "ECBody")
-        if ec_body_el is not None:
-            ctgy.body = self._parse_ec_body(ec_body_el, doc)
+        # Cost elements may sit directly under the ECCtgy, with no ECBody wrapper.
+        body = self._parse_ec_body(self._findall(el, "ECBody") or [el], doc)
+        if any((body.categories, body.cost_elements,
+                body.dimension_elements, body.category_elements)):
+            ctgy.body = body
 
         totals_el = self._find(el, "Totals")
         if totals_el is not None:

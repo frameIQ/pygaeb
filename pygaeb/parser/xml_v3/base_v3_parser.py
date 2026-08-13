@@ -447,18 +447,17 @@ class BaseV3Parser:
         if rno:
             self._category_labels[rno] = label or rno
 
-        boq_body_el = self._find(ctgy_el, "BoQBody")
-        target = boq_body_el if boq_body_el is not None else ctgy_el
+        # pyGAEB <=1.14.0 wrote one BoQBody per subcategory, so read every one.
+        for target in self._findall(ctgy_el, "BoQBody") or [ctgy_el]:
+            for sub_ctgy_el in self._findall(target, "BoQCtgy"):
+                sub = self._parse_ctgy(
+                    sub_ctgy_el, doc, current_path, lot_label, oz_path=current_oz
+                )
+                ctgy.subcategories.append(sub)
 
-        for sub_ctgy_el in self._findall(target, "BoQCtgy"):
-            sub = self._parse_ctgy(
-                sub_ctgy_el, doc, current_path, lot_label, oz_path=current_oz
+            ctgy.items.extend(
+                self._collect_items(target, doc, current_path, lot_label, current_oz)
             )
-            ctgy.subcategories.append(sub)
-
-        ctgy.items.extend(
-            self._collect_items(target, doc, current_path, lot_label, current_oz)
-        )
 
         ctgy.ctlg_assigns = self._parse_ctlg_assigns(ctgy_el)
         ctgy.totals = self._parse_totals(ctgy_el)

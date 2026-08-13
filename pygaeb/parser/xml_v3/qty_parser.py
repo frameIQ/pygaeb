@@ -176,8 +176,7 @@ class QtyParser(BaseV3Parser):
         for ca_el in self._findall(boq_el, "CtlgAssign"):
             boq.ctlg_assigns.append(self._parse_ctlg_assign(ca_el))
 
-        att_container = self._find(boq_el, "CtlgAttachment")
-        if att_container is not None:
+        for att_container in self._findall(boq_el, "CtlgAttachment"):
             for att_el in self._findall(att_container, "Attachment"):
                 att = self._parse_qty_attachment(att_el)
                 if att is not None:
@@ -252,8 +251,7 @@ class QtyParser(BaseV3Parser):
                 self._parse_qty_ctgy(ctgy_el, doc, hierarchy),
             )
 
-        itemlist_el = self._find(el, "Itemlist")
-        if itemlist_el is not None:
+        for itemlist_el in self._findall(el, "Itemlist"):
             for item_el in self._findall(itemlist_el, "Item"):
                 item = self._parse_qty_item(item_el, hierarchy)
                 if item is not None:
@@ -282,8 +280,7 @@ class QtyParser(BaseV3Parser):
             inner_body = self._parse_qty_body(body_el, doc, current_path)
             ctgy.subcategories = inner_body.categories
 
-        itemlist_el = self._find(el, "Itemlist")
-        if itemlist_el is not None:
+        for itemlist_el in self._findall(el, "Itemlist"):
             for item_el in self._findall(itemlist_el, "Item"):
                 item = self._parse_qty_item(item_el, current_path)
                 if item is not None:

@@ -4,6 +4,20 @@ All notable changes to pyGAEB are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.2] - 2026-08-13
+
+Follow-up to 1.16.1: the same silent-data-loss shape, audited across the other
+document kinds. Content held without its expected wrapper element, or split
+across sibling wrappers, was being dropped.
+
+### Fixed
+
+- **Quantity determination (X31) dropped items split across sibling `Itemlist` elements.** `_parse_qty_body` and `_parse_qty_ctgy` located the item list with `_find`, which returns only the first match, so a body or category holding several `<Itemlist>` siblings kept the first and silently lost the rest — on the path that feeds billing. Both now use `_findall`. `CtlgAttachment` was reading only its first container for the same reason and is now read repeatably too.
+- **Elemental costing (X50/X51) dropped cost elements held directly by a category.** `_parse_ec_ctgy` read its contents only through an `<ECBody>` wrapper, so a `<CostElement>` sitting directly under an `<ECCtgy>` was lost entirely — the exact shape of the BoQ defect in [#27](https://github.com/frameIQ/pygaeb/issues/27), one document kind over. The category now falls back to reading its own children, mirroring what the BoQ parser already did.
+- **Only the first body element was read under a category, in both the BoQ and cost hierarchies.** 1.14.1 fixed the *writer*, which until then emitted one `BoQBody` per subcategory, but the reader was never fixed — so files written by pyGAEB ≤1.14.0 still loaded with everything after the first body missing. `BoQCtgy` and `ECCtgy` now read every sibling body and merge them in document order. A category with no content still parses to `body=None`, so the writer does not start emitting empty wrappers.
+- Trade (X93–X97) was audited for the same pattern and has none — it reads a flat `<OrderItem>` list with no wrapper nesting. `BillElement` in the cost parser looks like the pattern but is a boolean flag, and is correctly read with `_find`.
+- New tests in `tests/test_qty_sibling_itemlists.py` and `tests/test_body_wrapper_tolerance.py` cover both hierarchies across wrapper-less, single-wrapper, and multi-wrapper shapes.
+
 ## [1.16.1] - 2026-08-13
 
 ### Fixed
