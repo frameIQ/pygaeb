@@ -49,7 +49,9 @@ def parse_plaintext(text: str | None) -> RichText | None:
 
 def _extract_paragraphs(soup: BeautifulSoup) -> list[str]:
     paragraphs: list[str] = []
-    for p in soup.find_all(["p", "div", "span"]):
+    # Innermost blocks only — <p><span>x</span></p> would otherwise yield x twice.
+    blocks = [el for el in soup.find_all(["p", "div"]) if el.find(["p", "div"]) is None]
+    for p in blocks or soup.find_all("span"):
         text = p.get_text(strip=True)
         if text:
             text = _TA_RE.sub("", text)

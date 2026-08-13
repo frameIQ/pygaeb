@@ -162,6 +162,8 @@ class Item(BaseModel):
     short_text: str = ""
     long_text: RichText | None = None
     qty: Decimal | None = None
+    # <QtyTBD>: quantity still to be determined, so a missing qty is deliberate.
+    qty_tbd: bool = False
     unit: str | None = None
     unit_price: Decimal | None = None
     total_price: Decimal | None = None

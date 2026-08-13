@@ -176,7 +176,7 @@ class TradeParser(BaseV3Parser):
         if not item.long_text:
             desc_el = self._find(item_el, "Description")
             if desc_el is not None:
-                detail_el = self._find(desc_el, "CompleteText", "DetailTxt")
+                detail_el = self._find_detail_txt(desc_el)
                 if detail_el is not None:
                     html = etree.tostring(
                         detail_el, encoding="unicode", method="html",
