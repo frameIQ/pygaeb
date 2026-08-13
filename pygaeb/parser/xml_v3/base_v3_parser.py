@@ -290,10 +290,16 @@ class BaseV3Parser:
         info.lbl_boq = self._text(info_el, "LblBoQ")
 
         bkdn_els = self._findall(info_el, "BoQBkdn")
-        if len(bkdn_els) > 1:
-            self._parse_bkdn_v32(bkdn_els, info)
-        elif len(bkdn_els) == 1:
-            self._parse_bkdn_v33(bkdn_els[0], info)
+        if bkdn_els:
+            # Dispatch on shape, not count: a BoQ with a single declared level
+            # yields one v3.2 <BoQBkdn> too, and counting misreads it as v3.3.
+            if any(self._is_v32_bkdn(el) for el in bkdn_els):
+                self._parse_bkdn_v32(bkdn_els, info)
+            else:
+                # Normally a single element, but DA XML 2.x translates each
+                # <LVGliederung> separately — read them all rather than the first.
+                for bkdn_el in bkdn_els:
+                    self._parse_bkdn_v33(bkdn_el, info)
 
         for ct_el in self._findall(info_el, "CostType"):
             ct = CostType(
@@ -306,6 +312,15 @@ class BaseV3Parser:
         info.totals = self._parse_totals(info_el)
 
         return info
+
+    def _is_v32_bkdn(self, bkdn_el: etree._Element) -> bool:
+        """v3.2 spells a level as <Type>/<Length> children; v3.3 as <Item Length=".."/>."""
+        for child in bkdn_el:
+            if callable(child.tag):
+                continue
+            if self._local_tag(child.tag) in ("Type", "Length"):
+                return True
+        return False
 
     def _parse_bkdn_v33(self, bkdn_el: etree._Element, info: BoQInfo) -> None:
         """v3.3 format: single <BoQBkdn> with <BoQLevel Length="2"/> children."""
@@ -348,6 +363,14 @@ class BaseV3Parser:
         for ctgy_el in self._findall(body_el, "BoQCtgy"):
             ctgy = self._parse_ctgy(ctgy_el, doc, [], oz_path=[])
             body.categories.append(ctgy)
+
+        # The schema also allows items straight under BoQBody with no category
+        # wrapper. Wrap them in an anonymous category so consumers keep a single
+        # traversal shape; the writer unwraps it again on the way out.
+        loose_items = self._collect_items(body_el, doc, [], "", [])
+        if loose_items:
+            body.categories.append(BoQCtgy(rno="", label="", items=loose_items))
+
         return body
 
     def _parse_ctgy_as_body(
@@ -371,6 +394,38 @@ class BaseV3Parser:
             )
             body.categories.append(ctgy)
         return body
+
+    def _collect_items(
+        self,
+        target: etree._Element,
+        doc: GAEBDocument,
+        current_path: list[str],
+        lot_label: str,
+        current_oz: list[str],
+    ) -> list[Item]:
+        """Read the <Itemlist> children of an element, plus any bare <Item> siblings."""
+        items: list[Item] = []
+
+        for item_el in self._findall(target, "Itemlist"):
+            for it_el in self._findall(item_el, "Item"):
+                items.append(self._parse_item(
+                    it_el, doc, current_path, lot_label, oz_path=current_oz
+                ))
+            for mu_el in self._findall(item_el, "MarkupItem"):
+                items.append(self._parse_markup_item(
+                    mu_el, doc, current_path, lot_label, oz_path=current_oz
+                ))
+
+        for it_el in self._findall(target, "Item"):
+            if it_el.getparent() is not None:
+                parent_tag = self._local_tag(it_el.getparent().tag)
+                if parent_tag == "Itemlist":
+                    continue
+            items.append(self._parse_item(
+                it_el, doc, current_path, lot_label, oz_path=current_oz
+            ))
+
+        return items
 
     def _parse_ctgy(
         self,
@@ -401,27 +456,9 @@ class BaseV3Parser:
             )
             ctgy.subcategories.append(sub)
 
-        for item_el in self._findall(target, "Itemlist"):
-            for it_el in self._findall(item_el, "Item"):
-                item = self._parse_item(
-                    it_el, doc, current_path, lot_label, oz_path=current_oz
-                )
-                ctgy.items.append(item)
-            for mu_el in self._findall(item_el, "MarkupItem"):
-                markup_item = self._parse_markup_item(
-                    mu_el, doc, current_path, lot_label, oz_path=current_oz
-                )
-                ctgy.items.append(markup_item)
-
-        for it_el in self._findall(target, "Item"):
-            if it_el.getparent() is not None:
-                parent_tag = self._local_tag(it_el.getparent().tag)
-                if parent_tag == "Itemlist":
-                    continue
-            item = self._parse_item(
-                it_el, doc, current_path, lot_label, oz_path=current_oz
-            )
-            ctgy.items.append(item)
+        ctgy.items.extend(
+            self._collect_items(target, doc, current_path, lot_label, current_oz)
+        )
 
         ctgy.ctlg_assigns = self._parse_ctlg_assigns(ctgy_el)
         ctgy.totals = self._parse_totals(ctgy_el)
