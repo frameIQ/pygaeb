@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.1] - 2026-08-13
+
+### Fixed
+
+- **A BoQ whose items sit directly under `BoQBody` parsed to zero items** ([#27](https://github.com/frameIQ/pygaeb/issues/27)). The GAEB schema allows an `Itemlist` as a direct child of `BoQBody`, without a `BoQCtgy` wrapper, but `_parse_boq_body` only iterated `BoQCtgy` children — so those files parsed "successfully" into an empty BoQ and every item was silently dropped, taking totals, tree, Excel export, and the writer with them. Reported against a real tender corpus (1 of 3 sampled DA XML 3.2 files). The body now also reads loose `Itemlist`/`Item`/`MarkupItem` children, using the same logic `_parse_ctgy` already applied one level down. Loose items are wrapped in an anonymous `BoQCtgy` so consumers keep a single `body.categories` traversal, and the writer unwraps it again rather than inventing a category level the source never had — matching what `_add_qty_boq_body` already did on the quantity side.
+- **A DA XML 3.2 breakdown declaring a single level was read as the 3.3 format.** `BoQInfo` chose the breakdown parser by *counting* `BoQBkdn` elements, so a lone 3.2 `<BoQBkdn><Type>Item</Type><Length>4</Length></BoQBkdn>` fell through to the 3.3 branch, which read its `<Type>`/`<Length>` children as level definitions. The result was junk levels of length 0, no Item level, a spurious `expected exactly 1 Item level, found 0` warning, and — because `BoQBkdn` lengths drive OZ segmentation — wrong OZ resolution. Detection is now by shape: 3.2 spells a level as `Type`/`Length` children, 3.3 as `<Item Length="4"/>`. Breakdown shapes that already parsed correctly are unchanged.
+- **Only the first `BoQBkdn` element was read in the 3.3 branch.** DA XML 2.x translates each `<LVGliederung>` into its own `<BoQBkdn>`, so a 2.x file that split its levels across sibling elements lost all but the first. All elements are now read. `V2Parser` inherits this path, so 2.0/2.1 files are affected alongside 3.x.
+- New regression tests (`tests/test_bare_itemlist_issue27.py`) cover both defects, the reporter's verbatim file, the DA XML 2.x German equivalent, and writer round-trip shape — asserting that a bare `Itemlist` does not gain a category on write and that a real category still keeps one.
+
 ## [1.16.0] - 2026-07-22
 
 ### Fixed

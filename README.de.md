@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/frameIQ/pygaeb/actions/workflows/test.yml/badge.svg)](https://github.com/frameIQ/pygaeb/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/frameIQ/pygaeb/branch/main/graph/badge.svg)](https://codecov.io/gh/frameIQ/pygaeb)
-[![PyPI version](https://img.shields.io/badge/version-1.16.0-blue.svg)](https://pypi.org/project/pyGAEB/)
+[![PyPI version](https://img.shields.io/badge/version-1.16.1-blue.svg)](https://pypi.org/project/pyGAEB/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 

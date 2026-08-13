@@ -341,7 +341,28 @@ def _add_body_categories(
     up_frac_dig: int | None = None,
 ) -> None:
     for ctgy in body.categories:
-        _add_ctgy(parent, ctgy, phase, meta, warnings, up_frac_dig)
+        # An anonymous, childless category is the wrapper the parser puts around
+        # items that sat straight under BoQBody — write them back out bare rather
+        # than inventing a category level the source never had.
+        if not ctgy.rno and not ctgy.label and not ctgy.subcategories:
+            _add_itemlist(parent, ctgy.items, phase, meta, warnings, up_frac_dig)
+        else:
+            _add_ctgy(parent, ctgy, phase, meta, warnings, up_frac_dig)
+
+
+def _add_itemlist(
+    parent: etree._Element, items: list[Item], phase: ExchangePhase,
+    meta: VersionMeta, warnings: list[str],
+    up_frac_dig: int | None = None,
+) -> None:
+    if not items:
+        return
+    itemlist = etree.SubElement(parent, "Itemlist")
+    for item in items:
+        if item.item_type == ItemType.MARKUP:
+            _add_markup_item(itemlist, item)
+        else:
+            _add_item(itemlist, item, phase, meta, warnings, up_frac_dig)
 
 
 def _add_ctgy(
@@ -368,13 +389,7 @@ def _add_ctgy(
         body_el = etree.SubElement(ctgy_el, "BoQBody")
         for sub in ctgy.subcategories:
             _add_ctgy(body_el, sub, phase, meta, warnings, up_frac_dig)
-        if ctgy.items:
-            itemlist = etree.SubElement(body_el, "Itemlist")
-            for item in ctgy.items:
-                if item.item_type == ItemType.MARKUP:
-                    _add_markup_item(itemlist, item)
-                else:
-                    _add_item(itemlist, item, phase, meta, warnings, up_frac_dig)
+        _add_itemlist(body_el, ctgy.items, phase, meta, warnings, up_frac_dig)
 
 
 def _add_item(
