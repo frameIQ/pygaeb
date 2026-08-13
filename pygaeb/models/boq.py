@@ -28,6 +28,8 @@ class BoQBkdn(BaseModel):
     bkdn_type: BkdnType
     length: int
     key: str = ""
+    #: ``<Num>`` — whether this level is numbered rather than free-form.
+    num: bool = False
 
 
 class CostType(BaseModel):
@@ -75,8 +77,15 @@ class BoQInfo(BaseModel):
 
     name: str | None = None
     lbl_boq: str | None = None
+    #: ``<Date>`` on the BoQ itself, separate from the document date in GAEBInfo.
+    date: str | None = None
     bkdn: list[BoQBkdn] = Field(default_factory=list)
     outline_complete: bool = False
+    #: Labels for the unit-price components whose values live in
+    #: ``Item.up_components`` — e.g. Material / Geräte, plus ``LblTime`` for labour.
+    no_up_comps: int | None = None
+    lbl_up_comps: list[str] = Field(default_factory=list)
+    lbl_time: str | None = None
     cost_types: list[CostType] = Field(default_factory=list)
     ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
     totals: Totals | None = None

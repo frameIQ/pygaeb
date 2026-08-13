@@ -12,7 +12,7 @@ from typing import Any
 
 from lxml import etree
 
-from pygaeb.models.boq import BoQ, BoQBody, BoQCtgy, BoQInfo, Totals
+from pygaeb.models.boq import BoQ, BoQBkdn, BoQBody, BoQCtgy, BoQInfo, Totals
 from pygaeb.models.catalog import Catalog, CtlgAssign
 from pygaeb.models.cost import (
     CategoryElement,
@@ -27,7 +27,7 @@ from pygaeb.models.cost import (
 )
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
 from pygaeb.models.enums import BkdnType, ExchangePhase, ItemType, SourceVersion
-from pygaeb.models.item import CostApproach, Item
+from pygaeb.models.item import CostApproach, Item, RichText
 from pygaeb.models.order import OrderItem, TradeOrder
 from pygaeb.models.position_types import NON_INTEROP_TYPES, WRITER_MARKER
 from pygaeb.models.quantity import (
@@ -195,13 +195,21 @@ def _build_xml(
 def _add_gaeb_info(parent: etree._Element, info: GAEBInfo, meta: VersionMeta) -> None:
     gaeb_info = etree.SubElement(parent, "GAEBInfo")
     _add_text_el(gaeb_info, "Version", meta.version_tag)
+    if info.vers_date:
+        _add_text_el(gaeb_info, "VersDate", info.vers_date)
     from pygaeb import __version__
 
     _add_text_el(gaeb_info, "ProgSystem", info.prog_system or "pyGAEB")
     _add_text_el(
         gaeb_info, "ProgSystemVersion", info.prog_system_version or __version__,
     )
-    _add_text_el(gaeb_info, "Date", datetime.now().strftime("%Y-%m-%d"))
+    if info.prog_name:
+        _add_text_el(gaeb_info, "ProgName", info.prog_name)
+    # Keep the source's document date; only stamp today when there was none.
+    date = info.date.strftime("%Y-%m-%d") if info.date else datetime.now().strftime("%Y-%m-%d")
+    _add_text_el(gaeb_info, "Date", date)
+    if info.time:
+        _add_text_el(gaeb_info, "Time", info.time)
 
 
 def _add_prj_info(parent: etree._Element, award: AwardInfo) -> None:
@@ -242,6 +250,8 @@ def _add_award(
     meta: VersionMeta, warnings: list[str],
 ) -> None:
     award_el = etree.SubElement(parent, "Award")
+    # Exchange-phase marker, as the trade/cost/QD writers already emit.
+    _add_text_el(award_el, "DP", phase.value.lstrip("X"))
 
     award_info_el = etree.SubElement(award_el, "AwardInfo")
     if award.project_no:
@@ -249,6 +259,10 @@ def _add_award(
     if award.project_name:
         _add_text_el(award_info_el, "PrjName", award.project_name)
     _add_text_el(award_info_el, "Cur", award.currency)
+    if award.currency_label:
+        _add_text_el(award_info_el, "CurLbl", award.currency_label)
+    if award.boq_id:
+        _add_text_el(award_info_el, "BoQID", award.boq_id)
     if award.procurement_type:
         _add_text_el(award_info_el, "PrcTyp", award.procurement_type)
     if award.category:
@@ -295,7 +309,7 @@ def _add_boq(
     boq_el = etree.SubElement(parent, "BoQ")
 
     if boq.boq_info:
-        _add_boq_info(boq_el, boq.boq_info)
+        _add_boq_info(boq_el, boq.boq_info, meta)
 
     boq_body = etree.SubElement(boq_el, "BoQBody")
 
@@ -312,19 +326,49 @@ def _add_boq(
             _add_body_categories(boq_body, lot.body, phase, meta, warnings, up_frac_dig)
 
 
-def _add_boq_info(parent: etree._Element, info: BoQInfo) -> None:
+def _add_bkdn(
+    parent: etree._Element, bkdn: list[BoQBkdn], meta: VersionMeta,
+) -> None:
+    """Emit the BoQ breakdown in the form the target version expects."""
+    if not bkdn:
+        return
+
+    if meta.bkdn_sibling_form:
+        for level in bkdn:
+            bkdn_el = etree.SubElement(parent, "BoQBkdn")
+            _add_text_el(bkdn_el, "Type", _bkdn_tag(level.bkdn_type))
+            _add_text_el(bkdn_el, "Length", str(level.length))
+            if level.num:
+                _add_text_el(bkdn_el, "Num", "Yes")
+        return
+
+    bkdn_el = etree.SubElement(parent, "BoQBkdn")
+    for level in bkdn:
+        level_el = etree.SubElement(bkdn_el, _bkdn_tag(level.bkdn_type))
+        level_el.set("Length", str(level.length))
+        if level.num:
+            level_el.set("Num", "Yes")
+
+
+def _add_boq_info(
+    parent: etree._Element, info: BoQInfo, meta: VersionMeta,
+) -> None:
     info_el = etree.SubElement(parent, "BoQInfo")
     if info.name:
         _add_text_el(info_el, "Name", info.name)
     if info.lbl_boq:
         _add_text_el(info_el, "LblBoQ", info.lbl_boq)
+    if info.date:
+        _add_text_el(info_el, "Date", info.date)
 
-    if info.bkdn:
-        bkdn_el = etree.SubElement(info_el, "BoQBkdn")
-        for level in info.bkdn:
-            tag = _bkdn_tag(level.bkdn_type)
-            level_el = etree.SubElement(bkdn_el, tag)
-            level_el.set("Length", str(level.length))
+    _add_bkdn(info_el, info.bkdn, meta)
+
+    if info.no_up_comps is not None:
+        _add_text_el(info_el, "NoUPComps", str(info.no_up_comps))
+    for idx, label in enumerate(info.lbl_up_comps, start=1):
+        _add_text_el(info_el, f"LblUPComp{idx}", label)
+    if info.lbl_time:
+        _add_text_el(info_el, "LblTime", info.lbl_time)
 
     _add_boq_info_cost_types(info_el, info)
 
@@ -392,6 +436,95 @@ def _add_ctgy(
         _add_itemlist(body_el, ctgy.items, phase, meta, warnings, up_frac_dig)
 
 
+def _copy_stripped(src: etree._Element, parent: etree._Element) -> None:
+    """Copy an element tree over, dropping namespaces.
+
+    The writer declares its namespace as a literal ``xmlns`` attribute on the root
+    and builds every element bare, so re-embedded source markup must arrive bare
+    too — otherwise the target document carries the source document's namespace.
+    """
+    el = etree.SubElement(parent, etree.QName(src).localname)
+    for key, value in src.attrib.items():
+        el.set(etree.QName(key).localname if "}" in key else key, value)
+    el.text = src.text
+    el.tail = src.tail
+    for child in src:
+        if callable(child.tag):  # comments / processing instructions
+            continue
+        _copy_stripped(child, el)
+
+
+def _add_richtext(parent: etree._Element, text: RichText) -> bool:
+    """Fill ``parent`` with the long text's markup. False when there was nothing."""
+    inner = text.raw_html
+    if inner and inner.strip():
+        try:
+            frag = etree.fromstring(f"<w>{inner}</w>")
+        except etree.XMLSyntaxError:
+            frag = None
+        # Bare text (a 2.x long text) has no markup to carry over — fall through
+        # so it gets a conforming <Text><p> wrapper instead of sitting loose.
+        if frag is not None and len(frag):
+            parent.text = frag.text
+            for child in frag:
+                if not callable(child.tag):
+                    _copy_stripped(child, parent)
+            return True
+
+    paragraphs = text.paragraphs or (
+        [text.plain_text] if text.plain_text else []
+    )
+    if not paragraphs:
+        return False
+
+    text_el = etree.SubElement(parent, "Text")
+    for para in paragraphs:
+        p_el = etree.SubElement(text_el, "p")
+        span_el = etree.SubElement(p_el, "span")
+        span_el.text = para
+    return True
+
+
+def _add_item_text(
+    parent: etree._Element, item: Item, meta: VersionMeta,
+) -> None:
+    """Write short and long text in the shape the target version expects.
+
+    DA XML 3.x carries both inside ``<Description>``; 2.x uses flat
+    ``ShortText``/``LongText``, which ``_translate_to_german`` renames.
+    """
+    if meta.lang == "de":
+        if item.long_text and meta.supports_long_text_cdata:
+            inner = item.long_text.raw_html or item.long_text.plain_text or "\n".join(
+                item.long_text.paragraphs
+            )
+            if inner:
+                lt_el = etree.SubElement(parent, "LongText")
+                lt_el.text = etree.CDATA(inner)
+        return
+
+    if not item.short_text and not item.long_text:
+        return
+
+    complete_el = etree.SubElement(
+        etree.SubElement(parent, "Description"), "CompleteText",
+    )
+
+    if item.long_text is not None:
+        detail_el = etree.SubElement(complete_el, "DetailTxt")
+        if not _add_richtext(detail_el, item.long_text):
+            complete_el.remove(detail_el)
+
+    if item.short_text:
+        outl_txt = etree.SubElement(
+            etree.SubElement(complete_el, "OutlineText"), "OutlTxt",
+        )
+        span_el = etree.SubElement(
+            etree.SubElement(outl_txt, "TextOutlTxt"), "span",
+        )
+        span_el.text = item.short_text
+
+
 def _add_item(
     parent: etree._Element, item: Item, phase: ExchangePhase,
     meta: VersionMeta, warnings: list[str],
@@ -414,8 +547,11 @@ def _add_item(
                 f"software yet (real GAEB serialization not implemented)"
             )
 
-    if item.short_text:
+    if item.short_text and meta.lang == "de":
         _add_text_el(item_el, "ShortText", item.short_text)
+
+    if item.qty_tbd:
+        _add_text_el(item_el, "QtyTBD", "Yes")
 
     if item.qty is not None:
         _add_text_el(item_el, "Qty", _fmt_decimal(item.qty))
@@ -440,16 +576,7 @@ def _add_item(
         if split.unit:
             _add_text_el(qs_el, "QU", split.unit)
 
-    if item.long_text and meta.supports_long_text_cdata:
-        # raw_html holds the INNER long-text content only (the parser strips the
-        # wrapping <LongText> tag), so we wrap exactly once — no compounding nesting.
-        # Fall back to plain text so plaintext long texts are not dropped.
-        inner = item.long_text.raw_html
-        if inner is None:
-            inner = item.long_text.plain_text or "\n".join(item.long_text.paragraphs)
-        if inner:
-            lt_el = etree.SubElement(item_el, "LongText")
-            lt_el.text = etree.CDATA(inner)
+    _add_item_text(item_el, item, meta)
 
     if item.bim_guid:
         if meta.supports_bim_guid:
@@ -1050,6 +1177,8 @@ def _add_qty_boq(
     if boq.ref_boq_id:
         _add_text_el(boq_el, "RefBoQID", boq.ref_boq_id)
 
+    # QD keeps the <Type>/<Length> form for every version: its parser reads
+    # only that shape. See the follow-up issue before making this version-aware.
     for bkdn in boq.bkdn:
         bkdn_el = etree.SubElement(boq_el, "BoQBkdn")
         _add_text_el(bkdn_el, "Type", _bkdn_tag(bkdn.bkdn_type))

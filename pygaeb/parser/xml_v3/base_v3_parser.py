@@ -120,6 +120,15 @@ class BaseV3Parser:
             result = parent.findall(tag)
         return result
 
+    def _find_detail_txt(self, desc_el: etree._Element) -> etree._Element | None:
+        """Long text lives in DetailTxt; its CompleteText siblings are flags and outline text."""
+        complete_el = self._find(desc_el, "CompleteText")
+        if complete_el is not None:
+            detail_el = self._find(complete_el, "DetailTxt")
+            if detail_el is not None:
+                return detail_el
+        return self._find(desc_el, "DetailTxt")
+
     def _text(self, parent: etree._Element, *tags: str) -> str | None:
         el = self._find(parent, *tags)
         if el is None:
@@ -144,7 +153,9 @@ class BaseV3Parser:
         info.version = self._text(gaeb_info_el, "Version")
         info.vers_date = self._text(gaeb_info_el, "VersDate")
         info.prog_system = self._text(gaeb_info_el, "ProgSystem")
-        info.prog_system_version = self._text(gaeb_info_el, "ProgSystemVersion", "ProgName")
+        info.prog_system_version = self._text(gaeb_info_el, "ProgSystemVersion")
+        info.prog_name = self._text(gaeb_info_el, "ProgName")
+        info.time = self._text(gaeb_info_el, "Time")
 
         date_str = self._text(gaeb_info_el, "Date")
         if date_str:
@@ -174,6 +185,7 @@ class BaseV3Parser:
                 award.date = _parse_date(date_str)
 
             award.category = self._text(award_info_el, "Cat")
+            award.boq_id = self._text(award_info_el, "BoQID")
             if not award.currency_label:
                 award.currency_label = self._text(award_info_el, "CurLbl")
 
@@ -288,6 +300,18 @@ class BaseV3Parser:
         info = BoQInfo()
         info.name = self._text(info_el, "Name")
         info.lbl_boq = self._text(info_el, "LblBoQ")
+        info.date = self._text(info_el, "Date")
+
+        no_up_comps = self._text(info_el, "NoUPComps")
+        if no_up_comps:
+            with contextlib.suppress(ValueError):
+                info.no_up_comps = int(no_up_comps)
+        for idx in (1, 2, 3, 4, 5, 6):
+            label = self._text(info_el, f"LblUPComp{idx}")
+            if label is None:
+                break
+            info.lbl_up_comps.append(label)
+        info.lbl_time = self._text(info_el, "LblTime")
 
         bkdn_els = self._findall(info_el, "BoQBkdn")
         if bkdn_els:
@@ -339,6 +363,7 @@ class BaseV3Parser:
                 bkdn_type=bkdn_type,
                 length=length,
                 key=level_el.get("Key", tag),
+                num=(level_el.get("Num", "") or "").strip().lower() in ("yes", "true", "1"),
             ))
 
     def _parse_bkdn_v32(self, bkdn_els: list[Any], info: BoQInfo) -> None:
@@ -356,6 +381,7 @@ class BaseV3Parser:
                 bkdn_type=bkdn_type,
                 length=length,
                 key=type_text,
+                num=(self._text(bkdn_el, "Num") or "").strip().lower() in ("yes", "true", "1"),
             ))
 
     def _parse_boq_body(self, body_el: etree._Element, doc: GAEBDocument) -> BoQBody:
@@ -493,6 +519,10 @@ class BaseV3Parser:
         if qty_el is not None:
             item.qty = _parse_decimal(qty_el.text)
 
+        tbd_el = self._find(item_el, "QtyTBD")
+        if tbd_el is not None:
+            item.qty_tbd = (tbd_el.text or "").strip().lower() in ("yes", "true", "1")
+
         qu_el = self._find(item_el, "QU")
         if qu_el is not None:
             item.unit = qu_el.text.strip() if qu_el.text else None
@@ -526,10 +556,9 @@ class BaseV3Parser:
         if not item.long_text:
             desc_el = self._find(item_el, "Description")
             if desc_el is not None:
-                detail_el = self._find(desc_el, "CompleteText", "DetailTxt")
+                detail_el = self._find_detail_txt(desc_el)
                 if detail_el is not None:
-                    html = etree.tostring(detail_el, encoding="unicode", method="html")
-                    item.long_text = parse_richtext(html)
+                    item.long_text = parse_richtext(_inner_xml(detail_el))
 
         item.attachments = self._parse_item_attachments(item_el)
 

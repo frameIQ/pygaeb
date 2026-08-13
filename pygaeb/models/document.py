@@ -34,6 +34,12 @@ class GAEBInfo(BaseModel):
     vers_date: str | None = None
     prog_system: str | None = None
     prog_system_version: str | None = None
+    #: ``<ProgName>`` — the generating program's own name, distinct from
+    #: ``<ProgSystem>``. Folded into ``prog_system_version`` before 1.16.3, which
+    #: renamed the element on round-trip.
+    prog_name: str | None = None
+    #: ``<Time>`` — creation time of day, as written (GAEB does not fix a format).
+    time: str | None = None
     date: datetime | None = None
     source_element: Any = Field(default=None, exclude=True, repr=False)
 
@@ -79,6 +85,8 @@ class AwardInfo(BaseModel):
     lbl_prj: str | None = None
     description: str | None = None
     currency_label: str | None = None
+    #: ``<BoQID>`` — the BoQ's stable identifier, used to tie phases together.
+    boq_id: str | None = None
     bid_comm_perm: bool = False
     alter_bid_perm: bool = False
     up_frac_dig: int | None = None

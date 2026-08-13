@@ -14,6 +14,9 @@ class VersionMeta:
     namespace: str
     version_tag: str
     lang: str  # "en" for 3.x, "de" for 2.x
+    # Up to 3.2 each level is its own <BoQBkdn> with <Type>/<Length> children;
+    # 3.3 nests level elements in one. 2.x translates from the 3.3 shape.
+    bkdn_sibling_form: bool = False
     supports_bim_guid: bool = True
     supports_attachments: bool = True
     supports_change_order: bool = True
@@ -31,6 +34,7 @@ VERSION_REGISTRY: dict[SourceVersion, VersionMeta] = {
         namespace="http://www.gaeb.de/GAEB_DA_XML/DA86/3.2",
         version_tag="3.2",
         lang="en",
+        bkdn_sibling_form=True,
         supports_bim_guid=False,
         unsupported_fields=("bim_guid",),
     ),
@@ -38,6 +42,7 @@ VERSION_REGISTRY: dict[SourceVersion, VersionMeta] = {
         namespace="http://www.gaeb.de/GAEB_DA_XML/DA86/3.1",
         version_tag="3.1",
         lang="en",
+        bkdn_sibling_form=True,
         supports_bim_guid=False,
         unsupported_fields=("bim_guid",),
     ),
@@ -45,6 +50,7 @@ VERSION_REGISTRY: dict[SourceVersion, VersionMeta] = {
         namespace="http://www.gaeb.de/GAEB_DA_XML/200407",
         version_tag="3.0",
         lang="en",
+        bkdn_sibling_form=True,
         supports_bim_guid=False,
         supports_attachments=False,
         supports_change_order=False,
