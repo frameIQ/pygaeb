@@ -231,6 +231,40 @@ class TestPathSafety:
         with pytest.raises(ValueError, match="over the 1 MB limit"):
             resolve_within_roots(str(f), [tmp_path.resolve()])
 
+    def test_relative_path_resolves_against_roots_not_cwd(self, tmp_path: Path, monkeypatch):
+        """Desktop clients spawn the server from `/`; a bare file name must still open."""
+        root = tmp_path / "tenders"
+        root.mkdir()
+        (root / "tender.X83").write_text(SAMPLE_V33_XML)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        resolved = resolve_within_roots("tender.X83", [root.resolve()])
+        assert resolved == (root / "tender.X83").resolve()
+
+    def test_relative_path_tries_each_root_in_order(self, tmp_path: Path, monkeypatch):
+        first, second = tmp_path / "a", tmp_path / "b"
+        first.mkdir()
+        second.mkdir()
+        (second / "only_here.X83").write_text(SAMPLE_V33_XML)
+        monkeypatch.chdir(tmp_path)
+
+        resolved = resolve_within_roots("only_here.X83", [first.resolve(), second.resolve()])
+        assert resolved == (second / "only_here.X83").resolve()
+
+    def test_relative_traversal_out_of_root_rejected(self, tmp_path: Path):
+        root = tmp_path / "tenders"
+        root.mkdir()
+        (tmp_path / "secret.X83").write_text(SAMPLE_V33_XML)
+
+        with pytest.raises(ValueError, match="outside the allowed roots"):
+            resolve_within_roots("../secret.X83", [root.resolve()])
+
+    def test_missing_relative_file_names_list_documents(self, tmp_path: Path):
+        with pytest.raises(ValueError, match="list_documents"):
+            resolve_within_roots("nope.X83", [tmp_path.resolve()])
+
     def test_resolve_roots_rejects_missing_dir(self, tmp_path: Path):
         with pytest.raises(ValueError, match="not an existing directory"):
             resolve_roots([str(tmp_path / "nope")])
@@ -799,6 +833,7 @@ class TestEventLoopSafety:
     """The SDK calls sync tools directly on the event loop; heavy work must not."""
 
     HEAVY: ClassVar[list[str]] = [
+        "list_documents",
         "open_document",
         "search_items",
         "compare_documents",
@@ -849,6 +884,103 @@ class TestEventLoopSafety:
         )
 
 
+# ── list_documents ─────────────────────────────────────────────────────
+
+
+class TestListDocuments:
+    def _root(self, tmp_path: Path) -> Path:
+        root = tmp_path / "tenders"
+        (root / "2026" / ".git").mkdir(parents=True)
+        (root / "a.X83").write_text("x")
+        (root / "2026" / "b.d84").write_text("x")
+        (root / "notes.txt").write_text("x")
+        (root / ".hidden.X83").write_text("x")
+        (root / "2026" / ".git" / "c.X83").write_text("x")
+        return root.resolve()
+
+    async def test_lists_gaeb_files_recursively_skipping_hidden(self, tmp_path: Path):
+        root = self._root(tmp_path)
+        ctx = ToolContext(cache=DocumentCache(), roots=[root])
+        result = await _call(_tools(ctx)["list_documents"])
+
+        assert [f["name"] for f in result["files"]] == ["a.X83", "b.d84"]
+        assert result["total_matched"] == 2
+        assert result["scan_truncated"] is False
+        assert result["roots"] == [str(root)]
+        row = result["files"][0]
+        assert row["path"] == str(root / "a.X83")
+        assert row["size_bytes"] == 1
+        assert row["modified"].endswith("+00:00")
+
+    async def test_name_filter_and_pagination(self, tmp_path: Path):
+        ctx = ToolContext(cache=DocumentCache(), roots=[self._root(tmp_path)])
+        tool = _tools(ctx)["list_documents"]
+
+        result = await _call(tool, name_contains="B.D")
+        assert [f["name"] for f in result["files"]] == ["b.d84"]
+
+        result = await _call(tool, limit=1)
+        assert len(result["files"]) == 1 and result["has_more"] is True
+
+    async def test_any_extension_lists_everything(self, tmp_path: Path):
+        ctx = ToolContext(
+            cache=DocumentCache(), roots=[self._root(tmp_path)], allow_any_extension=True
+        )
+        result = await _call(_tools(ctx)["list_documents"])
+        assert "notes.txt" in [f["name"] for f in result["files"]]
+
+    async def test_listed_path_opens(self, tmp_path: Path, monkeypatch):
+        root = tmp_path / "tenders"
+        root.mkdir()
+        (root / "tender.X83").write_text(SAMPLE_V33_XML)
+        monkeypatch.chdir(tmp_path)
+        ctx = ToolContext(cache=DocumentCache(), roots=[root.resolve()])
+        tools = _tools(ctx)
+
+        listed = (await _call(tools["list_documents"]))["files"][0]
+        summary = await _call(tools["open_document"], path=listed["path"])
+        assert summary["handle"].startswith("doc_")
+        # And the bare name the user would actually type works too.
+        again = await _call(tools["open_document"], path="tender.X83")
+        assert again["handle"] == summary["handle"]
+
+
+# ── Unpriced tenders ───────────────────────────────────────────────────
+
+
+class TestUnpricedTender:
+    """An X83 before bids must not read as 'the tender costs 0 €'."""
+
+    def _unpriced(self) -> GAEBDocument:
+        return _doc(
+            [
+                Item(oz="0010", oz_path=["01"], short_text="Mauerwerk", qty=Decimal("100"),
+                     unit="m2", item_type=ItemType.NORMAL),
+                Item(oz="0020", oz_path=["01"], short_text="Estrich", qty=Decimal("50"),
+                     unit="m2", item_type=ItemType.NORMAL),
+            ]
+        )
+
+    def test_summary_reports_null_totals_and_is_priced_false(self, tmp_path: Path):
+        from pygaeb.mcp.views import document_summary
+
+        summary = document_summary(self._unpriced(), "doc_x", "tender.X83", cached=False)
+        assert summary["is_priced"] is False
+        assert summary["grand_total"] is None
+        assert summary["computed_grand_total"] is None
+
+        priced = document_summary(_make_procurement_doc(), "doc_y", "bid.X84", cached=False)
+        assert priced["is_priced"] is True
+        assert priced["grand_total"] == "6050.00"
+
+    async def test_list_items_sum_is_null_not_zero(self, tmp_path: Path):
+        ctx = _ctx(self._unpriced(), tmp_path)
+        result = await _call(_tools(ctx)["list_items"], handle="doc_test")
+        assert result["sum_of_matched_totals"] is None
+        assert result["pct_of_grand_total"] is None
+        assert all(row["total_price"] is None for row in result["items"])
+
+
 # ── Cross-kind tolerance ───────────────────────────────────────────────
 
 
@@ -889,7 +1021,7 @@ class TestWriteTools:
         names = {t.__name__ for t in build_tools(_ctx(_make_procurement_doc(), tmp_path))}
         assert "export_document" not in names
         assert "convert_document" not in names
-        assert len(names) == 9
+        assert len(names) == 10
 
     def test_present_when_enabled(self, tmp_path: Path):
         ctx = _ctx(
@@ -897,7 +1029,7 @@ class TestWriteTools:
         )
         names = {t.__name__ for t in build_tools(ctx)}
         assert {"export_document", "convert_document"} <= names
-        assert len(names) == 11
+        assert len(names) == 12
 
     async def test_export_writes_and_returns_path_only(self, tmp_path: Path):
         out = tmp_path / "out"
@@ -958,14 +1090,14 @@ class TestPackageShadowing:
 
 
 class TestServerRegistration:
-    def test_registers_nine_tools_with_descriptions(self, tmp_path: Path):
+    def test_registers_ten_tools_with_descriptions(self, tmp_path: Path):
         import asyncio
 
         from pygaeb.mcp.server import create_server
 
         server = create_server(roots=[str(tmp_path)])
         tools = asyncio.run(server.list_tools())
-        assert len(tools) == 9
+        assert len(tools) == 10
         assert all((t.description or "").strip() for t in tools)
         assert all(t.inputSchema["type"] == "object" for t in tools)
 
@@ -990,7 +1122,7 @@ class TestServerRegistration:
             roots=[str(tmp_path)], allow_write=True, output_dir=str(out)
         )
         tools = asyncio.run(server.list_tools())
-        assert len(tools) == 11
+        assert len(tools) == 12
 
         for tool in tools:
             assert tool.annotations is not None, f"{tool.name} has no annotations"

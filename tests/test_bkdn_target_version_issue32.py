@@ -1,9 +1,10 @@
 """Regression tests for issue #32.
 
-The BoQ breakdown has two spellings: up to 3.2 each level is its own
-`<BoQBkdn>` carrying `<Type>`/`<Length>` children; 3.3 nests level elements
-(`<Item Length="3"/>`) inside a single `<BoQBkdn>`. The writer always emitted
-the 3.3 shape, so `target_version=3.2` produced non-conforming output.
+The BoQ breakdown has two spellings: every DA XML 3.x version spells each
+level as its own `<BoQBkdn>` carrying `<Type>`/`<Length>`/`<Num>` children
+(the official 3.3 2021-05 XSD included); 2.x nests level elements
+(`<OZEbene Length="3"/>`) inside a single `<LVGliederung>`. The writer used to
+emit the nested shape for 3.3 and both 3.2 and 3.3 output was non-conforming.
 """
 
 from __future__ import annotations
@@ -37,6 +38,14 @@ def _bkdn_elements(xml: str) -> list[etree._Element]:
     return [e for e in root.iter() if etree.QName(e).localname == "BoQBkdn"]
 
 
+def _child_text(el: etree._Element, tag: str) -> str | None:
+    """Text of the first child named *tag*, ignoring the default namespace."""
+    for child in el:
+        if etree.QName(child).localname == tag:
+            return child.text
+    return None
+
+
 def _write(doc, version: SourceVersion) -> str:
     return GAEBWriter().to_bytes(doc, target_version=version)[0].decode()
 
@@ -53,27 +62,38 @@ def test_32_writes_sibling_type_length_form(doc):
     assert len(bkdns) == 2, "3.2 spells each level as its own BoQBkdn"
     for el in bkdns:
         children = [etree.QName(c).localname for c in el]
-        assert children == ["Type", "Length"]
+        assert children == ["Type", "Length", "Num"]
         assert el.get("Length") is None
 
     assert "<Type>BoQLevel</Type>" in xml
     assert "<Type>Item</Type>" in xml
 
 
-def test_33_writes_nested_level_element_form(doc):
+def test_33_writes_sibling_type_length_form(doc):
+    """3.3 uses the same sibling form: tgBoQBkdn = Type, LblBoQBkdn?, Length, Num."""
     xml = _write(doc, SourceVersion.DA_XML_33)
     bkdns = _bkdn_elements(xml)
 
-    assert len(bkdns) == 1, "3.3 nests every level in one BoQBkdn"
-    levels = [(etree.QName(c).localname, c.get("Length")) for c in bkdns[0]]
-    assert levels == [("BoQLevel", "2"), ("Item", "4")]
+    assert len(bkdns) == 2
+    levels = [
+        tuple(_child_text(el, tag) for tag in ("Type", "Length", "Num")) for el in bkdns
+    ]
+    assert levels == [("BoQLevel", "2", "Yes"), ("Item", "4", "Yes")]
+    assert "<BoQLevel " not in xml
+
+
+def test_20_writes_nested_level_element_form(doc):
+    """2.x nests the levels: <LVGliederung><OZEbene Length=".."/>…</LVGliederung>."""
+    xml = _write(doc, SourceVersion.DA_XML_20)
+    assert xml.count("<LVGliederung>") == 1
+    assert '<OZEbene Length="2"' in xml
     assert "<Type>" not in xml
 
 
 @pytest.mark.parametrize(
     ("version", "sibling_form"),
     [
-        (SourceVersion.DA_XML_33, False),
+        (SourceVersion.DA_XML_33, True),
         (SourceVersion.DA_XML_32, True),
         (SourceVersion.DA_XML_31, True),
         (SourceVersion.DA_XML_30, True),

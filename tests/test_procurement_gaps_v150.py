@@ -235,7 +235,10 @@ class TestTotalsParsingBoQCtgy:
 class TestTotalsWriteRoundTrip:
     def test_boq_info_totals_roundtrip(self) -> None:
         doc = GAEBParser.parse_string(PROCUREMENT_WITH_TOTALS)
-        xml_bytes, _ = GAEBWriter.to_bytes(doc, target_version=SourceVersion.DA_XML_33)
+        # Totals live in priced phases; an X83 has none by schema.
+        xml_bytes, _ = GAEBWriter.to_bytes(
+            doc, phase=ExchangePhase.X86, target_version=SourceVersion.DA_XML_33,
+        )
         doc2 = GAEBParser.parse_string(xml_bytes.decode("utf-8"))
 
         t = doc2.award.boq.boq_info.totals
@@ -250,7 +253,9 @@ class TestTotalsWriteRoundTrip:
 
     def test_ctgy_totals_roundtrip(self) -> None:
         doc = GAEBParser.parse_string(PROCUREMENT_WITH_TOTALS)
-        xml_bytes, _ = GAEBWriter.to_bytes(doc, target_version=SourceVersion.DA_XML_33)
+        xml_bytes, _ = GAEBWriter.to_bytes(
+            doc, phase=ExchangePhase.X86, target_version=SourceVersion.DA_XML_33,
+        )
         doc2 = GAEBParser.parse_string(xml_bytes.decode("utf-8"))
 
         ctgy = doc2.award.boq.lots[0].body.categories[0]
@@ -350,7 +355,9 @@ class TestPrjInfoWriteRoundTrip:
         assert "<NamePrj>Test Project</NamePrj>" in content
         assert "<PrjID>A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4</PrjID>" in content
         assert "<LblPrj>Test Label</LblPrj>" in content
-        assert "<Descrip>A sample project description</Descrip>" in content
+        # Descrip is formatted text (tgFText): the writer wraps it in <p><span>.
+        assert "<Descrip>" in content
+        assert "<span>A sample project description</span>" in content
         assert "<CurLbl>Euro</CurLbl>" in content
         assert "<BidCommPerm>Yes</BidCommPerm>" in content
         assert "<AlterBidPerm>Yes</AlterBidPerm>" in content

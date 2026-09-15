@@ -67,11 +67,55 @@ By default, documents are written as DA XML 3.3. The writer outputs:
 
 **Procurement documents:**
 
-- Standard GAEB DA XML 3.3 namespace
-- All BoQ structure (lots, categories, items)
-- Item attributes (quantities, prices, units, text)
-- Attachments (base64-encoded)
-- GAEBInfo metadata (auto-populated with pyGAEB version)
+- Phase-specific GAEB DA XML 3.3 namespace (`DA83/3.3`, `DA84/3.3`, …)
+- All BoQ structure (lots, categories, items) with the `xs:ID` attributes the schema requires
+- Item attributes (quantities, prices, units, text) in schema order
+- GAEBInfo metadata (`ProgSystem` names pyGAEB; see below)
+
+### Schema conformance
+
+Since 1.17.0 the 3.x procurement writer emits what the official GAEB DA XML 3.3
+(2021-05) schemas accept, and this is verified against the BVBS certification
+test files for X81, X82, X83, X84 and X86. Each exchange phase is a restriction
+of the shared schema, so the writer applies a per-phase profile
+(`pygaeb.writer.phase_profiles`):
+
+| Phase | Not written (no place in the schema) | Required and synthesised when missing |
+|-------|--------------------------------------|---------------------------------------|
+| X81/X82 | — | `BoQInfo/Name`, `LblBoQ`, `OutlCompl`, `LblTx` |
+| X83 (tender) | unit prices, item totals, `Totals`, contractor | `QU` on every item |
+| X84 (bid) | category labels, catalog assignments, position-type markers, outline text, owner | `CTR` (empty-address placeholder), `Totals` per category |
+| X86 (contract) | — | `OWN`, `CTR`, `Totals` per category |
+
+Everything left out is reported once per element kind in the returned warnings
+as `… not written … not part of X84 in DA XML 3.x`. The word `dropped` is
+reserved for real data loss (a field the target *version* does not support),
+which is what `ConversionReport.has_data_loss` looks for.
+
+Two pyGAEB-only serialisations remain by design: `<BidderUP>` (Preisspiegel
+prices, written with a warning) and the legacy synthetic markers for
+`ItemType.ALTERNATIVE` and friends.
+
+`ProgSystem` must name the generating software for BVBS certification, so it is
+stamped with `pyGAEB <version>`. Name your own application instead:
+
+```python
+GAEBWriter.write(doc, "out.X84", phase=ExchangePhase.X84,
+                 prog_system="MyAVA 4.2", prog_name="MyAVA")
+```
+
+To check output against the schemas you hold locally (they are not bundled):
+
+```python
+result = GAEBWriter.validate_against_xsd(doc, phase=ExchangePhase.X84,
+                                         xsd_dir="/opt/gaeb/2021-05")
+if result is not None and not result.valid:
+    for err in result.errors:
+        print(err.line, err.message)
+```
+
+`GAEBWriter.validate_against_xsd` returns `None` when no schema is available.
+See [Validation](validation.md#xsd-validation) for the schema folder layout.
 
 **Trade documents:**
 

@@ -196,5 +196,36 @@ from pygaeb import configure
 configure(xsd_dir="/opt/gaeb-schemas")
 ```
 
+The schema is chosen by **version and exchange phase**: the GAEB distribution
+ships one file per phase plus a shared library, and an X83 must be checked
+against `GAEB_DA_XML_83_3.3_2021-05.xsd`, not against whichever file sorts
+first. Two layouts are accepted:
+
+```text
+/opt/gaeb-schemas/                       # flat, as distributed
+├── GAEB_DA_XML_81_3.3_2021-05.xsd
+├── GAEB_DA_XML_83_3.3_2021-05.xsd
+├── …
+└── GAEB_DA_XML_Lib_3.3_2021-05.xsd      # included by the phase files; keep it alongside
+
+/opt/gaeb-schemas/v33/…, v32/…           # or one sub-folder per version
+```
+
+Schema violations are added as `WARNING` results prefixed `XSD validation:`;
+when no matching schema exists, an `INFO` result says which version/phase was
+looked for.
+
+The same lookup is available directly, for output you generate:
+
+```python
+from pygaeb import validate_xml, GAEBWriter
+
+result = validate_xml(xml_bytes, SourceVersion.DA_XML_33, ExchangePhase.X84)
+result = GAEBWriter.validate_against_xsd(doc, phase=ExchangePhase.X84)
+```
+
+Both return an `XsdResult` (`valid`, `errors`, `schema_path`) or `None` when no
+schema is available.
+
 !!! note
     XSD schemas are not distributed with pyGAEB due to licensing. They can be obtained from the [GAEB organization](https://www.gaeb.de).

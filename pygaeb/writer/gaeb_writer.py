@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-import base64
 import logging
 import re
+from collections import defaultdict
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lxml import etree
 
-from pygaeb.models.boq import BoQ, BoQBkdn, BoQBody, BoQCtgy, BoQInfo, Totals
+from pygaeb.models.boq import BoQ, BoQBkdn, BoQCtgy, BoQInfo, Totals
 from pygaeb.models.catalog import Catalog, CtlgAssign
 from pygaeb.models.cost import (
     CategoryElement,
@@ -25,10 +27,16 @@ from pygaeb.models.cost import (
     ElementalCosting,
     RefGroup,
 )
-from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
-from pygaeb.models.enums import BkdnType, ExchangePhase, ItemType, SourceVersion
+from pygaeb.models.document import (
+    AwardInfo,
+    ConstructionSite,
+    GAEBDocument,
+    GAEBInfo,
+    Party,
+)
+from pygaeb.models.enums import BkdnType, ExchangePhase, ItemType, Provis, SourceVersion
 from pygaeb.models.item import CostApproach, Item, RichText
-from pygaeb.models.order import OrderItem, TradeOrder
+from pygaeb.models.order import Address, OrderItem, TradeOrder
 from pygaeb.models.position_types import NON_INTEROP_TYPES, WRITER_MARKER
 from pygaeb.models.quantity import (
     QDetermItem,
@@ -40,6 +48,7 @@ from pygaeb.models.quantity import (
     QtyDetermInfo,
     QtyItem,
 )
+from pygaeb.writer.phase_profiles import PhaseProfile, profile_for
 from pygaeb.writer.version_registry import (
     VERSION_REGISTRY,
     WRITABLE_VERSIONS,
@@ -50,7 +59,126 @@ from pygaeb.writer.version_registry import (
     trade_namespace,
 )
 
+if TYPE_CHECKING:
+    from pygaeb.parser.gaeb_parser import XsdResult
+
 logger = logging.getLogger("pygaeb.writer")
+
+# xs:ID / xs:NCName: letter or underscore first, then letters, digits, . - _.
+_NCNAME_RE = re.compile(r"[^\W\d][\w.\-]*")
+_RNOPART_RE = re.compile(r"[_0-9A-Za-z]{1,14}")
+# Legal direct children of DetailTxt (tgBoQText); anything else gets a <Text> wrapper.
+_DETAIL_TXT_CHILDREN = frozenset({"Style", "Text", "TextComplement", "attachment"})
+
+
+class _IdAllocator:
+    """Hands out document-unique ``xs:ID`` values, keeping valid source IDs.
+
+    Source IDs are reserved before any ID is generated, so a generated one can
+    never collide with a source ID that appears later in the document.
+    """
+
+    def __init__(self) -> None:
+        self._reserved: set[str] = set()
+        self._issued: set[str] = set()
+        self._counters: dict[str, int] = {}
+        #: Python ``id()`` of a model object → the ID it will be written with.
+        self.by_obj: dict[int, str] = {}
+        #: Item OZ → written ID, for resolving MarkupSubQty references.
+        self.by_rno: dict[str, str] = {}
+
+    def reserve(self, ids: list[str]) -> None:
+        self._reserved.update(ids)
+
+    def claim(self, preferred: str | None, prefix: str) -> str:
+        if preferred and _NCNAME_RE.fullmatch(preferred) and preferred not in self._issued:
+            self._issued.add(preferred)
+            return preferred
+        n = self._counters.get(prefix, 0)
+        while True:
+            n += 1
+            candidate = f"{prefix}{n}"
+            if candidate not in self._reserved and candidate not in self._issued:
+                break
+        self._counters[prefix] = n
+        self._issued.add(candidate)
+        return candidate
+
+
+def _assign_ids(boq: BoQ) -> _IdAllocator:
+    """Pre-assign every BoQ/Lot/BoQCtgy/Item ID in document order."""
+    ids = _IdAllocator()
+
+    def walk(ctgy: BoQCtgy) -> list[BoQCtgy]:
+        out = [ctgy]
+        for sub in ctgy.subcategories:
+            out.extend(walk(sub))
+        return out
+
+    ctgys = [c for lot in boq.lots for top in lot.body.categories for c in walk(top)]
+    items = [item for c in ctgys for item in c.items]
+    source_ids: list[str | None] = [
+        boq.id,
+        *(lot.id for lot in boq.lots),
+        *(c.id for c in ctgys),
+        *(i.id for i in items),
+    ]
+    ids.reserve([s for s in source_ids if s])
+    ids.by_obj[id(boq)] = ids.claim(boq.id, "B")
+    for lot in boq.lots:
+        ids.by_obj[id(lot)] = ids.claim(lot.id, "L")
+    for ctgy in ctgys:
+        ids.by_obj[id(ctgy)] = ids.claim(ctgy.id, "C")
+    for item in items:
+        is_markup = item.item_type == ItemType.MARKUP
+        ids.by_obj[id(item)] = ids.claim(item.id, "M" if is_markup else "I")
+        if not is_markup:
+            ids.by_rno.setdefault(item.oz, ids.by_obj[id(item)])
+            ids.by_rno.setdefault(item.full_oz, ids.by_obj[id(item)])
+    return ids
+
+
+@dataclass
+class _Ctx:
+    """Everything the procurement emitters need to know about one write."""
+
+    phase: ExchangePhase
+    meta: VersionMeta
+    profile: PhaseProfile
+    warnings: list[str]
+    ids: _IdAllocator
+    up_frac_dig: int | None = None
+    #: Elements the target phase's schema has no place for, keyed by what → where.
+    omitted: dict[str, list[str]] = dc_field(default_factory=lambda: defaultdict(list))
+    bad_rnoparts: list[str] = dc_field(default_factory=list)
+
+    @property
+    def de(self) -> bool:
+        return self.meta.lang == "de"
+
+    @property
+    def phase_name(self) -> str:
+        return self.phase.normalized().value
+
+    def omit(self, what: str, where: str) -> None:
+        self.omitted[what].append(where)
+
+    def flush(self) -> None:
+        # One summary line per element kind rather than one per item: these
+        # omissions are inherent to the phase, not data loss the caller can fix.
+        for what, places in self.omitted.items():
+            sample = ", ".join(places[:3]) + (", …" if len(places) > 3 else "")
+            self.warnings.append(
+                f"{what} not written for {len(places)} element(s): not part of "
+                f"{self.phase_name} in DA XML 3.x ({sample})"
+            )
+        if self.bad_rnoparts:
+            sample = ", ".join(repr(o) for o in self.bad_rnoparts[:3])
+            self.warnings.append(
+                f"{len(self.bad_rnoparts)} item(s) have an RNoPart that is not "
+                f"schema-valid (1-14 characters of [_0-9A-Za-z]; e.g. {sample}) — "
+                f"use the leaf number, not the dotted OZ"
+            )
 
 
 class GAEBWriter:
@@ -69,6 +197,9 @@ class GAEBWriter:
         phase: ExchangePhase | None = None,
         target_version: SourceVersion = SourceVersion.DA_XML_33,
         encoding: str = "utf-8",
+        *,
+        prog_system: str | None = None,
+        prog_name: str | None = None,
     ) -> list[str]:
         """Serialize a GAEBDocument to a GAEB DA XML file.
 
@@ -78,9 +209,15 @@ class GAEBWriter:
             phase: Override exchange phase (default: keep original).
             target_version: Target DA XML version (default: 3.3).
             encoding: XML encoding declaration (default: utf-8).
+            prog_system: ``<ProgSystem>`` — name and version of the generating
+                software (default ``"pyGAEB <version>"``). Pass your own
+                application's name when embedding pyGAEB.
+            prog_name: ``<ProgName>`` (default: the source document's, else
+                ``"pyGAEB"``).
 
         Returns:
-            List of warnings about fields dropped for the target version.
+            List of warnings about fields dropped or not written for the target
+            version and phase.
         """
         if target_version not in WRITABLE_VERSIONS:
             supported = ", ".join(
@@ -94,7 +231,9 @@ class GAEBWriter:
         target_phase = phase or doc.exchange_phase
         meta = VERSION_REGISTRY[target_version]
 
-        root, warnings = _build_xml(doc, target_phase, meta)
+        root, warnings = _build_xml(
+            doc, target_phase, meta, prog_system=prog_system, prog_name=prog_name,
+        )
 
         if meta.lang == "de":
             raw = etree.tostring(
@@ -124,6 +263,9 @@ class GAEBWriter:
         phase: ExchangePhase | None = None,
         target_version: SourceVersion = SourceVersion.DA_XML_33,
         encoding: str = "utf-8",
+        *,
+        prog_system: str | None = None,
+        prog_name: str | None = None,
     ) -> tuple[bytes, list[str]]:
         """Serialize a GAEBDocument to bytes.
 
@@ -136,7 +278,9 @@ class GAEBWriter:
         target_phase = phase or doc.exchange_phase
         meta = VERSION_REGISTRY[target_version]
 
-        root, warnings = _build_xml(doc, target_phase, meta)
+        root, warnings = _build_xml(
+            doc, target_phase, meta, prog_system=prog_system, prog_name=prog_name,
+        )
         raw = etree.tostring(
             root, xml_declaration=True, encoding=encoding, pretty_print=True,
         )
@@ -148,9 +292,43 @@ class GAEBWriter:
 
         return xml_bytes, warnings
 
+    @staticmethod
+    def validate_against_xsd(
+        doc: GAEBDocument,
+        phase: ExchangePhase | None = None,
+        target_version: SourceVersion = SourceVersion.DA_XML_33,
+        xsd_dir: str | Path | None = None,
+        *,
+        prog_system: str | None = None,
+        prog_name: str | None = None,
+    ) -> XsdResult | None:
+        """Serialize *doc* and validate the result against the phase's XSD.
+
+        Args:
+            doc: The document to serialize.
+            phase: Exchange phase to write (default: the document's own).
+            target_version: Target DA XML version (default: 3.3).
+            xsd_dir: Schema directory; defaults to the ``PYGAEB_XSD_DIR`` setting.
+            prog_system: See :meth:`write`.
+            prog_name: See :meth:`write`.
+
+        Returns:
+            The validation result, or ``None`` when no schema is available.
+        """
+        from pygaeb.parser.gaeb_parser import validate_xml
+
+        xml_bytes, _ = GAEBWriter.to_bytes(
+            doc, phase=phase, target_version=target_version,
+            prog_system=prog_system, prog_name=prog_name,
+        )
+        return validate_xml(
+            xml_bytes, target_version, phase or doc.exchange_phase, xsd_dir,
+        )
+
 
 def _build_xml(
     doc: GAEBDocument, phase: ExchangePhase, meta: VersionMeta,
+    prog_system: str | None = None, prog_name: str | None = None,
 ) -> tuple[etree._Element, list[str]]:
     warnings: list[str] = []
 
@@ -161,7 +339,7 @@ def _build_xml(
         ns = qty_namespace(phase, SourceVersion(meta.version_tag))
         root = etree.Element("GAEB")
         root.set("xmlns", ns)
-        _add_gaeb_info(root, doc.gaeb_info, meta)
+        _add_gaeb_info(root, doc.gaeb_info, meta, prog_system, prog_name)
         _add_qty_determination(root, doc.qty_determination, warnings)
         return root, warnings
 
@@ -169,7 +347,7 @@ def _build_xml(
         ns = cost_namespace(phase, SourceVersion(meta.version_tag))
         root = etree.Element("GAEB")
         root.set("xmlns", ns)
-        _add_gaeb_info(root, doc.gaeb_info, meta)
+        _add_gaeb_info(root, doc.gaeb_info, meta, prog_system, prog_name)
         _add_elemental_costing(root, doc.elemental_costing, warnings)
         return root, warnings
 
@@ -177,7 +355,7 @@ def _build_xml(
         ns = trade_namespace(phase, SourceVersion(meta.version_tag))
         root = etree.Element("GAEB")
         root.set("xmlns", ns)
-        _add_gaeb_info(root, doc.gaeb_info, meta)
+        _add_gaeb_info(root, doc.gaeb_info, meta, prog_system, prog_name)
         _add_order(root, doc.order, phase, warnings)
         return root, warnings
 
@@ -185,35 +363,117 @@ def _build_xml(
     root = etree.Element("GAEB")
     root.set("xmlns", ns)
 
-    _add_gaeb_info(root, doc.gaeb_info, meta)
-    _add_prj_info(root, doc.award)
-    _add_award(root, doc.award, phase, meta, warnings)
+    ctx = _Ctx(
+        phase=phase,
+        meta=meta,
+        profile=profile_for(phase),
+        warnings=warnings,
+        ids=_assign_ids(doc.award.boq),
+        up_frac_dig=doc.award.up_frac_dig,
+    )
+    _add_gaeb_info(root, doc.gaeb_info, meta, prog_system, prog_name)
+    _add_prj_info(root, doc.award, ctx)
+    _add_award(root, doc.award, ctx)
+    ctx.flush()
 
     return root, warnings
 
 
-def _add_gaeb_info(parent: etree._Element, info: GAEBInfo, meta: VersionMeta) -> None:
-    gaeb_info = etree.SubElement(parent, "GAEBInfo")
-    _add_text_el(gaeb_info, "Version", meta.version_tag)
-    if info.vers_date:
-        _add_text_el(gaeb_info, "VersDate", info.vers_date)
+def _add_gaeb_info(
+    parent: etree._Element, info: GAEBInfo, meta: VersionMeta,
+    prog_system: str | None = None, prog_name: str | None = None,
+) -> None:
     from pygaeb import __version__
 
-    _add_text_el(gaeb_info, "ProgSystem", info.prog_system or "pyGAEB")
-    _add_text_el(
-        gaeb_info, "ProgSystemVersion", info.prog_system_version or __version__,
-    )
-    if info.prog_name:
-        _add_text_el(gaeb_info, "ProgName", info.prog_name)
+    gaeb_info = etree.SubElement(parent, "GAEBInfo")
+    _add_text_el(gaeb_info, "Version", meta.version_tag)
     # Keep the source's document date; only stamp today when there was none.
     date = info.date.strftime("%Y-%m-%d") if info.date else datetime.now().strftime("%Y-%m-%d")
+
+    if meta.lang == "de":
+        if info.vers_date:
+            _add_text_el(gaeb_info, "VersDate", info.vers_date)
+        _add_text_el(gaeb_info, "ProgSystem", prog_system or f"pyGAEB {__version__}")
+        _add_text_el(
+            gaeb_info, "ProgSystemVersion", info.prog_system_version or __version__,
+        )
+        if prog_name or info.prog_name:
+            _add_text_el(gaeb_info, "ProgName", prog_name or info.prog_name or "")
+        _add_text_el(gaeb_info, "Date", date)
+        if info.time:
+            _add_text_el(gaeb_info, "Time", info.time)
+        return
+
+    # tgGAEBInfo sequence: Version, VersDate, Date, Time, ProgSystem, ProgName.
+    # VersDate is enumerated per schema release, so a converted document takes
+    # the target version's value rather than carrying the source's over.
+    same_version = info.version == meta.version_tag
+    vers_date = info.vers_date if (info.vers_date and same_version) else meta.vers_date
+    if vers_date or info.vers_date:
+        _add_text_el(gaeb_info, "VersDate", vers_date or info.vers_date or "")
     _add_text_el(gaeb_info, "Date", date)
     if info.time:
         _add_text_el(gaeb_info, "Time", info.time)
+    # BVBS certification checks that ProgSystem names the generating software;
+    # ProgName stays the source's (issue #34) unless the caller overrides it.
+    _add_text_el(gaeb_info, "ProgSystem", (prog_system or f"pyGAEB {__version__}")[:60])
+    _add_text_el(gaeb_info, "ProgName", (prog_name or info.prog_name or "pyGAEB")[:60])
 
 
-def _add_prj_info(parent: etree._Element, award: AwardInfo) -> None:
+def _add_ml_text(parent: etree._Element, tag: str, text: str | None) -> etree._Element:
+    """Write formatted text (tgMLText/tgFText): ``<tag><p><span>text</span></p></tag>``."""
+    el = etree.SubElement(parent, tag)
+    if text:
+        span_el = etree.SubElement(etree.SubElement(el, "p"), "span")
+        span_el.text = text
+    return el
+
+
+def _fmt_date(value: datetime | None) -> str | None:
+    return value.strftime("%Y-%m-%d") if value else None
+
+
+def _add_prj_info(parent: etree._Element, award: AwardInfo, ctx: _Ctx) -> None:
     """Serialize PrjInfo fields from ``AwardInfo`` into a ``<PrjInfo>`` element."""
+    if ctx.de:
+        _add_prj_info_v2(parent, award)
+        return
+
+    slots = ctx.profile.prj_info
+    # X84 allows PrjInfo only as NamePrj/PrjID/LblPrj, so it needs a name to exist.
+    if slots.requires("NamePrj") and not award.project_name:
+        return
+
+    values: dict[str, str | None] = {
+        "NamePrj": award.project_name,
+        # The schema has no Prj element; the project number lives in PrjID.
+        "PrjID": award.prj_id or award.project_no,
+        "LblPrj": award.lbl_prj,
+        "Descrip": award.description,
+        "Cur": award.currency,
+        "CurLbl": award.currency_label,
+        "BidCommPerm": "Yes" if award.bid_comm_perm else None,
+        "AlterBidPerm": "Yes" if award.alter_bid_perm else None,
+        "UPFracDig": str(award.up_frac_dig) if award.up_frac_dig is not None else None,
+    }
+    has_data = any(v for k, v in values.items() if k != "Cur") or bool(award.ctlg_assigns)
+    if not has_data:
+        return
+
+    prj_el = etree.SubElement(parent, "PrjInfo")
+    for slot in slots.order:
+        if slot == "CtlgAssign":
+            for ca in award.ctlg_assigns:
+                _add_ctlg_assign(prj_el, ca)
+        elif slot == "Descrip":
+            if values["Descrip"]:
+                _add_ml_text(prj_el, "Descrip", values["Descrip"])
+        elif values.get(slot):
+            _add_text_el(prj_el, slot, values[slot] or "")
+
+
+def _add_prj_info_v2(parent: etree._Element, award: AwardInfo) -> None:
+    """DA XML 2.x PrjInfo — the pre-1.17 shape, renamed by ``_translate_to_german``."""
     has_prj_data = any([
         award.prj_id, award.lbl_prj, award.description,
         award.currency_label, award.bid_comm_perm, award.alter_bid_perm,
@@ -245,14 +505,62 @@ def _add_prj_info(parent: etree._Element, award: AwardInfo) -> None:
         _add_ctlg_assign(prj_el, ca)
 
 
-def _add_award(
-    parent: etree._Element, award: AwardInfo, phase: ExchangePhase,
-    meta: VersionMeta, warnings: list[str],
-) -> None:
+def _add_award(parent: etree._Element, award: AwardInfo, ctx: _Ctx) -> None:
     award_el = etree.SubElement(parent, "Award")
     # Exchange-phase marker, as the trade/cost/QD writers already emit.
-    _add_text_el(award_el, "DP", phase.value.lstrip("X"))
+    _add_text_el(award_el, "DP", ctx.phase.value.lstrip("X"))
 
+    if ctx.de:
+        _add_award_info_v2(award_el, award)
+        _add_boq(award_el, award.boq, ctx)
+        return
+
+    slots = ctx.profile.award_info
+    award_info_el = etree.SubElement(award_el, "AwardInfo")
+    fields: list[tuple[str, str | None]] = [
+        ("BoQID", award.boq_id),
+        ("Cat", award.category),
+        ("Cur", award.currency),
+        ("CurLbl", award.currency_label),
+        ("OpenDate", _fmt_date(award.open_date)),
+        # OpenTime is only valid right after OpenDate.
+        ("OpenTime", award.open_time if award.open_date else None),
+        ("EvalEnd", _fmt_date(award.eval_end)),
+        ("SubmLoc", award.submit_location),
+        ("CnstStart", _fmt_date(award.construction_start)),
+        ("CnstEnd", _fmt_date(award.construction_end)),
+        ("ContrNo", award.contract_no),
+        ("ContrDate", _fmt_date(award.contract_date)),
+        ("AcceptType", award.accept_type),
+        ("WarrDur", str(award.warranty_duration) if award.warranty_duration is not None else None),
+        ("WarrUnit", award.warranty_unit),
+    ]
+    for tag, value in fields:
+        if not value:
+            continue
+        if slots.allows(tag):
+            _add_text_el(award_info_el, tag, value)
+        else:
+            ctx.omit(tag, "AwardInfo")
+    if award.procurement_type:
+        ctx.omit("PrcTyp", "AwardInfo")
+
+    award_slots = ctx.profile.award
+    _add_party(
+        award_el, "OWN", _owner_party(award), ("DPNo", "AwardNo", "AcctRecNo"), award_slots, ctx,
+    )
+    _add_party(award_el, "CTR", award.contractor, ctx.profile.ctr_fields, award_slots, ctx)
+    if award.construction_site is not None:
+        if award_slots.allows("CnstSite"):
+            _add_cnst_site(award_el, award.construction_site, ctx)
+        else:
+            ctx.omit("CnstSite", "Award")
+
+    _add_boq(award_el, award.boq, ctx)
+
+
+def _add_award_info_v2(award_el: etree._Element, award: AwardInfo) -> None:
+    """DA XML 2.x AwardInfo/OWN — the pre-1.17 shape, renamed by ``_translate_to_german``."""
     award_info_el = etree.SubElement(award_el, "AwardInfo")
     if award.project_no:
         _add_text_el(award_info_el, "Prj", award.project_no)
@@ -267,28 +575,21 @@ def _add_award(
         _add_text_el(award_info_el, "PrcTyp", award.procurement_type)
     if award.category:
         _add_text_el(award_info_el, "Cat", award.category)
-    if award.open_date:
-        _add_text_el(award_info_el, "OpenDate", award.open_date.strftime("%Y-%m-%d"))
-    if award.open_time:
-        _add_text_el(award_info_el, "OpenTime", award.open_time)
-    if award.eval_end:
-        _add_text_el(award_info_el, "EvalEnd", award.eval_end.strftime("%Y-%m-%d"))
-    if award.submit_location:
-        _add_text_el(award_info_el, "SubmLoc", award.submit_location)
-    if award.construction_start:
-        _add_text_el(award_info_el, "CnstStart", award.construction_start.strftime("%Y-%m-%d"))
-    if award.construction_end:
-        _add_text_el(award_info_el, "CnstEnd", award.construction_end.strftime("%Y-%m-%d"))
-    if award.contract_no:
-        _add_text_el(award_info_el, "ContrNo", award.contract_no)
-    if award.contract_date:
-        _add_text_el(award_info_el, "ContrDate", award.contract_date.strftime("%Y-%m-%d"))
-    if award.accept_type:
-        _add_text_el(award_info_el, "AcceptType", award.accept_type)
-    if award.warranty_duration is not None:
-        _add_text_el(award_info_el, "WarrDur", str(award.warranty_duration))
-    if award.warranty_unit:
-        _add_text_el(award_info_el, "WarrUnit", award.warranty_unit)
+    for tag, value in [
+        ("OpenDate", _fmt_date(award.open_date)),
+        ("OpenTime", award.open_time),
+        ("EvalEnd", _fmt_date(award.eval_end)),
+        ("SubmLoc", award.submit_location),
+        ("CnstStart", _fmt_date(award.construction_start)),
+        ("CnstEnd", _fmt_date(award.construction_end)),
+        ("ContrNo", award.contract_no),
+        ("ContrDate", _fmt_date(award.contract_date)),
+        ("AcceptType", award.accept_type),
+        ("WarrDur", str(award.warranty_duration) if award.warranty_duration is not None else None),
+        ("WarrUnit", award.warranty_unit),
+    ]:
+        if value:
+            _add_text_el(award_info_el, tag, value)
 
     if award.owner_address or award.award_no:
         own_el = etree.SubElement(award_el, "OWN")
@@ -298,32 +599,85 @@ def _add_award(
     elif award.client:
         _add_text_el(award_info_el, "OWN", award.client)
 
-    _add_boq(award_el, award.boq, phase, meta, warnings, award.up_frac_dig)
+
+def _owner_party(award: AwardInfo) -> Party | None:
+    """Assemble the OWN block from the flat owner fields on ``AwardInfo``."""
+    if not (award.owner_address or award.award_no or award.client):
+        return None
+    address = award.owner_address
+    if address is None and award.client:
+        address = Address(name=award.client)
+    return Party(address=address, award_no=award.award_no)
 
 
-def _add_boq(
-    parent: etree._Element, boq: BoQ, phase: ExchangePhase,
-    meta: VersionMeta, warnings: list[str],
-    up_frac_dig: int | None = None,
+def _add_party(
+    parent: etree._Element, tag: str, party: Party | None, fields: tuple[str, ...],
+    slots: Any, ctx: _Ctx,
 ) -> None:
-    boq_el = etree.SubElement(parent, "BoQ")
+    """Write an OWN/CTR block, or a placeholder when the phase requires one.
 
-    if boq.boq_info:
-        _add_boq_info(boq_el, boq.boq_info, meta)
+    *fields* lists the children the phase allows after ``Address``, in order.
+    """
+    if not slots.allows(tag):
+        if party is not None:
+            ctx.omit(tag, "Award")
+        return
+    if party is None:
+        if not slots.requires(tag):
+            return
+        party = Party()
+        ctx.warnings.append(
+            f"{tag} is required in {ctx.phase_name} but the document has none; "
+            f"wrote an empty placeholder"
+        )
+
+    el = etree.SubElement(parent, tag)
+    if party.address is not None or ctx.profile.party_address_required:
+        _add_address(el, party.address, complete=True)
+    values = {
+        "DPNo": party.dp_no, "AwardNo": party.award_no,
+        "AcctRecNo": party.acct_no, "AcctsPayNo": party.acct_no,
+        "BidderNo": party.bidder_no,
+    }
+    for child in fields:
+        if values.get(child):
+            _add_text_el(el, child, values[child] or "")
+    if party.bidder_no and "BidderNo" not in fields:
+        ctx.omit("BidderNo", tag)
+
+
+def _add_cnst_site(parent: etree._Element, site: ConstructionSite, ctx: _Ctx) -> None:
+    el = etree.SubElement(parent, "CnstSite")
+    if site.address is not None or ctx.profile.party_address_required:
+        _add_address(el, site.address, complete=True)
+    if site.id_no:
+        _add_text_el(el, "CnstSiteIDNo", site.id_no)
+    if site.name:
+        _add_text_el(el, "CnstSiteName", site.name)
+
+
+def _add_boq(parent: etree._Element, boq: BoQ, ctx: _Ctx) -> None:
+    boq_el = etree.SubElement(parent, "BoQ")
+    if not ctx.de:
+        boq_el.set("ID", ctx.ids.by_obj.get(id(boq)) or ctx.ids.claim(boq.id, "B"))
+
+    # tgBoQ requires BoQInfo; 3.x synthesises one for documents built without it.
+    if boq.boq_info is not None or not ctx.de:
+        _add_boq_info(boq_el, boq.boq_info or BoQInfo(), ctx)
 
     boq_body = etree.SubElement(boq_el, "BoQBody")
 
     for lot in boq.lots:
         if boq.is_multi_lot:
-            lot_ctgy = etree.SubElement(boq_body, "BoQCtgy")
-            lot_ctgy.set("RNoPart", lot.rno)
-            _add_text_el(lot_ctgy, "LblTx", lot.label)
-            if lot.totals is not None:
-                _add_totals(lot_ctgy, lot.totals)
-            lot_body = etree.SubElement(lot_ctgy, "BoQBody")
-            _add_body_categories(lot_body, lot.body, phase, meta, warnings, up_frac_dig)
+            # A lot is a BoQCtgy in the file; reuse the category emitter so the
+            # ID, label markup and body/totals order come out identical.
+            wrapper = BoQCtgy(
+                id=lot.id, rno=lot.rno, label=lot.label,
+                subcategories=lot.body.categories, totals=lot.totals,
+            )
+            _add_ctgy(boq_body, wrapper, ctx, element_id=ctx.ids.by_obj.get(id(lot)))
         else:
-            _add_body_categories(boq_body, lot.body, phase, meta, warnings, up_frac_dig)
+            _add_body_categories(boq_body, lot.body.categories, ctx)
 
 
 def _add_bkdn(
@@ -334,12 +688,16 @@ def _add_bkdn(
         return
 
     if meta.bkdn_sibling_form:
+        # tgBoQBkdn: Type, LblBoQBkdn?, Length, Num, Alignment? — Num is required.
         for level in bkdn:
             bkdn_el = etree.SubElement(parent, "BoQBkdn")
             _add_text_el(bkdn_el, "Type", _bkdn_tag(level.bkdn_type))
+            if level.label:
+                _add_text_el(bkdn_el, "LblBoQBkdn", level.label)
             _add_text_el(bkdn_el, "Length", str(level.length))
-            if level.num:
-                _add_text_el(bkdn_el, "Num", "Yes")
+            _add_text_el(bkdn_el, "Num", "No" if level.num is False else "Yes")
+            if level.alignment:
+                _add_text_el(bkdn_el, "Alignment", level.alignment)
         return
 
     bkdn_el = etree.SubElement(parent, "BoQBkdn")
@@ -350,10 +708,69 @@ def _add_bkdn(
             level_el.set("Num", "Yes")
 
 
-def _add_boq_info(
-    parent: etree._Element, info: BoQInfo, meta: VersionMeta,
-) -> None:
+def _add_boq_info(parent: etree._Element, info: BoQInfo, ctx: _Ctx) -> None:
     info_el = etree.SubElement(parent, "BoQInfo")
+    if ctx.de:
+        _fill_boq_info_v2(info_el, info, ctx.meta)
+        return
+
+    slots = ctx.profile.boq_info
+    name = info.name or ""
+    if slots.allows("Name") and (name or slots.requires("Name")):
+        _add_text_el(info_el, "Name", name)
+        if len(name) > 20:
+            ctx.warnings.append(f"BoQInfo/Name exceeds the schema's 20 characters: {name!r}")
+    if slots.allows("LblBoQ"):
+        lbl = info.lbl_boq or (name if slots.requires("LblBoQ") else None)
+        if lbl is not None:
+            _add_text_el(info_el, "LblBoQ", lbl)
+    if slots.allows("Date") and info.date:
+        _add_text_el(info_el, "Date", info.date)
+    if slots.allows("OutlCompl"):
+        outl = info.outl_compl or ("AllTxt" if slots.requires("OutlCompl") else None)
+        if outl:
+            _add_text_el(info_el, "OutlCompl", outl)
+
+    if not info.bkdn:
+        ctx.warnings.append("BoQInfo has no breakdown levels; the schema requires at least one")
+    elif len(info.bkdn) > 7:
+        ctx.warnings.append(
+            f"BoQInfo has {len(info.bkdn)} breakdown levels; the schema allows 7"
+        )
+    _add_bkdn(info_el, info.bkdn, ctx.meta)
+
+    if slots.allows("NoUPComps"):
+        count = info.no_up_comps
+        if count is None and info.lbl_up_comps:
+            count = len(info.lbl_up_comps)
+        if count is not None:
+            _add_text_el(info_el, "NoUPComps", str(count))
+            for idx, label in enumerate(info.lbl_up_comps[:6], start=1):
+                lbl_el = etree.SubElement(info_el, f"LblUPComp{idx}")
+                lbl_el.text = label
+                types = info.lbl_up_comp_types
+                lbl_el.set("Type", types[idx - 1] if idx - 1 < len(types) else "Unknown")
+    if slots.allows("LblTime") and info.lbl_time:
+        _add_text_el(info_el, "LblTime", info.lbl_time)
+
+    if slots.allows("CostType"):
+        _add_boq_info_cost_types(info_el, info)
+    elif info.cost_types:
+        ctx.omit("CostType", "BoQInfo")
+
+    if slots.allows("CtlgAssign"):
+        for ca in info.ctlg_assigns:
+            _add_ctlg_assign(info_el, ca)
+
+    if slots.allows("Totals"):
+        if info.totals is not None:
+            _add_totals(info_el, info.totals)
+    elif info.totals is not None:
+        ctx.omit("Totals", "BoQInfo")
+
+
+def _fill_boq_info_v2(info_el: etree._Element, info: BoQInfo, meta: VersionMeta) -> None:
+    """DA XML 2.x BoQInfo — the pre-1.17 shape, renamed by ``_translate_to_german``."""
     if info.name:
         _add_text_el(info_el, "Name", info.name)
     if info.lbl_boq:
@@ -380,60 +797,79 @@ def _add_boq_info(
 
 
 def _add_body_categories(
-    parent: etree._Element, body: BoQBody, phase: ExchangePhase,
-    meta: VersionMeta, warnings: list[str],
-    up_frac_dig: int | None = None,
+    parent: etree._Element, categories: list[BoQCtgy], ctx: _Ctx,
 ) -> None:
-    for ctgy in body.categories:
+    for ctgy in categories:
         # An anonymous, childless category is the wrapper the parser puts around
         # items that sat straight under BoQBody — write them back out bare rather
         # than inventing a category level the source never had.
         if not ctgy.rno and not ctgy.label and not ctgy.subcategories:
-            _add_itemlist(parent, ctgy.items, phase, meta, warnings, up_frac_dig)
+            _add_itemlist(parent, ctgy.items, ctx)
         else:
-            _add_ctgy(parent, ctgy, phase, meta, warnings, up_frac_dig)
+            _add_ctgy(parent, ctgy, ctx)
 
 
-def _add_itemlist(
-    parent: etree._Element, items: list[Item], phase: ExchangePhase,
-    meta: VersionMeta, warnings: list[str],
-    up_frac_dig: int | None = None,
-) -> None:
+def _add_itemlist(parent: etree._Element, items: list[Item], ctx: _Ctx) -> None:
     if not items:
         return
     itemlist = etree.SubElement(parent, "Itemlist")
     for item in items:
         if item.item_type == ItemType.MARKUP:
-            _add_markup_item(itemlist, item)
+            _add_markup_item(itemlist, item, ctx)
         else:
-            _add_item(itemlist, item, phase, meta, warnings, up_frac_dig)
+            _add_item(itemlist, item, ctx)
 
 
 def _add_ctgy(
-    parent: etree._Element, ctgy: BoQCtgy, phase: ExchangePhase,
-    meta: VersionMeta, warnings: list[str],
-    up_frac_dig: int | None = None,
+    parent: etree._Element, ctgy: BoQCtgy, ctx: _Ctx, element_id: str | None = None,
 ) -> None:
     ctgy_el = etree.SubElement(parent, "BoQCtgy")
+    if not ctx.de:
+        ctgy_el.set(
+            "ID",
+            element_id or ctx.ids.by_obj.get(id(ctgy)) or ctx.ids.claim(ctgy.id, "C"),
+        )
     if ctgy.rno:
         ctgy_el.set("RNoPart", ctgy.rno)
-    if ctgy.label:
-        _add_text_el(ctgy_el, "LblTx", ctgy.label)
 
-    for ca in ctgy.ctlg_assigns:
-        _add_ctlg_assign(ctgy_el, ca)
+    slots = ctx.profile.boq_ctgy
+    where = f"BoQCtgy {ctgy.rno or '?'}"
+    if ctx.de:
+        if ctgy.label:
+            _add_text_el(ctgy_el, "LblTx", ctgy.label)
+    elif slots.allows("LblTx"):
+        # LblTx is formatted text and required; an empty element is valid.
+        _add_ml_text(ctgy_el, "LblTx", ctgy.label)
+    elif ctgy.label:
+        ctx.omit("LblTx", where)
 
-    if ctgy.totals is not None:
-        _add_totals(ctgy_el, ctgy.totals)
+    if ctx.de or slots.allows("CtlgAssign"):
+        for ca in ctgy.ctlg_assigns:
+            _add_ctlg_assign(ctgy_el, ca)
+    elif ctgy.ctlg_assigns:
+        ctx.omit("CtlgAssign", where)
 
-    # GAEB schema: a BoQCtgy holds exactly ONE BoQBody, which contains the
-    # sub-BoQCtgy elements and/or the Itemlist. A body per subcategory used
-    # to be written here — parsers then read only the first one back.
+    # GAEB schema: a BoQCtgy holds exactly ONE BoQBody, which contains either
+    # sub-BoQCtgy elements or the Itemlist. A body per subcategory used to be
+    # written here — parsers then read only the first one back.
     if ctgy.subcategories or ctgy.items:
+        if ctgy.subcategories and ctgy.items and not ctx.de:
+            ctx.warnings.append(
+                f"{where}: holds both subcategories and items; the schema allows "
+                f"one or the other in a BoQBody"
+            )
         body_el = etree.SubElement(ctgy_el, "BoQBody")
-        for sub in ctgy.subcategories:
-            _add_ctgy(body_el, sub, phase, meta, warnings, up_frac_dig)
-        _add_itemlist(body_el, ctgy.items, phase, meta, warnings, up_frac_dig)
+        _add_body_categories(body_el, ctgy.subcategories, ctx)
+        _add_itemlist(body_el, ctgy.items, ctx)
+
+    totals = ctgy.totals
+    if ctx.de or slots.allows("Totals"):
+        if totals is None and slots.requires("Totals") and not ctx.de:
+            totals = Totals(total=ctgy.subtotal)
+        if totals is not None:
+            _add_totals(ctgy_el, totals)
+    elif totals is not None:
+        ctx.omit("Totals", where)
 
 
 def _copy_stripped(src: etree._Element, parent: etree._Element) -> None:
@@ -465,10 +901,23 @@ def _add_richtext(parent: etree._Element, text: RichText) -> bool:
         # Bare text (a 2.x long text) has no markup to carry over — fall through
         # so it gets a conforming <Text><p> wrapper instead of sitting loose.
         if frag is not None and len(frag):
-            parent.text = frag.text
-            for child in frag:
-                if not callable(child.tag):
-                    _copy_stripped(child, parent)
+            children = [c for c in frag if not callable(c.tag)]
+            # DetailTxt only takes Text/TextComplement/…; a 2.x-sourced fragment
+            # starts at <p>, so give it the <Text> wrapper the schema wants.
+            needs_wrapper = any(
+                etree.QName(c).localname not in _DETAIL_TXT_CHILDREN for c in children
+            )
+            if needs_wrapper:
+                target = etree.SubElement(parent, "Text")
+                if frag.text and frag.text.strip():
+                    span_el = etree.SubElement(etree.SubElement(target, "p"), "span")
+                    span_el.text = frag.text
+            else:
+                target = parent
+                # Verbatim, whitespace included: keeps repeated round trips stable.
+                target.text = frag.text
+            for child in children:
+                _copy_stripped(child, target)
             return True
 
     paragraphs = text.paragraphs or (
@@ -485,15 +934,63 @@ def _add_richtext(parent: etree._Element, text: RichText) -> bool:
     return True
 
 
+def _add_bidder_complements(parent: etree._Element, text: RichText) -> bool:
+    """X84 DetailTxt: only the bidder's ``TextComplement`` blocks, each reduced to
+    its ``ComplBody`` — the tender's own text is not repeated in a bid."""
+    inner = text.raw_html
+    if not inner or not inner.strip():
+        return False
+    try:
+        frag = etree.fromstring(f"<w>{inner}</w>")
+    except etree.XMLSyntaxError:
+        return False
+
+    found = False
+    for tc in frag.iter():
+        if callable(tc.tag) or etree.QName(tc).localname != "TextComplement":
+            continue
+        tc_el = etree.SubElement(parent, "TextComplement")
+        for key, value in tc.attrib.items():
+            tc_el.set(etree.QName(key).localname if "}" in key else key, value)
+        for child in tc:
+            if callable(child.tag):
+                continue
+            if etree.QName(child).localname in ("ComplBodyDec", "ComplBodyInt", "ComplBody"):
+                _copy_stripped(child, tc_el)
+        if tc_el.find("ComplBody") is None:
+            etree.SubElement(tc_el, "ComplBody")
+        # Drop the source's inter-element whitespace so repeated writes are
+        # byte-identical; pretty_print re-indents element-only content.
+        tc_el.text = None
+        for copied in tc_el:
+            copied.tail = None
+        found = True
+    return found
+
+
+def _has_long_text(item: Item) -> bool:
+    lt = item.long_text
+    return lt is not None and bool(
+        (lt.raw_html or "").strip() or lt.paragraphs or lt.plain_text
+    )
+
+
+def _add_outline(parent: etree._Element, short_text: str) -> None:
+    """``OutlineText/OutlTxt/TextOutlTxt`` — an empty TextOutlTxt is schema-valid."""
+    outl_txt = etree.SubElement(etree.SubElement(parent, "OutlineText"), "OutlTxt")
+    _add_ml_text(outl_txt, "TextOutlTxt", short_text)
+
+
 def _add_item_text(
-    parent: etree._Element, item: Item, meta: VersionMeta,
+    parent: etree._Element, item: Item, ctx: _Ctx, required: bool = False,
 ) -> None:
-    """Write short and long text in the shape the target version expects.
+    """Write short and long text in the shape the target phase expects.
 
     DA XML 3.x carries both inside ``<Description>``; 2.x uses flat
     ``ShortText``/``LongText``, which ``_translate_to_german`` renames.
     """
-    if meta.lang == "de":
+    meta = ctx.meta
+    if ctx.de:
         if item.long_text and meta.supports_long_text_cdata:
             inner = item.long_text.raw_html or item.long_text.plain_text or "\n".join(
                 item.long_text.paragraphs
@@ -503,40 +1000,206 @@ def _add_item_text(
                 lt_el.text = etree.CDATA(inner)
         return
 
-    if not item.short_text and not item.long_text:
+    has_long = _has_long_text(item)
+
+    # X84: Description is CompleteText/DetailTxt holding only the bidder's
+    # text complements — no outline text, no tender text.
+    if ctx.profile.description == "detail_only":
+        if not has_long:
+            return
+        desc_el = etree.SubElement(parent, "Description")
+        detail_el = etree.SubElement(
+            etree.SubElement(desc_el, "CompleteText"), "DetailTxt",
+        )
+        if item.long_text is None or not _add_bidder_complements(detail_el, item.long_text):
+            parent.remove(desc_el)
         return
 
-    complete_el = etree.SubElement(
-        etree.SubElement(parent, "Description"), "CompleteText",
-    )
+    if not item.short_text and not has_long and not required:
+        return
 
-    if item.long_text is not None:
+    desc_el = etree.SubElement(parent, "Description")
+    if has_long and item.long_text is not None:
+        # tgCompleteText requires DetailTxt, so CompleteText only exists with one.
+        complete_el = etree.SubElement(desc_el, "CompleteText")
         detail_el = etree.SubElement(complete_el, "DetailTxt")
-        if not _add_richtext(detail_el, item.long_text):
-            complete_el.remove(detail_el)
+        if _add_richtext(detail_el, item.long_text):
+            if item.short_text:
+                _add_outline(complete_el, item.short_text)
+            return
+        desc_el.remove(complete_el)
 
-    if item.short_text:
-        outl_txt = etree.SubElement(
-            etree.SubElement(complete_el, "OutlineText"), "OutlTxt",
-        )
-        span_el = etree.SubElement(
-            etree.SubElement(outl_txt, "TextOutlTxt"), "span",
-        )
-        span_el.text = item.short_text
+    _add_outline(desc_el, item.short_text)
 
 
-def _add_item(
-    parent: etree._Element, item: Item, phase: ExchangePhase,
-    meta: VersionMeta, warnings: list[str],
-    up_frac_dig: int | None = None,
-) -> None:
+def _add_item(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
+    if ctx.de:
+        _add_item_v2(parent, item, ctx)
+        return
+
+    meta = ctx.meta
+    slots = ctx.profile.item
+    where = f"Item {item.full_oz or item.oz}"
+
     item_el = etree.SubElement(parent, "Item")
+    item_el.set("ID", ctx.ids.by_obj.get(id(item)) or ctx.ids.claim(item.id, "I"))
     item_el.set("RNoPart", item.oz)
+    if item.rno_index:
+        item_el.set("RNoIndex", item.rno_index)
+    if not _RNOPART_RE.fullmatch(item.oz or ""):
+        ctx.bad_rnoparts.append(item.oz)
 
     # Position type (Bedarfs-/Alternativ-/Pauschalposition …). MARKUP is handled by
     # the _add_markup_item branch; NORMAL carries no marker. Emitting the marker keeps
     # the "priced but not summed" rule intact on re-read — without it every non-Normal
     # position silently becomes Normal and its price joins the total.
+    marker = WRITER_MARKER.get(item.item_type)
+    if marker is not None:
+        if slots.allows("TypeMarker"):
+            marker_el = etree.SubElement(item_el, marker)
+            if marker == "Provis":
+                marker_el.text = (item.provis or Provis.WITHOUT_TOTAL).value
+            elif marker in ("LumpSumItem", "GlobItem"):
+                marker_el.text = "Yes"  # tgYesNo
+            if item.item_type in NON_INTEROP_TYPES:
+                ctx.warnings.append(
+                    f"{where}: {item.item_type.value} written as pyGAEB-internal "
+                    f"<{marker}> — round-trips within pyGAEB but is not read by other "
+                    f"AVA software yet (real GAEB serialization not implemented)"
+                )
+        else:
+            # X84 has no position-type markers: the bid inherits them from the tender.
+            ctx.omit(f"{item.item_type.value} position marker", where)
+
+    if item.change_order_number:
+        if not meta.supports_change_order:
+            ctx.warnings.append(
+                f"{where}: change_order_number dropped "
+                f"(not supported in DA XML {meta.version_tag})"
+            )
+        elif not slots.allows("CONo"):
+            ctx.omit("CONo", where)
+        elif item.co_status:
+            _add_text_el(item_el, "CONo", item.change_order_number)
+            _add_text_el(item_el, "COStatus", item.co_status)
+        else:
+            ctx.warnings.append(
+                f"{where}: change_order_number dropped (the schema only allows CONo "
+                f"together with COStatus; set item.co_status)"
+            )
+
+    # X83 spells "quantity still open" as QtyTBD *instead of* Qty.
+    tbd_only = item.qty_tbd and ctx.phase.normalized() == ExchangePhase.X83
+    if item.qty_tbd and slots.allows("QtyTBD"):
+        _add_text_el(item_el, "QtyTBD", "Yes")
+    if item.qty is not None and slots.allows("Qty") and not tbd_only:
+        _add_text_el(item_el, "Qty", _fmt_decimal(item.qty))
+
+    if item.qty_splits:
+        if slots.allows("QtySplit") and not tbd_only:
+            # tgQtySplit is (QtyPcnt | Qty) + CtlgAssign — no label, no unit.
+            for split in item.qty_splits:
+                qs_el = etree.SubElement(item_el, "QtySplit")
+                _add_text_el(qs_el, "Qty", _fmt_decimal(split.qty))
+            if any(s.label or s.unit for s in item.qty_splits):
+                ctx.omit("QtySplit label/unit", where)
+        else:
+            ctx.omit("QtySplit", where)
+
+    if slots.allows("QU"):
+        if item.unit:
+            _add_text_el(item_el, "QU", item.unit)
+        elif slots.requires("QU"):
+            _add_text_el(item_el, "QU", "")
+            ctx.warnings.append(
+                f"{where}: QU is required in {ctx.phase_name} but the item has no unit"
+            )
+    elif item.unit:
+        ctx.omit("QU", where)
+
+    if slots.allows("CtlgAssign"):
+        for ctlg in item.ctlg_assigns:
+            _add_ctlg_assign(item_el, ctlg)
+    elif item.ctlg_assigns:
+        ctx.omit("CtlgAssign", where)
+
+    # UPComp and DiscountPcnt are only valid inside the UP group.
+    if item.unit_price is not None:
+        if slots.allows("UP"):
+            _add_text_el(item_el, "UP", _fmt_decimal(item.unit_price, ctx.up_frac_dig))
+            if slots.allows("UPComp"):
+                for i, comp in enumerate(item.up_components, 1):
+                    _add_text_el(item_el, f"UPComp{i}", _fmt_decimal(comp))
+            if item.discount_pct is not None and slots.allows("DiscountPcnt"):
+                _add_text_el(item_el, "DiscountPcnt", _fmt_decimal(item.discount_pct))
+        else:
+            ctx.omit("UP", where)
+    else:
+        if item.up_components:
+            ctx.omit("UPComp", where)
+        if item.discount_pct is not None:
+            ctx.omit("DiscountPcnt", where)
+
+    if item.total_price is not None:
+        if slots.allows("IT"):
+            _add_text_el(item_el, "IT", _fmt_decimal(item.total_price))
+        else:
+            ctx.omit("IT", where)
+
+    if item.vat is not None:
+        _add_text_el(item_el, "VAT", _fmt_decimal(item.vat))
+
+    _add_item_text(item_el, item, ctx)
+
+    if slots.allows("CostApproach"):
+        for ca in item.cost_approaches:
+            _add_cost_approach(item_el, ca)
+    elif item.cost_approaches:
+        ctx.omit("CostApproach", where)
+
+    # Not part of any 3.x procurement schema: pyGAEB-only serialisations.
+    if item.bim_guid:
+        if not meta.supports_bim_guid:
+            ctx.warnings.append(
+                f"{where}: bim_guid dropped (not supported in DA XML {meta.version_tag})"
+            )
+        else:
+            ctx.omit("GUID", where)
+    if item.attachments:
+        if not meta.supports_attachments:
+            ctx.warnings.append(
+                f"{where}: {len(item.attachments)} attachment(s) dropped "
+                f"(not supported in DA XML {meta.version_tag})"
+            )
+        else:
+            # Embedded images survive inside the long text's own markup.
+            ctx.omit("Item.attachments", where)
+    if item.bidder_prices:
+        # Preisspiegel data has no GAEB home; kept as a pyGAEB extension so it
+        # round-trips, at the cost of schema validity for such documents.
+        for bp in item.bidder_prices:
+            bp_el = etree.SubElement(item_el, "BidderUP")
+            if bp.bidder_name:
+                _add_text_el(bp_el, "BidderName", bp.bidder_name)
+            if bp.bidder_id:
+                _add_text_el(bp_el, "BidderID", bp.bidder_id)
+            if bp.unit_price is not None:
+                _add_text_el(bp_el, "UP", _fmt_decimal(bp.unit_price, ctx.up_frac_dig))
+            if bp.total_price is not None:
+                _add_text_el(bp_el, "IT", _fmt_decimal(bp.total_price))
+        ctx.warnings.append(
+            f"{where}: bidder_prices written as pyGAEB-internal <BidderUP> — "
+            f"round-trips within pyGAEB but is not part of the GAEB schema"
+        )
+
+
+def _add_item_v2(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
+    """DA XML 2.x item — the pre-1.17 shape, renamed by ``_translate_to_german``."""
+    meta = ctx.meta
+    warnings = ctx.warnings
+    item_el = etree.SubElement(parent, "Item")
+    item_el.set("RNoPart", item.oz)
+
     marker = WRITER_MARKER.get(item.item_type)
     if marker is not None:
         etree.SubElement(item_el, marker)
@@ -547,126 +1210,141 @@ def _add_item(
                 f"software yet (real GAEB serialization not implemented)"
             )
 
-    if item.short_text and meta.lang == "de":
+    if item.short_text:
         _add_text_el(item_el, "ShortText", item.short_text)
-
     if item.qty_tbd:
         _add_text_el(item_el, "QtyTBD", "Yes")
-
     if item.qty is not None:
         _add_text_el(item_el, "Qty", _fmt_decimal(item.qty))
-
     if item.unit:
         _add_text_el(item_el, "QU", item.unit)
-
     if item.unit_price is not None:
-        _add_text_el(item_el, "UP", _fmt_decimal(item.unit_price, up_frac_dig))
-
+        _add_text_el(item_el, "UP", _fmt_decimal(item.unit_price, ctx.up_frac_dig))
     if item.total_price is not None:
         _add_text_el(item_el, "IT", _fmt_decimal(item.total_price))
 
-    # Partial-quantity breakdown (Zuordnung der Teilmengen). Symmetric with the
-    # parser's _parse_qty_splits (reads Label/Description, Qty, QU).
     for split in item.qty_splits:
         qs_el = etree.SubElement(item_el, "QtySplit")
         if split.label:
             _add_text_el(qs_el, "Label", split.label)
-        if split.qty is not None:
-            _add_text_el(qs_el, "Qty", _fmt_decimal(split.qty))
+        _add_text_el(qs_el, "Qty", _fmt_decimal(split.qty))
         if split.unit:
             _add_text_el(qs_el, "QU", split.unit)
 
-    _add_item_text(item_el, item, meta)
+    _add_item_text(item_el, item, ctx)
 
     if item.bim_guid:
-        if meta.supports_bim_guid:
-            _add_text_el(item_el, "GUID", item.bim_guid)
-        else:
-            warnings.append(
-                f"Item {item.oz}: bim_guid dropped (not supported in DA XML {meta.version_tag})"
-            )
-
+        warnings.append(
+            f"Item {item.oz}: bim_guid dropped (not supported in DA XML {meta.version_tag})"
+        )
     if item.change_order_number:
-        if meta.supports_change_order:
-            _add_text_el(item_el, "CONo", item.change_order_number)
-        else:
-            warnings.append(
-                f"Item {item.oz}: change_order_number dropped "
-                f"(not supported in DA XML {meta.version_tag})"
-            )
-
+        warnings.append(
+            f"Item {item.oz}: change_order_number dropped "
+            f"(not supported in DA XML {meta.version_tag})"
+        )
     if item.attachments:
-        if meta.supports_attachments:
-            for attachment in item.attachments:
-                attach_el = etree.SubElement(item_el, "Attachment")
-                _add_text_el(attach_el, "Filename", attachment.filename)
-                _add_text_el(attach_el, "MimeType", attachment.mime_type)
-                _add_text_el(
-                    attach_el, "Data",
-                    base64.b64encode(attachment.data).decode("ascii"),
-                )
-        else:
-            warnings.append(
-                f"Item {item.oz}: {len(item.attachments)} attachment(s) dropped "
-                f"(not supported in DA XML {meta.version_tag})"
-            )
-
-    for ca in item.cost_approaches:
-        _add_cost_approach(item_el, ca)
+        warnings.append(
+            f"Item {item.oz}: {len(item.attachments)} attachment(s) dropped "
+            f"(not supported in DA XML {meta.version_tag})"
+        )
 
     for i, comp in enumerate(item.up_components, 1):
         _add_text_el(item_el, f"UPComp{i}", _fmt_decimal(comp))
-
     if item.discount_pct is not None:
         _add_text_el(item_el, "DiscountPcnt", _fmt_decimal(item.discount_pct))
-
     if item.vat is not None:
         _add_text_el(item_el, "VAT", _fmt_decimal(item.vat))
-
-    for bp in item.bidder_prices:
-        bp_el = etree.SubElement(item_el, "BidderUP")
-        if bp.bidder_name:
-            _add_text_el(bp_el, "BidderName", bp.bidder_name)
-        if bp.bidder_id:
-            _add_text_el(bp_el, "BidderID", bp.bidder_id)
-        if bp.unit_price is not None:
-            _add_text_el(bp_el, "UP", _fmt_decimal(bp.unit_price, up_frac_dig))
-        if bp.total_price is not None:
-            _add_text_el(bp_el, "IT", _fmt_decimal(bp.total_price))
-
     for ctlg in item.ctlg_assigns:
         _add_ctlg_assign(item_el, ctlg)
 
 
-def _add_markup_item(parent: etree._Element, item: Item) -> None:
-    """Serialize a markup item as ``<MarkupItem>`` (X52)."""
+def _add_markup_item(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
+    """Serialize a markup item as ``<MarkupItem>`` (Zuschlagsposition)."""
     mu_el = etree.SubElement(parent, "MarkupItem")
+    if not ctx.de:
+        mu_el.set("ID", ctx.ids.by_obj.get(id(item)) or ctx.ids.claim(item.id, "M"))
     mu_el.set("RNoPart", item.oz)
+    if item.rno_index and not ctx.de:
+        mu_el.set("RNoIndex", item.rno_index)
 
-    if item.short_text:
-        _add_text_el(mu_el, "ShortText", item.short_text)
+    if ctx.de:
+        if item.short_text:
+            _add_text_el(mu_el, "ShortText", item.short_text)
+        if item.markup_type:
+            _add_text_el(mu_el, "MarkupType", item.markup_type)
+        if item.unit_price is not None:
+            _add_text_el(mu_el, "Markup", _fmt_decimal(item.unit_price))
+        if item.total_price is not None:
+            _add_text_el(mu_el, "ITMarkup", _fmt_decimal(item.total_price))
+        if item.discount_pct is not None:
+            _add_text_el(mu_el, "DiscountPcnt", _fmt_decimal(item.discount_pct))
+        for sub in item.markup_sub_qtys:
+            sub_el = etree.SubElement(mu_el, "MarkupSubQty")
+            if sub.ref_rno:
+                _add_text_el(sub_el, "RefRNoPart", sub.ref_rno)
+            if sub.sub_qty is not None:
+                _add_text_el(sub_el, "SubQty", _fmt_decimal(sub.sub_qty))
+        for ca in item.ctlg_assigns:
+            _add_ctlg_assign(mu_el, ca)
+        return
 
-    if item.markup_type:
-        _add_text_el(mu_el, "MarkupType", item.markup_type)
+    slots = ctx.profile.markup_item
+    where = f"MarkupItem {item.full_oz or item.oz}"
 
-    if item.unit_price is not None:
-        _add_text_el(mu_el, "Markup", _fmt_decimal(item.unit_price))
+    if slots.allows("MarkupType"):
+        if item.markup_type:
+            _add_text_el(mu_el, "MarkupType", item.markup_type)
+        elif slots.requires("MarkupType"):
+            ctx.warnings.append(
+                f"{where}: MarkupType is required in {ctx.phase_name} but unset "
+                f"(IdentAsMark | AllInCat | ListInSubQty)"
+            )
+    elif item.markup_type:
+        ctx.omit("MarkupType", where)
 
-    if item.total_price is not None:
-        _add_text_el(mu_el, "ITMarkup", _fmt_decimal(item.total_price))
+    if slots.allows("MarkupSubQty"):
+        for sub in item.markup_sub_qtys:
+            # RefItem/@IDRef must point at an Item written in this document.
+            ref = sub.ref_id or ctx.ids.by_rno.get(sub.ref_rno)
+            if not ref:
+                ctx.warnings.append(
+                    f"{where}: MarkupSubQty reference {sub.ref_rno or sub.ref_id!r} "
+                    f"does not resolve to an item; not written"
+                )
+                continue
+            sub_el = etree.SubElement(mu_el, "MarkupSubQty")
+            etree.SubElement(sub_el, "RefItem").set("IDRef", ref)
+            if sub.sub_qty is not None:
+                _add_text_el(sub_el, "SubQty", _fmt_decimal(sub.sub_qty))
+    elif item.markup_sub_qtys:
+        ctx.omit("MarkupSubQty", where)
+
+    for tag, value in (("ITMarkup", item.total_price), ("Markup", item.unit_price)):
+        if not slots.allows(tag):
+            if value is not None:
+                ctx.omit(tag, where)
+            continue
+        if value is not None:
+            _add_text_el(mu_el, tag, _fmt_decimal(value))
+        elif slots.requires(tag):
+            _add_text_el(mu_el, tag, "0.00")
+            ctx.warnings.append(
+                f"{where}: {tag} is required in {ctx.phase_name} but unset; wrote 0.00"
+            )
 
     if item.discount_pct is not None:
-        _add_text_el(mu_el, "DiscountPcnt", _fmt_decimal(item.discount_pct))
+        if slots.allows("DiscountPcnt"):
+            _add_text_el(mu_el, "DiscountPcnt", _fmt_decimal(item.discount_pct))
+        else:
+            ctx.omit("DiscountPcnt", where)
 
-    for sub in item.markup_sub_qtys:
-        sub_el = etree.SubElement(mu_el, "MarkupSubQty")
-        if sub.ref_rno:
-            _add_text_el(sub_el, "RefRNoPart", sub.ref_rno)
-        if sub.sub_qty is not None:
-            _add_text_el(sub_el, "SubQty", _fmt_decimal(sub.sub_qty))
+    _add_item_text(mu_el, item, ctx, required=slots.requires("Description"))
 
-    for ca in item.ctlg_assigns:
-        _add_ctlg_assign(mu_el, ca)
+    if slots.allows("CtlgAssign"):
+        for ca in item.ctlg_assigns:
+            _add_ctlg_assign(mu_el, ca)
+    elif item.ctlg_assigns:
+        ctx.omit("CtlgAssign", where)
 
 
 def _add_order(
@@ -710,19 +1388,24 @@ def _add_order(
         _add_ctlg_assign(order_el, ctlg)
 
 
-def _add_address(parent: etree._Element, addr: Any) -> None:
-    if addr is None:
+_ADDRESS_FIELDS: tuple[tuple[str, str], ...] = (
+    ("name", "Name1"), ("name2", "Name2"), ("name3", "Name3"), ("name4", "Name4"),
+    ("street", "Street"), ("pcode", "PCode"), ("city", "City"), ("country", "Country"),
+    ("iln", "ILN"), ("contact", "Contact"), ("phone", "Phone"), ("fax", "Fax"),
+    ("email", "Email"), ("vat_id", "VATID"),
+)
+_ADDRESS_REQUIRED = frozenset({"Name1", "Street", "PCode", "City"})
+
+
+def _add_address(parent: etree._Element, addr: Any, complete: bool = False) -> None:
+    """Write a ``tgAddress``; *complete* always emits its four required children."""
+    if addr is None and not complete:
         return
     addr_el = etree.SubElement(parent, "Address")
-    for field_name, tag_name in [
-        ("name", "Name1"), ("name2", "Name2"), ("name3", "Name3"), ("name4", "Name4"),
-        ("street", "Street"), ("pcode", "PCode"), ("city", "City"), ("country", "Country"),
-        ("contact", "Contact"), ("phone", "Phone"), ("fax", "Fax"), ("email", "EMail"),
-        ("iln", "ILN"), ("vat_id", "VATID"),
-    ]:
-        val = getattr(addr, field_name, None)
-        if val:
-            _add_text_el(addr_el, tag_name, val)
+    for field_name, tag_name in _ADDRESS_FIELDS:
+        val = getattr(addr, field_name, None) if addr is not None else None
+        if val or (complete and tag_name in _ADDRESS_REQUIRED):
+            _add_text_el(addr_el, tag_name, val or "")
 
 
 def _add_order_item(
@@ -801,17 +1484,21 @@ def _add_totals(parent: etree._Element, totals: Totals) -> None:
     """Serialize a ``Totals`` model to a ``<Totals>`` XML element."""
     t_el = etree.SubElement(parent, "Totals")
 
-    if totals.total is not None:
-        _add_text_el(t_el, "Total", _fmt_decimal(totals.total))
+    # Total is the one required child of tgTotals.
+    total = totals.total if totals.total is not None else Decimal("0.00")
+    _add_text_el(t_el, "Total", _fmt_decimal(total))
 
-    if totals.discount_pcnt is not None:
-        _add_text_el(t_el, "DiscountPcnt", _fmt_decimal(totals.discount_pcnt))
-    if totals.discount_amt is not None:
-        _add_text_el(t_el, "DiscountAmt", _fmt_decimal(totals.discount_amt))
-    if totals.tot_after_disc is not None:
+    # tgTotals: ((DiscountPcnt | DiscountAmt) TotAfterDisc) | TotalLSUM — a
+    # discount is only expressible together with the discounted total.
+    if totals.tot_after_disc is not None and (
+        totals.discount_pcnt is not None or totals.discount_amt is not None
+    ):
+        if totals.discount_pcnt is not None:
+            _add_text_el(t_el, "DiscountPcnt", _fmt_decimal(totals.discount_pcnt))
+        else:
+            _add_text_el(t_el, "DiscountAmt", _fmt_decimal(totals.discount_amt or Decimal("0")))
         _add_text_el(t_el, "TotAfterDisc", _fmt_decimal(totals.tot_after_disc))
-
-    if totals.total_lsum is not None:
+    elif totals.total_lsum is not None:
         _add_text_el(t_el, "TotalLSUM", _fmt_decimal(totals.total_lsum))
 
     if totals.vat is not None:
@@ -1169,8 +1856,9 @@ def _add_qty_determ_info(parent: etree._Element, info: QtyDetermInfo) -> None:
 def _add_qty_boq(
     parent: etree._Element, boq: QtyBoQ, warnings: list[str],
 ) -> None:
+    ids = _IdAllocator()
     boq_el = etree.SubElement(parent, "BoQ")
-    boq_el.set("ID", "B1")
+    boq_el.set("ID", ids.claim("B1", "B"))
 
     if boq.ref_boq_name:
         _add_text_el(boq_el, "RefBoQName", boq.ref_boq_name)
@@ -1178,7 +1866,7 @@ def _add_qty_boq(
         _add_text_el(boq_el, "RefBoQID", boq.ref_boq_id)
 
     # QD keeps the <Type>/<Length> form for every version: its parser reads
-    # only that shape. See the follow-up issue before making this version-aware.
+    # only that shape (the procurement writer's _add_bkdn is the 3.x reference).
     for bkdn in boq.bkdn:
         bkdn_el = etree.SubElement(boq_el, "BoQBkdn")
         _add_text_el(bkdn_el, "Type", _bkdn_tag(bkdn.bkdn_type))
@@ -1187,7 +1875,7 @@ def _add_qty_boq(
     for ctlg in boq.catalogs:
         _add_catalog(boq_el, ctlg)
 
-    _add_qty_boq_body(boq_el, boq.body, warnings)
+    _add_qty_boq_body(boq_el, boq.body, warnings, ids)
 
     for ca in boq.ctlg_assigns:
         _add_ctlg_assign(boq_el, ca)
@@ -1199,26 +1887,27 @@ def _add_qty_boq(
 
 
 def _add_qty_boq_body(
-    parent: etree._Element, body: QtyBoQBody, warnings: list[str],
+    parent: etree._Element, body: QtyBoQBody, warnings: list[str], ids: _IdAllocator,
 ) -> None:
     body_el = etree.SubElement(parent, "BoQBody")
 
     for ctgy in body.categories:
         if ctgy.rno:
-            _add_qty_boq_ctgy(body_el, ctgy, warnings)
+            _add_qty_boq_ctgy(body_el, ctgy, warnings, ids)
         else:
             itemlist_el = body_el.find("Itemlist")
             if itemlist_el is None:
                 itemlist_el = etree.SubElement(body_el, "Itemlist")
             for item in ctgy.items:
-                _add_qty_item(itemlist_el, item)
+                _add_qty_item(itemlist_el, item, ids)
 
 
 def _add_qty_boq_ctgy(
-    parent: etree._Element, ctgy: QtyBoQCtgy, warnings: list[str],
+    parent: etree._Element, ctgy: QtyBoQCtgy, warnings: list[str], ids: _IdAllocator,
 ) -> None:
     ctgy_el = etree.SubElement(parent, "BoQCtgy")
-    ctgy_el.set("ID", f"C_{ctgy.rno}")
+    # Keep the readable C_<rno> form; the allocator de-duplicates repeats.
+    ctgy_el.set("ID", ids.claim(f"C_{ctgy.rno}", "C"))
     ctgy_el.set("RNoPart", ctgy.rno)
 
     for ca in ctgy.ctlg_assigns:
@@ -1235,17 +1924,18 @@ def _add_qty_boq_ctgy(
         if ctgy.subcategories:
             sub_body_el = etree.SubElement(ctgy_el, "BoQBody")
             for sub in ctgy.subcategories:
-                _add_qty_boq_ctgy(sub_body_el, sub, warnings)
+                _add_qty_boq_ctgy(sub_body_el, sub, warnings, ids)
 
         if ctgy.items:
             itemlist_el = etree.SubElement(ctgy_el, "Itemlist")
             for item in ctgy.items:
-                _add_qty_item(itemlist_el, item)
+                _add_qty_item(itemlist_el, item, ids)
 
 
-def _add_qty_item(parent: etree._Element, item: QtyItem) -> None:
+def _add_qty_item(parent: etree._Element, item: QtyItem, ids: _IdAllocator) -> None:
     item_el = etree.SubElement(parent, "Item")
-    item_el.set("ID", f"I_{item.rno_part}")
+    # Same RNoPart can recur across categories, so I_<rno> alone is not unique.
+    item_el.set("ID", ids.claim(f"I_{item.rno_part}", "I"))
     item_el.set("RNoPart", item.rno_part)
     if item.rno_index:
         item_el.set("RNoIndex", item.rno_index)

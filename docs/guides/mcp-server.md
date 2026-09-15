@@ -41,10 +41,11 @@ It will call `open_document`, then `list_items(sort="total_desc", limit=5)`.
 
 ## Tool Reference
 
-Every tool except `open_document` takes a `handle`.
+Every tool except `list_documents` and `open_document` takes a `handle`.
 
 | Tool | Purpose | Bounding |
 |---|---|---|
+| `list_documents` | GAEB files under the allowed roots, so the model can find a file by name | paginated; scan capped at 5 000 files |
 | `open_document` | Parse a file, return a handle + summary | ~25 scalars, fixed size |
 | `list_structure` | Direct children of a level, with `item_count` and `subtotal` | paginated, `depth=1` |
 | `list_items` | Filtered, sorted item rows | paginated; no long text |
@@ -56,6 +57,10 @@ Every tool except `open_document` takes a `handle`.
 | `analyze_bids` | Rank bidders, price spreads | ranking + capped spreads |
 
 Two more appear only with `--allow-write`: `export_document` and `convert_document`.
+
+**Paths.** A bare file name such as `tender.X83` is looked up under each `--root` in order, never against the server's working directory (desktop clients spawn the server from `/`). Absolute paths work as given, and `open_document` accepts the `path` values that `list_documents` returns. Write tools resolve relative destinations against `--output-dir`.
+
+**Unpriced tenders.** An X83 before bids has no prices. `open_document` then reports `is_priced: false` and `grand_total: null` rather than `"0"`, and `list_items` returns `sum_of_matched_totals: null`, so an assistant cannot mistake a blank tender for a free one.
 
 ## Context Budget
 
@@ -96,7 +101,7 @@ The cache lives for the life of the process, which under stdio is exactly one cl
 
 ## Security
 
-- **One choke point.** `open_document` is the only read tool that accepts a path; everything else takes a handle.
+- **One choke point.** `open_document` is the only read tool that accepts a path; everything else takes a handle. `list_documents` takes no path at all — it only ever walks the configured roots, skipping hidden directories and symlinks.
 - **Roots allowlist.** `--root` (repeatable) or `PYGAEB_MCP_ROOTS`. Paths are resolved *before* the containment check, so a symlink inside a root pointing outside it is rejected.
 - **Extension allowlist.** `.X83`/`.D83`/`.P83`-style, `.xml`, `.gaeb`. Override with `--allow-any-extension`.
 - **Size limit.** Enforced against `PYGAEB_MAX_FILE_SIZE_MB` before any bytes are read.
@@ -154,6 +159,8 @@ CLI flags take precedence over environment variables.
 **"Unknown or expired handle"** — the document was evicted from the cache, or the file changed. Call `open_document` again.
 
 **"Path is outside the allowed roots"** — add the directory with `--root`.
+
+**"File does not exist"** — the name was looked up under every root and not found. Ask the assistant to run `list_documents`, or check the spelling.
 
 **"Unrecognised GAEB extension"** — pass `--allow-any-extension`, or rename the file.
 

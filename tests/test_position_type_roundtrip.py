@@ -22,11 +22,16 @@ from pygaeb.models.item import QtySplit
 
 
 def _roundtrip(xml: bytes, times: int = 1):
-    """Parse → write X84 → re-parse, ``times`` times. Returns (doc, warnings)."""
+    """Parse → write X86 → re-parse, ``times`` times. Returns (doc, warnings).
+
+    X86 (contract) carries prices *and* position-type markers; the X84 bid
+    schema has no markers at all, so it cannot round-trip them (see
+    ``TestX84HasNoMarkers``).
+    """
     doc = GAEBParser.parse_bytes(xml)
     warnings: list[str] = []
     for _ in range(times):
-        out, warns = GAEBWriter.to_bytes(doc, phase=ExchangePhase.X84)
+        out, warns = GAEBWriter.to_bytes(doc, phase=ExchangePhase.X86)
         warnings = warns
         doc = GAEBParser.parse_bytes(out)
     return doc, warnings
@@ -67,9 +72,19 @@ class TestPositionTypeSerialization:
 
     def test_real_elements_present_in_output(self):
         doc = GAEBParser.parse_bytes(TENDER_WITH_TYPES)
-        out, _ = GAEBWriter.to_bytes(doc, phase=ExchangePhase.X84)
-        assert b"<Provis" in out
-        assert b"<LumpSumItem" in out
+        out, _ = GAEBWriter.to_bytes(doc, phase=ExchangePhase.X86)
+        # Both markers carry a schema-typed value: tgProvis / tgYesNo.
+        assert b"<Provis>WithoutTotal</Provis>" in out
+        assert b"<LumpSumItem>Yes</LumpSumItem>" in out
+
+
+class TestX84HasNoMarkers:
+    def test_x84_drops_markers_with_a_note(self):
+        doc = GAEBParser.parse_bytes(TENDER_WITH_TYPES)
+        out, warnings = GAEBWriter.to_bytes(doc, phase=ExchangePhase.X84)
+        assert b"<Provis" not in out
+        assert b"<LumpSumItem" not in out
+        assert any("position marker not written" in w and "X84" in w for w in warnings)
 
     def test_total_excludes_bedarfsposition_across_roundtrips(self):
         """The regression guard: Bedarfsposition price must never enter the sum.
@@ -106,26 +121,26 @@ class TestNonInteropWarning:
 
     def test_alternative_emits_non_interop_warning(self):
         doc = GAEBParser.parse_bytes(self.ALT)
-        _, warnings = GAEBWriter.to_bytes(doc, phase=ExchangePhase.X84)
+        _, warnings = GAEBWriter.to_bytes(doc, phase=ExchangePhase.X86)
         assert any("not read by other AVA software" in w for w in warnings)
 
 
 class TestQtySplitRoundtrip:
     def test_qty_splits_survive(self):
+        """tgQtySplit is (QtyPcnt | Qty) + CtlgAssign: the quantity round-trips,
+        the pyGAEB-only label/unit do not (the writer says so)."""
         doc = GAEBParser.parse_bytes(TENDER_WITH_TYPES)
         item = next(i for i in doc.iter_items() if i.oz.endswith("0010"))
         item.qty_splits = [
             QtySplit(label="EG", qty=Decimal("60"), unit="St"),
             QtySplit(label="OG", qty=Decimal("40"), unit="St"),
         ]
-        out, _ = GAEBWriter.to_bytes(doc, phase=ExchangePhase.X84)
+        out, warnings = GAEBWriter.to_bytes(doc, phase=ExchangePhase.X86)
         assert b"<QtySplit" in out
+        assert any("QtySplit label/unit" in w for w in warnings)
         reparsed = GAEBParser.parse_bytes(out)
         splits = next(i for i in reparsed.iter_items() if i.oz.endswith("0010")).qty_splits
-        assert [(s.label, s.qty, s.unit) for s in splits] == [
-            ("EG", Decimal("60"), "St"),
-            ("OG", Decimal("40"), "St"),
-        ]
+        assert [s.qty for s in splits] == [Decimal("60"), Decimal("40")]
 
 
 class TestLongTextRoundtrip:

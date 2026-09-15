@@ -365,7 +365,9 @@ class TestMarkupItem:
         assert b"<MarkupItem" in xml_bytes
         assert b"<MarkupType>ListInSubQty</MarkupType>" in xml_bytes
         assert b"<ITMarkup>" in xml_bytes
-        assert b"<RefRNoPart>0010</RefRNoPart>" in xml_bytes
+        # The schema references the marked-up item by its xs:ID, not by RNoPart.
+        assert b"<MarkupSubQty>" in xml_bytes
+        assert b"<RefItem IDRef=" in xml_bytes
 
         out = tmp_path / "out.X86"
         out.write_bytes(xml_bytes)
@@ -373,6 +375,7 @@ class TestMarkupItem:
         items2 = list(doc2.award.boq.iter_items())
         mu2 = next(i for i in items2 if i.item_type == ItemType.MARKUP)
         assert mu2.markup_type == "ListInSubQty"
+        assert [s.ref_rno for s in mu2.markup_sub_qtys] == ["0010", "0020"]
         assert len(mu2.markup_sub_qtys) == 2
         assert mu2.total_price == Decimal("125.00")
 

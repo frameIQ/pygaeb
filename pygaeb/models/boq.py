@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -29,7 +29,12 @@ class BoQBkdn(BaseModel):
     length: int
     key: str = ""
     #: ``<Num>`` — whether this level is numbered rather than free-form.
-    num: bool = False
+    #: ``None`` when the source did not say; the writer then emits ``Yes``.
+    num: bool | None = None
+    #: ``<LblBoQBkdn>`` — the level's display name (e.g. "Hauptgruppe").
+    label: str | None = None
+    #: ``<Alignment>`` of the key within its column.
+    alignment: Literal["left", "right"] | None = None
 
 
 class CostType(BaseModel):
@@ -81,10 +86,14 @@ class BoQInfo(BaseModel):
     date: str | None = None
     bkdn: list[BoQBkdn] = Field(default_factory=list)
     outline_complete: bool = False
+    #: ``<OutlCompl>`` — which text is authoritative: AllTxt / OutTxt / DetailTxt.
+    outl_compl: str | None = None
     #: Labels for the unit-price components whose values live in
     #: ``Item.up_components`` — e.g. Material / Geräte, plus ``LblTime`` for labour.
     no_up_comps: int | None = None
     lbl_up_comps: list[str] = Field(default_factory=list)
+    #: ``LblUPCompN/@Type`` parallel to ``lbl_up_comps`` (Wages, Materials, …).
+    lbl_up_comp_types: list[str] = Field(default_factory=list)
     lbl_time: str | None = None
     cost_types: list[CostType] = Field(default_factory=list)
     ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
@@ -96,6 +105,8 @@ class BoQCtgy(BaseModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
+    #: Source ``@ID`` (xs:ID); the writer generates one when absent.
+    id: str | None = None
     rno: str = ""
     label: str = ""
     items: list[Item] = Field(default_factory=list)
@@ -152,6 +163,7 @@ class BoQBody(BaseModel):
 class Lot(BaseModel):
     """A single lot within a multi-lot document."""
 
+    id: str | None = None
     rno: str = ""
     label: str = ""
     boq_info: BoQInfo | None = None
@@ -173,6 +185,7 @@ class Lot(BaseModel):
 class BoQ(BaseModel):
     """Complete BoQ structure supporting single and multi-lot documents."""
 
+    id: str | None = None
     boq_info: BoQInfo | None = None
     lots: list[Lot] = Field(default_factory=list)
 

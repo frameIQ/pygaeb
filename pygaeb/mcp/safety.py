@@ -20,6 +20,7 @@ from pygaeb.config import get_settings
 
 __all__ = [
     "DEFAULT_EXTENSION_PATTERN",
+    "is_gaeb_suffix",
     "resolve_output_path",
     "resolve_roots",
     "resolve_within_roots",
@@ -30,6 +31,34 @@ __all__ = [
 DEFAULT_EXTENSION_PATTERN = re.compile(r"^\.[xdp]\d{2}[a-z]{0,2}$", re.IGNORECASE)
 
 _EXTRA_ALLOWED_SUFFIXES = frozenset({".xml", ".gaeb"})
+
+
+def is_gaeb_suffix(suffix: str) -> bool:
+    """Whether a file extension is on the GAEB allowlist (``.X83``, ``.xml``, …)."""
+    return (
+        DEFAULT_EXTENSION_PATTERN.match(suffix) is not None
+        or suffix.lower() in _EXTRA_ALLOWED_SUFFIXES
+    )
+
+
+def _resolve_untrusted(path: str, bases: list[Path]) -> Path:
+    """Resolve an LLM-supplied path, anchoring relative ones to *bases*.
+
+    The server's working directory is meaningless to the model — desktop
+    clients spawn it from ``/`` — so a bare ``tender.X83`` is tried under each
+    base in order and the first existing match wins. Absolute paths (and ``~``)
+    resolve as given. A relative path that exists under no base resolves
+    against the first base, so the caller's "does not exist" error names a
+    sensible location.
+    """
+    candidate = Path(path).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+    for base in bases:
+        resolved = (base / candidate).resolve()
+        if resolved.exists():
+            return resolved
+    return (bases[0] / candidate).resolve()
 
 
 def resolve_roots(roots: list[str] | None = None) -> list[Path]:
@@ -83,8 +112,10 @@ def resolve_within_roots(
 ) -> Path:
     """Validate an untrusted read path and return its resolved form.
 
-    ``Path.resolve()`` runs *before* the containment check, so a symlink inside a
-    root that points outside it is rejected rather than followed.
+    Relative paths are anchored to the roots, not to the process working
+    directory. ``Path.resolve()`` runs *before* the containment check, so a
+    symlink inside a root that points outside it is rejected rather than
+    followed.
 
     Args:
         path: The untrusted path.
@@ -98,21 +129,20 @@ def resolve_within_roots(
         ValueError: If the path escapes the roots, does not exist, is not a
             file, has a non-GAEB extension, or exceeds ``max_file_size_mb``.
     """
-    resolved = Path(path).expanduser().resolve()
+    resolved = _resolve_untrusted(path, roots)
     _check_containment(resolved, roots, "Path")
 
     if not resolved.exists():
-        raise ValueError(f"File does not exist: {resolved}")
+        raise ValueError(
+            f"File does not exist: {resolved}. Use list_documents to see the files "
+            f"under the allowed roots."
+        )
     if not resolved.is_file():
         raise ValueError(f"Not a file: {resolved}")
 
     if not allow_any_extension:
         suffix = resolved.suffix
-        recognised = (
-            DEFAULT_EXTENSION_PATTERN.match(suffix) is not None
-            or suffix.lower() in _EXTRA_ALLOWED_SUFFIXES
-        )
-        if not recognised:
+        if not is_gaeb_suffix(suffix):
             raise ValueError(
                 f"Unrecognised GAEB extension {suffix!r}. Expected .X83/.D83/.P83-style, "
                 f".xml, or .gaeb. Use --allow-any-extension to override."
@@ -134,7 +164,8 @@ def resolve_output_path(path: str, output_dir: Path) -> Path:
     """Validate an untrusted write path against the configured output directory.
 
     Unlike :func:`resolve_within_roots` the target need not exist, but its parent
-    must, and the resolved location must sit inside *output_dir*.
+    must, and the resolved location must sit inside *output_dir*. Relative
+    paths are anchored to *output_dir*.
 
     Args:
         path: The untrusted destination path.
@@ -146,7 +177,7 @@ def resolve_output_path(path: str, output_dir: Path) -> Path:
     Raises:
         ValueError: If the destination escapes *output_dir* or its parent is missing.
     """
-    resolved = Path(path).expanduser().resolve()
+    resolved = _resolve_untrusted(path, [output_dir])
     _check_containment(resolved, [output_dir], "Output path")
 
     if not resolved.parent.is_dir():

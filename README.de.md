@@ -328,6 +328,10 @@ for p in probleme:
 | DA XML 3.3 | Track B (englische Elemente) | v1.0 |
 | GAEB 90 | Track C (Festformat) | Geplant |
 
+Geschriebene DA-XML-3.3-Vergabedateien (X81–X86) validieren gegen die
+offiziellen GAEB-XSDs 2021-05 — geprüft mit den BVBS-Zertifizierungsdateien
+(seit v1.17.0; siehe [Writing-Guide](docs/guides/writing.md#schema-conformance)).
+
 | Phase | Beschreibung | Seit |
 |-------|-------------|------|
 | X31 | Mengenermittlung / Aufmaß | v1.4.0 |

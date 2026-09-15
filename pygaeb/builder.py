@@ -497,40 +497,27 @@ class BoQBuilder:
 
     @staticmethod
     def _run_xsd_validation(doc: GAEBDocument, xsd_dir: str) -> None:
-        """Serialize to XML in memory and validate against XSD."""
-        from pathlib import Path
-
-        from lxml import etree
-
+        """Serialize to XML in memory and validate against the phase's XSD."""
+        from pygaeb.parser.gaeb_parser import validate_xml
         from pygaeb.writer.gaeb_writer import GAEBWriter
 
-        xml_bytes, _ = GAEBWriter.to_bytes(doc)
-        xsd_path = Path(xsd_dir)
-        version_dir = xsd_path / f"v{doc.source_version.value.replace('.', '')}"
+        xml_bytes, _ = GAEBWriter.to_bytes(
+            doc, phase=doc.exchange_phase, target_version=doc.source_version,
+        )
+        try:
+            result = validate_xml(
+                xml_bytes, doc.source_version, doc.exchange_phase, xsd_dir,
+            )
+        except Exception as e:
+            doc.add_warning(f"XSD validation failed: {e}")
+            return
 
-        if not version_dir.exists():
+        if result is None:
             doc.add_info(
-                f"XSD validation skipped: schema directory not found "
-                f"for version {doc.source_version.value}"
+                f"XSD validation skipped: no schema for DA XML "
+                f"{doc.source_version.value} / {doc.exchange_phase.value} under {xsd_dir}"
             )
             return
 
-        xsd_files = list(version_dir.glob("*.xsd"))
-        if not xsd_files:
-            doc.add_info(f"XSD validation skipped: no .xsd files in {version_dir}")
-            return
-
-        try:
-            parser = etree.XMLParser(resolve_entities=False, no_network=True)
-            with xsd_files[0].open("rb") as xsd_fh:
-                schema_doc = etree.parse(xsd_fh, parser=parser)
-            schema = etree.XMLSchema(schema_doc)
-            xml_doc = etree.fromstring(xml_bytes, parser=parser)
-            if not schema.validate(xml_doc):
-                for error in schema.error_log:  # type: ignore[attr-defined]
-                    doc.add_warning(
-                        f"XSD validation: {error.message}",
-                        xpath=f"line {error.line}",
-                    )
-        except Exception as e:
-            doc.add_warning(f"XSD validation failed: {e}")
+        for err in result.errors:
+            doc.add_warning(f"XSD validation: {err.message}", xpath=f"line {err.line}")

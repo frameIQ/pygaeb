@@ -29,6 +29,8 @@ Read and analyse German GAEB DA XML construction documents (bills of quantities,
 bids, invoices, cost estimates).
 
 Start with `open_document` to get a handle; every other tool takes that handle.
+If you do not know the file name, `list_documents` shows what can be opened. A
+bare file name is looked up under the allowed roots.
 
 These documents are large — a tender can hold thousands of items and megabytes of
 specification prose. The tools are therefore query-oriented, not dump-oriented:

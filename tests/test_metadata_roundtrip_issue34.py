@@ -119,16 +119,14 @@ def test_metadata_survives_round_trip(parsed, reparsed):
 
 
 def test_num_survives_round_trip_in_the_33_shape(parsed):
-    """3.3 spells the flag as an attribute, not a child element."""
+    """3.3 spells the flag as a required <Num> child of each <BoQBkdn> (2021-05 XSD)."""
     xml = GAEBWriter().to_bytes(parsed, target_version=SourceVersion.DA_XML_33)[0].decode()
     root = etree.fromstring(xml.encode())
-    levels = [
-        e for e in root.iter()
-        if etree.QName(e).localname in ("BoQLevel", "Item")
-        and e.getparent() is not None
-        and etree.QName(e.getparent()).localname == "BoQBkdn"
+    bkdns = [e for e in root.iter() if etree.QName(e).localname == "BoQBkdn"]
+    nums = [
+        c.text for e in bkdns for c in e if etree.QName(c).localname == "Num"
     ]
-    assert levels and all(e.get("Num") == "Yes" for e in levels)
+    assert nums == ["Yes", "Yes", "Yes"]
 
     again = GAEBParser().parse_string(xml)
     assert [b.num for b in again.award.boq.boq_info.bkdn] == [True, True, True]
