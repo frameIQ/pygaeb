@@ -60,7 +60,8 @@ class TestGAEBWriterTargetVersion:
         content = output.read_text(encoding="utf-8")
         assert "3.3" in content
         assert "DA83/3.3" in content
-        assert len(warnings) == 0
+        # Nothing is lost for 3.3; phase notes (an X83 carries no prices) are fine.
+        assert not any("dropped" in w for w in warnings)
 
     def test_write_v32(self, sample_document, tmp_path):
         output = tmp_path / "out.X83"
@@ -70,7 +71,7 @@ class TestGAEBWriterTargetVersion:
         content = output.read_text(encoding="utf-8")
         assert "DA83/3.2" in content
         assert "<Version>3.2</Version>" in content
-        assert len(warnings) == 0
+        assert not any("dropped" in w for w in warnings)
 
     def test_write_v31(self, sample_document, tmp_path):
         output = tmp_path / "out.X83"
@@ -171,7 +172,7 @@ class TestGAEBWriterTargetVersion:
     def test_to_bytes_v33(self, sample_document):
         xml_bytes, warnings = GAEBWriter.to_bytes(sample_document)
         assert b"DA83/3.3" in xml_bytes
-        assert len(warnings) == 0
+        assert not any("dropped" in w for w in warnings)
 
     def test_to_bytes_v20_german(self, sample_document):
         xml_bytes, _warnings = GAEBWriter.to_bytes(

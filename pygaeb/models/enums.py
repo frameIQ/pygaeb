@@ -147,6 +147,13 @@ class ItemType(str, Enum):
         )
 
 
+class Provis(str, Enum):
+    """``<Provis>`` value — whether a Bedarfsposition's total counts toward the sum."""
+
+    WITH_TOTAL = "WithTotal"
+    WITHOUT_TOTAL = "WithoutTotal"
+
+
 class BkdnType(str, Enum):
     """BoQ breakdown level type."""
 

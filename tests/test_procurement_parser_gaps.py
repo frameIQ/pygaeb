@@ -10,6 +10,7 @@ Covers:
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
@@ -23,8 +24,12 @@ from pygaeb import (
 from pygaeb.models.document import AwardInfo
 from pygaeb.models.order import Address
 
-FIXTURE_DIR = Path(__file__).resolve().parent / "../../test-pygaeb/tests/fixtures"
-TENDER_X81 = FIXTURE_DIR / "da_xml_31/ava/tender.X81"
+# The real tender.X81 is a licensed GAEB sample kept outside the repository;
+# PYGAEB_BVBS_FIXTURES points at the folder holding the da_xml_* sets.
+_FIXTURE_DIR = os.environ.get("PYGAEB_BVBS_FIXTURES")
+TENDER_X81 = (
+    Path(_FIXTURE_DIR).parent / "da_xml_31/ava/tender.X81" if _FIXTURE_DIR else Path("/nonexistent")
+)
 
 PROCUREMENT_WITH_AWARD_META = dedent("""\
     <?xml version="1.0" encoding="utf-8"?>
@@ -349,7 +354,11 @@ class TestAwardMetaRoundTrip:
         doc = GAEBParser.parse_string(PROCUREMENT_OWN_FALLBACK)
         xml_bytes, _ = GAEBWriter.to_bytes(doc, target_version=SourceVersion.DA_XML_33)
         content = xml_bytes.decode("utf-8")
-        assert "<OWN>Legacy Client Name</OWN>" in content
+        # The legacy <OWN>text</OWN> is read, but written back in schema shape.
+        assert "<OWN>" in content
+        assert "<Name1>Legacy Client Name</Name1>" in content
+        doc2 = GAEBParser.parse_string(content)
+        assert doc2.award.client == "Legacy Client Name"
 
 
 # ── Fixture-based Tests (tender.X81) ────────────────────────────────

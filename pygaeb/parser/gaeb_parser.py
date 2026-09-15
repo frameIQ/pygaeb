@@ -5,8 +5,10 @@ from __future__ import annotations
 import logging
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pygaeb.config import get_settings
 from pygaeb.detector.encoding_repair import repair_encoding
@@ -16,6 +18,9 @@ from pygaeb.exceptions import GAEBParseError, GAEBValidationError
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import ExchangePhase, SourceVersion, ValidationMode, ValidationSeverity
 from pygaeb.models.item import ValidationResult
+
+if TYPE_CHECKING:
+    from lxml import etree
 
 logger = logging.getLogger("pygaeb.parser")
 
@@ -348,6 +353,108 @@ def _dispatch_parser(
     return parser.parse(path, text)
 
 
+@dataclass(frozen=True)
+class XsdError:
+    """One schema violation reported by libxml2."""
+
+    line: int | None
+    message: str
+
+
+@dataclass
+class XsdResult:
+    """Outcome of validating one document against one schema file."""
+
+    valid: bool
+    schema_path: Path
+    errors: list[XsdError] = field(default_factory=list)
+
+
+def resolve_schema(
+    xsd_dir: str | Path, version: SourceVersion, phase: ExchangePhase,
+) -> Path | None:
+    """Locate the schema for *version*/*phase* under *xsd_dir*.
+
+    The GAEB distribution ships one schema per exchange phase plus a shared
+    library (``GAEB_DA_XML_83_3.3_2021-05.xsd``, ``…_Lib_3.3_2021-05.xsd``), so
+    the file is chosen by phase. Accepts that flat layout, the ``v33/``
+    per-version layout from ``pygaeb/schemas/README.md``, and — for older
+    setups — a per-version folder holding exactly one ``.xsd``. Returns
+    ``None`` when nothing matches; never raises.
+    """
+    base = Path(xsd_dir)
+    if not base.is_dir():
+        return None
+
+    phase_no = phase.normalized().value.lstrip("X")
+    ver = version.value
+    pattern = f"GAEB_DA_XML_{phase_no}_{ver}_*.xsd"
+    version_dir = base / f"v{ver.replace('.', '')}"
+
+    for folder in (base, version_dir):
+        if folder.is_dir():
+            matches = sorted(folder.glob(pattern))
+            if matches:
+                return matches[0]
+
+    if version_dir.is_dir():
+        candidates = sorted(version_dir.glob("*.xsd"))
+        if len(candidates) == 1:
+            return candidates[0]
+    return None
+
+
+@lru_cache(maxsize=16)
+def _load_schema(path_str: str) -> Any:
+    from lxml import etree
+
+    from pygaeb.parser._xml_safety import SAFE_PARSER
+
+    # Parse by path so the Lib file's <xs:include> resolves relative to it.
+    return etree.XMLSchema(etree.parse(path_str, parser=SAFE_PARSER))
+
+
+def validate_xml(
+    xml: bytes | etree._Element,
+    version: SourceVersion,
+    phase: ExchangePhase,
+    xsd_dir: str | Path | None = None,
+) -> XsdResult | None:
+    """Validate *xml* against the schema for *version*/*phase*.
+
+    Args:
+        xml: Serialized document bytes or an already-parsed root element.
+        version: DA XML version the document claims.
+        phase: Exchange phase the document claims.
+        xsd_dir: Schema directory; defaults to the ``PYGAEB_XSD_DIR`` setting.
+
+    Returns:
+        An ``XsdResult``, or ``None`` when no schema directory or matching
+        schema file is available.
+    """
+    from lxml import etree
+
+    from pygaeb.parser._xml_safety import SAFE_PARSER
+
+    if xsd_dir is None:
+        xsd_dir = get_settings().xsd_dir
+    if not xsd_dir:
+        return None
+
+    schema_path = resolve_schema(xsd_dir, version, phase)
+    if schema_path is None:
+        return None
+
+    schema = _load_schema(str(schema_path.resolve()))
+    doc = etree.fromstring(xml, parser=SAFE_PARSER) if isinstance(xml, bytes) else xml
+    valid = bool(schema.validate(doc))
+    errors = [
+        XsdError(line=err.line or None, message=err.message)
+        for err in schema.error_log
+    ]
+    return XsdResult(valid=valid, schema_path=schema_path, errors=errors)
+
+
 def _run_xsd_validation(
     doc: GAEBDocument,
     path: Path,
@@ -356,37 +463,19 @@ def _run_xsd_validation(
     xsd_dir: str,
 ) -> None:
     """Run optional XSD validation if schemas are available."""
-    from lxml import etree
+    try:
+        xml: Any = doc.xml_root if doc.xml_root is not None else text.encode("utf-8")
+        result = validate_xml(xml, route.version, route.exchange_phase, xsd_dir)
+    except Exception as e:
+        doc.add_warning(f"XSD validation failed: {e}")
+        return
 
-    xsd_path = Path(xsd_dir)
-    version_dir = xsd_path / f"v{route.version.value.replace('.', '')}"
-
-    if not version_dir.exists():
+    if result is None:
         doc.add_info(
-            f"XSD validation skipped: schema directory not found for version {route.version.value}"
+            f"XSD validation skipped: no schema for DA XML {route.version.value} / "
+            f"{route.exchange_phase.value} under {xsd_dir}"
         )
         return
 
-    xsd_files = list(version_dir.glob("*.xsd"))
-    if not xsd_files:
-        doc.add_info(f"XSD validation skipped: no .xsd files in {version_dir}")
-        return
-
-    from pygaeb.parser._xml_safety import SAFE_PARSER
-
-    try:
-        with xsd_files[0].open("rb") as xsd_fh:
-            schema_doc = etree.parse(xsd_fh, parser=SAFE_PARSER)
-        schema = etree.XMLSchema(schema_doc)
-        if doc.xml_root is not None:
-            xml_doc = doc.xml_root
-        else:
-            xml_doc = etree.fromstring(text.encode("utf-8"), parser=SAFE_PARSER)
-        if not schema.validate(xml_doc):
-            for error in schema.error_log:  # type: ignore[attr-defined]
-                doc.add_warning(
-                    f"XSD validation: {error.message}",
-                    xpath=f"line {error.line}",
-                )
-    except Exception as e:
-        doc.add_warning(f"XSD validation failed: {e}")
+    for err in result.errors:
+        doc.add_warning(f"XSD validation: {err.message}", xpath=f"line {err.line}")

@@ -10,7 +10,7 @@ import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from lxml import etree
 
@@ -27,10 +27,17 @@ from pygaeb.models.boq import (
     VATPart,
 )
 from pygaeb.models.catalog import CtlgAssign
-from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
+from pygaeb.models.document import (
+    AwardInfo,
+    ConstructionSite,
+    GAEBDocument,
+    GAEBInfo,
+    Party,
+)
 from pygaeb.models.enums import (
     BkdnType,
     ItemType,
+    Provis,
 )
 from pygaeb.models.item import (
     Attachment,
@@ -211,12 +218,30 @@ class BaseV3Parser:
 
         own_el = self._find(award_el, "OWN")
         if own_el is not None:
-            award.owner_address = self._parse_address(own_el)
+            award.owner_address = self._parse_address_opt(own_el)
             award.award_no = self._text(own_el, "AwardNo")
             if award.owner_address and award.owner_address.name:
                 award.client = award.owner_address.name
         elif award_info_el is not None:
             award.client = self._text(award_info_el, "OWN", "Client")
+
+        ctr_el = self._find(award_el, "CTR")
+        if ctr_el is not None:
+            award.contractor = Party(
+                address=self._parse_address_opt(ctr_el),
+                dp_no=self._text(ctr_el, "DPNo"),
+                award_no=self._text(ctr_el, "AwardNo"),
+                acct_no=self._text(ctr_el, "AcctsPayNo"),
+                bidder_no=self._text(ctr_el, "BidderNo"),
+            )
+
+        cnst_el = self._find(award_el, "CnstSite")
+        if cnst_el is not None:
+            award.construction_site = ConstructionSite(
+                address=self._parse_address_opt(cnst_el),
+                id_no=self._text(cnst_el, "CnstSiteIDNo"),
+                name=self._text(cnst_el, "CnstSiteName"),
+            )
 
         prj_info_el = self._find(root, "PrjInfo")
         if prj_info_el is not None:
@@ -238,7 +263,8 @@ class BaseV3Parser:
                 award.description = " ".join(
                     "".join(str(t) for t in descrip_el.itertext()).split()
                 ) or None
-            award.currency_label = self._text(prj_info_el, "CurLbl")
+            # Keep the AwardInfo value when PrjInfo has no CurLbl (X84 PrjInfo never does).
+            award.currency_label = self._text(prj_info_el, "CurLbl") or award.currency_label
 
             bcp = self._text(prj_info_el, "BidCommPerm")
             if bcp and bcp.lower() in ("yes", "true", "1"):
@@ -258,6 +284,7 @@ class BaseV3Parser:
         boq_el = self._find(award_el, "BoQ")
         if boq_el is not None:
             award.boq = self._parse_boq(boq_el, doc)
+            _resolve_markup_refs(award.boq)
         else:
             doc.add_warning("No BoQ element found in Award")
 
@@ -267,7 +294,7 @@ class BaseV3Parser:
         return award
 
     def _parse_boq(self, boq_el: etree._Element, doc: GAEBDocument) -> BoQ:
-        boq = BoQ()
+        boq = BoQ(id=boq_el.get("ID"))
 
         boq_info_el = self._find(boq_el, "BoQInfo")
         if boq_info_el is not None:
@@ -287,7 +314,9 @@ class BaseV3Parser:
                 for i, lot_el in enumerate(lot_els):
                     rno = lot_el.get("RNoPart", str(i + 1))
                     label = self._text(lot_el, "LblTx") or f"Lot {i + 1}"
-                    lot = Lot(rno=rno, label=label, boq_info=boq.boq_info)
+                    lot = Lot(
+                        id=lot_el.get("ID"), rno=rno, label=label, boq_info=boq.boq_info,
+                    )
                     lot.body = self._parse_ctgy_as_body(
                         lot_el, doc, lot_label=label, oz_path=[rno] if rno else []
                     )
@@ -301,29 +330,31 @@ class BaseV3Parser:
         info.name = self._text(info_el, "Name")
         info.lbl_boq = self._text(info_el, "LblBoQ")
         info.date = self._text(info_el, "Date")
+        info.outl_compl = self._text(info_el, "OutlCompl")
 
         no_up_comps = self._text(info_el, "NoUPComps")
         if no_up_comps:
             with contextlib.suppress(ValueError):
                 info.no_up_comps = int(no_up_comps)
         for idx in (1, 2, 3, 4, 5, 6):
-            label = self._text(info_el, f"LblUPComp{idx}")
-            if label is None:
+            label_el = self._find(info_el, f"LblUPComp{idx}")
+            if label_el is None:
                 break
-            info.lbl_up_comps.append(label)
+            info.lbl_up_comps.append((label_el.text or "").strip())
+            info.lbl_up_comp_types.append(label_el.get("Type", "Unknown"))
         info.lbl_time = self._text(info_el, "LblTime")
 
         bkdn_els = self._findall(info_el, "BoQBkdn")
         if bkdn_els:
             # Dispatch on shape, not count: a BoQ with a single declared level
-            # yields one v3.2 <BoQBkdn> too, and counting misreads it as v3.3.
-            if any(self._is_v32_bkdn(el) for el in bkdn_els):
-                self._parse_bkdn_v32(bkdn_els, info)
+            # yields one sibling-form <BoQBkdn> too, and counting misreads it.
+            if any(self._is_sibling_bkdn(el) for el in bkdn_els):
+                self._parse_bkdn_sibling(bkdn_els, info)
             else:
                 # Normally a single element, but DA XML 2.x translates each
                 # <LVGliederung> separately — read them all rather than the first.
                 for bkdn_el in bkdn_els:
-                    self._parse_bkdn_v33(bkdn_el, info)
+                    self._parse_bkdn_nested(bkdn_el, info)
 
         for ct_el in self._findall(info_el, "CostType"):
             ct = CostType(
@@ -337,8 +368,8 @@ class BaseV3Parser:
 
         return info
 
-    def _is_v32_bkdn(self, bkdn_el: etree._Element) -> bool:
-        """v3.2 spells a level as <Type>/<Length> children; v3.3 as <Item Length=".."/>."""
+    def _is_sibling_bkdn(self, bkdn_el: etree._Element) -> bool:
+        """3.x spells a level as <Type>/<Length> children; 2.x as <BoQLevel Length=".."/>."""
         for child in bkdn_el:
             if callable(child.tag):
                 continue
@@ -346,8 +377,8 @@ class BaseV3Parser:
                 return True
         return False
 
-    def _parse_bkdn_v33(self, bkdn_el: etree._Element, info: BoQInfo) -> None:
-        """v3.3 format: single <BoQBkdn> with <BoQLevel Length="2"/> children."""
+    def _parse_bkdn_nested(self, bkdn_el: etree._Element, info: BoQInfo) -> None:
+        """2.x shape: one <BoQBkdn> holding <BoQLevel Length="2" Num="Yes"/> children."""
         for level_el in bkdn_el:
             if callable(level_el.tag):  # skip comments / processing instructions
                 continue
@@ -363,11 +394,11 @@ class BaseV3Parser:
                 bkdn_type=bkdn_type,
                 length=length,
                 key=level_el.get("Key", tag),
-                num=(level_el.get("Num", "") or "").strip().lower() in ("yes", "true", "1"),
+                num=_parse_yes_no(level_el.get("Num")),
             ))
 
-    def _parse_bkdn_v32(self, bkdn_els: list[Any], info: BoQInfo) -> None:
-        """v3.2 format: multiple <BoQBkdn> siblings, each with <Type>/<Length> children."""
+    def _parse_bkdn_sibling(self, bkdn_els: list[Any], info: BoQInfo) -> None:
+        """3.x shape: one <BoQBkdn> per level with <Type>/<LblBoQBkdn>/<Length>/<Num>."""
         for bkdn_el in bkdn_els:
             type_text = self._text(bkdn_el, "Type") or "BoQLevel"
             length_str = self._text(bkdn_el, "Length") or "0"
@@ -376,12 +407,20 @@ class BaseV3Parser:
             except ValueError:
                 length = 0
 
+            alignment_text = (self._text(bkdn_el, "Alignment") or "").lower()
+            alignment: Literal["left", "right"] | None = None
+            if alignment_text == "left":
+                alignment = "left"
+            elif alignment_text == "right":
+                alignment = "right"
             bkdn_type = _bkdn_type_from_tag(type_text)
             info.bkdn.append(BoQBkdn(
                 bkdn_type=bkdn_type,
                 length=length,
                 key=type_text,
-                num=(self._text(bkdn_el, "Num") or "").strip().lower() in ("yes", "true", "1"),
+                num=_parse_yes_no(self._text(bkdn_el, "Num")),
+                label=self._text(bkdn_el, "LblBoQBkdn"),
+                alignment=alignment,
             ))
 
     def _parse_boq_body(self, body_el: etree._Element, doc: GAEBDocument) -> BoQBody:
@@ -464,7 +503,7 @@ class BaseV3Parser:
         oz_path = oz_path or []
         rno = ctgy_el.get("RNoPart", "")
         label = self._text(ctgy_el, "LblTx") or ""
-        ctgy = BoQCtgy(rno=rno, label=label, lbl_tx=label)
+        ctgy = BoQCtgy(id=ctgy_el.get("ID"), rno=rno, label=label, lbl_tx=label)
 
         current_path = parent_path + ([label] if label else [rno] if rno else [])
         # OZ chain carries only the numeric RNoParts (skip unnumbered groups).
@@ -504,16 +543,13 @@ class BaseV3Parser:
         oz = item_el.get("RNoPart", "")
 
         item = Item(
+            id=item_el.get("ID"),
             oz=oz,
+            rno_index=item_el.get("RNoIndex"),
             oz_path=oz_path or [],
             hierarchy_path=hierarchy_path,
             lot_label=lot_label or None,
         )
-
-        st = self._text(item_el, "ShortText")
-        if not st:
-            st = self._extract_outline_text(item_el)
-        item.short_text = st or ""
 
         qty_el = self._find(item_el, "Qty")
         if qty_el is not None:
@@ -536,31 +572,15 @@ class BaseV3Parser:
             item.total_price = _parse_decimal(it_el.text)
 
         item.item_type = self._detect_item_type(item_el)
+        provis_text = self._text(item_el, "Provis")
+        if provis_text in (Provis.WITH_TOTAL.value, Provis.WITHOUT_TOTAL.value):
+            item.provis = Provis(provis_text)
 
         qty_splits = self._parse_qty_splits(item_el)
         if qty_splits:
             item.qty_splits = qty_splits
 
-        long_text_el = self._find(item_el, "LongText", "Textblock")
-        if long_text_el is not None:
-            # Store the INNER content only, not the wrapping <LongText> tag — otherwise
-            # the writer re-wraps it and each round trip nests one layer deeper.
-            html_content = _inner_xml(long_text_el)
-            item.long_text = parse_richtext(html_content)
-
-        if not item.long_text:
-            lt_str = self._text(item_el, "LongText")
-            if lt_str:
-                item.long_text = parse_plaintext(lt_str)
-
-        if not item.long_text:
-            desc_el = self._find(item_el, "Description")
-            if desc_el is not None:
-                detail_el = self._find_detail_txt(desc_el)
-                if detail_el is not None:
-                    item.long_text = parse_richtext(_inner_xml(detail_el))
-
-        item.attachments = self._parse_item_attachments(item_el)
+        self._parse_description(item_el, item)
 
         bim_el = self._find(item_el, "GUID", "BIMRef")
         if bim_el is not None:
@@ -569,6 +589,7 @@ class BaseV3Parser:
         co_el = self._find(item_el, "CONo")
         if co_el is not None:
             item.change_order_number = co_el.text.strip() if co_el.text else None
+            item.co_status = self._text(item_el, "COStatus")
 
         for ca_el in self._findall(item_el, "CostApproach"):
             ca = CostApproach(
@@ -635,17 +656,19 @@ class BaseV3Parser:
         lot_label: str = "",
         oz_path: list[str] | None = None,
     ) -> Item:
-        """Parse a ``<MarkupItem>`` element (X52) into an ``Item`` with ``ItemType.MARKUP``."""
+        """Parse a ``<MarkupItem>`` element into an ``Item`` with ``ItemType.MARKUP``."""
         oz = el.get("RNoPart", "")
         item = Item(
+            id=el.get("ID"),
             oz=oz,
+            rno_index=el.get("RNoIndex"),
             oz_path=oz_path or [],
             hierarchy_path=hierarchy_path,
             lot_label=lot_label or None,
             item_type=ItemType.MARKUP,
         )
 
-        item.short_text = self._text(el, "ShortText") or ""
+        self._parse_description(el, item)
         item.markup_type = self._text(el, "MarkupType")
 
         it_str = self._text(el, "ITMarkup")
@@ -661,9 +684,13 @@ class BaseV3Parser:
             item.discount_pct = _parse_decimal(disc_str)
 
         for sub_el in self._findall(el, "MarkupSubQty"):
+            ref_item_el = self._find(sub_el, "RefItem")
+            ref_id = ref_item_el.get("IDRef") if ref_item_el is not None else None
             ref_rno = self._text(sub_el, "RefRNoPart") or sub_el.get("RNoPart", "")
             sub_qty = _parse_decimal(self._text(sub_el, "SubQty"))
-            item.markup_sub_qtys.append(MarkupSubQty(ref_rno=ref_rno, sub_qty=sub_qty))
+            item.markup_sub_qtys.append(
+                MarkupSubQty(ref_rno=ref_rno, ref_id=ref_id, sub_qty=sub_qty)
+            )
 
         item.ctlg_assigns = self._parse_ctlg_assigns(el)
 
@@ -671,6 +698,34 @@ class BaseV3Parser:
             item.source_element = el
 
         return item
+
+    def _parse_description(self, el: etree._Element, item: Item) -> None:
+        """Fill short text, long text and attachments from an Item/MarkupItem element."""
+        st = self._text(el, "ShortText")
+        if not st:
+            st = self._extract_outline_text(el)
+        item.short_text = st or ""
+
+        long_text_el = self._find(el, "LongText", "Textblock")
+        if long_text_el is not None:
+            # Store the INNER content only, not the wrapping <LongText> tag — otherwise
+            # the writer re-wraps it and each round trip nests one layer deeper.
+            html_content = _inner_xml(long_text_el)
+            item.long_text = parse_richtext(html_content)
+
+        if not item.long_text:
+            lt_str = self._text(el, "LongText")
+            if lt_str:
+                item.long_text = parse_plaintext(lt_str)
+
+        if not item.long_text:
+            desc_el = self._find(el, "Description")
+            if desc_el is not None:
+                detail_el = self._find_detail_txt(desc_el)
+                if detail_el is not None:
+                    item.long_text = parse_richtext(_inner_xml(detail_el))
+
+        item.attachments = self._parse_item_attachments(el)
 
     def _detect_item_type(self, item_el: etree._Element) -> ItemType:
         # Synthetic pyGAEB <ItemTag>Text</ItemTag> convention (kept for back-compat).
@@ -684,8 +739,12 @@ class BaseV3Parser:
             if callable(child.tag):  # skip comments / processing instructions
                 continue
             item_type = MARKER_ELEMENT_TO_TYPE.get(self._local_tag(child.tag))
-            if item_type is not None:
-                return item_type
+            if item_type is None:
+                continue
+            # LumpSumItem/GlobItem are tgYesNo flags; "No" is not a marker.
+            if (child.text or "").strip().lower() == "no":
+                continue
+            return item_type
 
         return ItemType.NORMAL
 
@@ -827,6 +886,12 @@ class BaseV3Parser:
 
         return attachments
 
+    def _parse_address_opt(self, parent_el: etree._Element) -> Address | None:
+        """Like :meth:`_parse_address`, but ``None`` when *parent_el* holds no address."""
+        if self._find(parent_el, "Address") is None and not self._text(parent_el, "Name", "Name1"):
+            return None
+        return self._parse_address(parent_el)
+
     def _parse_address(self, parent_el: etree._Element) -> Address:
         """Parse a ``tgAddress`` structure from *parent_el*.
 
@@ -874,8 +939,27 @@ def _inner_xml(el: etree._Element) -> str:
     for child in el:
         if callable(child.tag):  # comments / processing instructions
             continue
-        parts.append(etree.tostring(child, encoding="unicode", method="html"))
+        # XML, not HTML, serialisation: keeps <br/> and <image/> well-formed so the
+        # writer can re-embed the markup instead of falling back to plain text.
+        parts.append(etree.tostring(child, encoding="unicode", method="xml"))
     return "".join(parts)
+
+
+def _resolve_markup_refs(boq: BoQ) -> None:
+    """Fill ``MarkupSubQty.ref_rno`` from ``RefItem/@IDRef`` once all item IDs are known."""
+    items = list(boq.iter_items())
+    oz_by_id = {item.id: item.oz for item in items if item.id}
+    for item in items:
+        for sub in item.markup_sub_qtys:
+            if sub.ref_id and not sub.ref_rno:
+                sub.ref_rno = oz_by_id.get(sub.ref_id, "")
+
+
+def _parse_yes_no(text: str | None) -> bool | None:
+    """Read a tgYesNo value; ``None`` when the element or attribute was absent."""
+    if text is None:
+        return None
+    return text.strip().lower() in ("yes", "true", "1")
 
 
 def _parse_decimal(text: str | None) -> Decimal | None:

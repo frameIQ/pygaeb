@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **MCP: `list_documents` tool.** Lists the GAEB files under the allowed roots (recursive, hidden directories and symlinks skipped, paginated, scan capped at 5 000 files) so an assistant can find a file without the user typing an absolute path. Ten read tools now.
+
+### Fixed
+
+- **MCP: bare file names now open.** `open_document` and `convert_document` resolved relative paths against the server's working directory, which desktop clients set to `/`, so `tender.X83` with a correct `--root` failed with "outside the allowed roots". Relative paths are now looked up under each root in order; write destinations resolve against `--output-dir`.
+- **MCP: unpriced tenders no longer report a total of `"0"`.** `open_document` returns `is_priced` and null totals for an X83 without prices, and `list_items` returns a null `sum_of_matched_totals`, so an assistant cannot read a blank tender as costing 0 €.
+
+## [1.17.0] - 2026-09-15
+
+DA XML 3.3 procurement output now validates against the official GAEB 2021-05
+schemas. Verified on the BVBS certification test files (Prüfdateien): every
+export step of the AVA, Bauausführung and Texterstellung criteria — X81, X82,
+X83, X84 and X86 — passes the per-phase XSD, where 1.16.3 failed every one of
+them (161 schema errors on the AVA X81 alone). The parser keeps reading every
+shape it read before; only what the writer *emits* changed.
+
+### Changed
+
+- **`<ProgSystem>` names pyGAEB as the generating software.** BVBS criterion 2.3 checks that the exported file names the software that produced it; the writer used to copy the source's value (so a pyGAEB export claimed to come from the source tool). Every 3.x write now stamps `pyGAEB <version>`; pass `prog_system=` (and `prog_name=`) to `GAEBWriter.write()`/`to_bytes()` to name your own application instead. `<ProgName>` keeps the source's value, as issue #34 required. The invented `<ProgSystemVersion>` element is no longer written for 3.x — no schema defines it.
+- **Every 3.x version writes the breakdown in the sibling form.** 1.16.3 introduced `bkdn_sibling_form` for "3.2 and earlier" and kept the nested `<BoQBkdn><BoQLevel Length=…/>` shape for 3.3. The official 3.3 XSD has no such shape: `tgBoQBkdn` is `Type, LblBoQBkdn?, Length, Num, Alignment?`, one element per level, for 3.0 through 3.3. The nested shape is DA XML 2.x (`LVGliederung`/`OZEbene`) and is still written for 2.0/2.1. `Num` is required and is written as `Yes` unless the model says `False`; level labels and alignment are now carried.
+- **The writer follows each phase's schema profile.** X83 (tender) has no prices, no totals and no contractor; X84 (bid) has no category labels, no catalog assignments, no position-type markers, and its item texts hold only the bidder's `TextComplement` blocks; X86 (contract) requires owner, contractor and category totals. Elements the target phase cannot carry are left out and reported once per element kind as `… not written … not part of X84 in DA XML 3.x`, which is distinct from the `dropped` wording that signals real data loss. A missing but required party block (X84 CTR, X86 OWN/CTR) is written as an empty-address placeholder with a warning; a missing required `Totals` is computed from the items.
+- **X84 exports no longer carry Bedarfs-/Pauschal-/Alternativposition markers.** The X84 schema has none — a bid inherits the position types from its tender (X83). A pyGAEB X84 round trip therefore reads those items back as Normal; the writer says so per document. Round-trip tests that need markers and prices now go through X86.
+- **pyGAEB-only elements are no longer written into 3.x output.** `<Attachment>` (embedded images still travel inside the long text markup), `<GUID>`, `QtySplit/Label` and `QtySplit/QU` (`tgQtySplit` is `(QtyPcnt|Qty) CtlgAssign*`), `<ShortText>` on markup items and `<RefRNoPart>` do not exist in the GAEB schema. `<BidderUP>` (Preisspiegel data) is the one exception: it is still written, with a warning, because GAEB has no home for it and dropping it would lose the data.
+- **`<CONo>` is only written together with `<COStatus>`**, as the schema demands; set `item.co_status` (e.g. `Recog`) for change-order items or the number is dropped with a warning.
+
+### Added
+
+- **`validate_xml(xml, version, phase, xsd_dir=None)`, `resolve_schema()`, `XsdResult`/`XsdError`** (in `pygaeb.parser.gaeb_parser`, exported from `pygaeb`) and **`GAEBWriter.validate_against_xsd(doc, phase=…, xsd_dir=…)`**. The lookup understands the official distribution's file names (`GAEB_DA_XML_83_3.3_2021-05.xsd` + the `Lib` include), in a flat folder or under `v33/`, and picks the schema by exchange phase. `GAEBParser.parse(xsd_dir=…)` and `BoQBuilder.build(xsd_dir=…)` use the same lookup; both used to load whichever `.xsd` globbed first and validated against the wrong phase. Schemas remain unbundled (GAEB licensing).
+- **`pygaeb.writer.phase_profiles`** — the per-phase allow/require tables (`LIB`, `X83`, `X84`, `X86`, `GENERIC`) the writer consults; `profile_for(phase)`.
+- **Model fields the schema needs:** `Item.id`, `Item.rno_index`, `Item.provis` (`Provis.WITH_TOTAL`/`WITHOUT_TOTAL` — Bedarfsposition mit/ohne GB), `Item.co_status`; `BoQ.id`, `Lot.id`, `BoQCtgy.id`; `BoQBkdn.label`/`alignment` and a tri-state `num`; `BoQInfo.outl_compl`, `BoQInfo.lbl_up_comp_types` (`LblUPCompN/@Type`); `AwardInfo.contractor` (`Party`: CTR address, DPNo, AwardNo, AcctsPayNo, BidderNo) and `AwardInfo.construction_site` (`ConstructionSite`); `MarkupSubQty.ref_id` (`RefItem/@IDRef`, resolved to `ref_rno` after parsing). All parsed from 3.x sources and written back.
+- **`tests/fixtures/synthetic_33.X86`**, a self-authored, schema-valid 3.3 award covering the structures the BVBS criteria check (Bedarf mit GB, Pauschal, Index position, Zuschlag with `RefItem`, labelled breakdown levels, UP component types, owner and contractor). **`tests/test_writer_conformance_shape.py`** pins the writer's structure without XSDs; **`tests/test_xsd_resolver.py`** covers the lookup; **`tests/test_bvbs_conformance.py`** runs the certification export matrix against the real files and schemas when `PYGAEB_BVBS_FIXTURES` and `PYGAEB_XSD_DIR` are set, and is skipped otherwise.
+
+### Fixed
+
+- **Required `@ID` attributes were never written** on `BoQ`, `BoQCtgy`, `Item` and `MarkupItem` (`xs:ID`, required) — every 3.x export failed the schema on this alone. Source IDs are kept; missing ones are generated as document-unique NCNames (`I1`, `C1`, …), deterministically, and a duplicated or invalid source ID is replaced. The X31 writer shares the allocator, so items repeating an `RNoPart` across categories no longer collide on `I_<rno>`.
+- **Element order inside `GAEBInfo`, `PrjInfo`, `AwardInfo`, `BoQInfo`, `BoQCtgy`, `Item`, `MarkupItem` and `Address` now follows the schema sequences** (`VersDate, Date, Time, ProgSystem, ProgName`; `CtlgAssign` before `UP`; `QtySplit` right after `Qty`; `UPComp`/`DiscountPcnt` only inside the `UP` group; `ITMarkup` before `Markup`; `Totals` after `BoQBody`; `ILN` before `Contact`). `Prj`/`PrjName`/`PrcTyp` were written into `AwardInfo`, which has no such elements — the project number now goes to `PrjInfo/PrjID`.
+- **`<VersDate>` is taken from the target version** (`2021-05` for 3.3, `2013-10` for 3.2) when a document is converted, instead of carrying the source's value into a version whose schema enumerates a different one.
+- **`<LblTx>` and `<Descrip>` were written as plain text**; both are formatted text (`p`/`span`), and `LblTx` is required — an empty element is written for label-less categories.
+- **`<Provis>` was written empty**; it now carries `WithTotal`/`WithoutTotal`, so the Bedarfsposition-mit/ohne-GB distinction survives. `<LumpSumItem>` is written as `Yes` (`tgYesNo`), and a `<LumpSumItem>No</LumpSumItem>` no longer reads as a Pauschalposition.
+- **Owner and contractor blocks:** `Address/Email` (was `EMail`), the four required address children are always present in X84/X86 party blocks, and the legacy `<OWN>text</OWN>` inside `AwardInfo` is written back as `OWN/Address/Name1`.
+- **`MarkupSubQty` referenced items by an invented `<RefRNoPart>`**; the schema's `<RefItem IDRef="…"/>` is written, resolved from the item's ID or its RNoPart, and read back.
+- **`Totals` wrote `DiscountPcnt` and `DiscountAmt` side by side and without `TotAfterDisc`**; the schema allows one discount form, only together with the discounted total.
+- **Long-text markup was serialised as HTML** (`<br>`), so texts containing a line break could not be re-embedded and fell back to plain paragraphs, losing inline formatting and embedded images on the way out. XML serialisation keeps them intact.
+- **`BoQBuilder`'s XSD check used a bare `etree.XMLParser`** instead of the hardened parser factory.
+
 ## [1.16.3] - 2026-08-13
 
 ### Fixed

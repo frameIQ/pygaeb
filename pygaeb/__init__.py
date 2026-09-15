@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.16.3"
+__version__ = "1.17.0"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
@@ -57,11 +57,19 @@ def __getattr__(name: str) -> object:
         "CrossPhaseValidator": ("pygaeb.validation.cross_phase_validator", "CrossPhaseValidator"),
         "register_validator": ("pygaeb.validation", "register_validator"),
         "clear_validators": ("pygaeb.validation", "clear_validators"),
+        # XSD validation (phase-aware lookup of the official schema files)
+        "validate_xml": ("pygaeb.parser.gaeb_parser", "validate_xml"),
+        "resolve_schema": ("pygaeb.parser.gaeb_parser", "resolve_schema"),
+        "XsdResult": ("pygaeb.parser.gaeb_parser", "XsdResult"),
+        "XsdError": ("pygaeb.parser.gaeb_parser", "XsdError"),
         # Prompt registration
         "register_prompt": ("pygaeb.classifier.prompt_templates", "register_prompt"),
         # Models (advanced — most users access via doc.award.boq, not direct import)
         "AwardInfo": ("pygaeb.models.document", "AwardInfo"),
         "GAEBInfo": ("pygaeb.models.document", "GAEBInfo"),
+        "Party": ("pygaeb.models.document", "Party"),
+        "ConstructionSite": ("pygaeb.models.document", "ConstructionSite"),
+        "Provis": ("pygaeb.models.enums", "Provis"),
         "Attachment": ("pygaeb.models.item", "Attachment"),
         "ClassificationResult": ("pygaeb.models.item", "ClassificationResult"),
         "CostEstimate": ("pygaeb.models.item", "CostEstimate"),
@@ -219,6 +227,7 @@ __all__ = [
     "ClassificationResult",
     "ConsortiumMember",
     "ConsortiumMemberRef",
+    "ConstructionSite",
     "ConversionReport",
     "CostApproach",
     "CostElement",
@@ -271,9 +280,11 @@ __all__ = [
     "OrderInfo",
     "OrderItem",
     "ParsedTakeoff",
+    "Party",
     "PhaseTransition",
     "PlannerInfo",
     "PrjInfoQD",
+    "Provis",
     "PyGAEBError",
     "PyGAEBSettings",
     "QDetermItem",
@@ -303,6 +314,8 @@ __all__ = [
     "ValidationMode",
     "ValidationResult",
     "ValidationSeverity",
+    "XsdError",
+    "XsdResult",
     "__version__",
     "aparse",
     "aparse_bytes",
@@ -322,8 +335,10 @@ __all__ = [
     "register_prompt",
     "register_validator",
     "reset_settings",
+    "resolve_schema",
     "to_database",
     "to_excel",
     "to_pdf",
     "to_xrechnung",
+    "validate_xml",
 ]

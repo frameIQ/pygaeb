@@ -25,8 +25,9 @@ class TestGAEBWriter:
         assert "EUR" in content
 
     def test_write_preserves_items(self, sample_document, tmp_path):
-        output = tmp_path / "output.X83"
-        GAEBWriter.write(sample_document, output)
+        output = tmp_path / "output.X86"
+        # X86 carries prices; an X83 (tender) has no UP by schema.
+        GAEBWriter.write(sample_document, output, phase=ExchangePhase.X86)
         content = output.read_text(encoding="utf-8")
         assert "Mauerwerk Innenwand" in content
         assert "45.50" in content

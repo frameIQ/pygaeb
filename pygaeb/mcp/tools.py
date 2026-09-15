@@ -26,8 +26,10 @@ Write them for the model first and the human second.
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -37,13 +39,17 @@ from pydantic import Field
 from pygaeb.api.boq_tree import BoQNode
 from pygaeb.mcp import views
 from pygaeb.mcp.handles import DocumentCache
-from pygaeb.mcp.safety import resolve_output_path, resolve_within_roots
+from pygaeb.mcp.safety import is_gaeb_suffix, resolve_output_path, resolve_within_roots
 from pygaeb.models.enums import ValidationMode
 
 __all__ = ["ToolContext", "build_tools"]
 
 Sort = Literal["oz", "total_desc", "qty_desc"]
 Severity = Literal["ERROR", "WARNING", "INFO"]
+
+# A root like a home directory can hold millions of files; stop walking once
+# this many GAEB files are found and say so, rather than scanning forever.
+MAX_LISTED_DOCUMENTS = 5_000
 
 # A tool is either sync (cheap, cached lookups) or async (heavy work in a
 # worker thread) — see the module docstring for which is which and why.
@@ -91,8 +97,76 @@ def _affects_total(item: Any) -> bool:
 def build_tools(ctx: ToolContext) -> list[ToolFn]:
     """Build the tool callables bound to *ctx*.
 
-    Returns the 9 read tools, plus the 2 write tools when ``ctx.allow_write``.
+    Returns the 10 read tools, plus the 2 write tools when ``ctx.allow_write``.
     """
+
+    # ── list_documents ─────────────────────────────────────────────────
+
+    async def list_documents(
+        name_contains: Annotated[
+            str | None, Field(description="Case-insensitive substring of the file name.")
+        ] = None,
+        limit: Annotated[int, Field(description="Max files to return.", ge=1, le=200)] = 50,
+        offset: Annotated[int, Field(description="Files to skip.", ge=0)] = 0,
+    ) -> dict[str, Any]:
+        """List the GAEB files the server is allowed to open.
+
+        Call this when you do not know the exact file name or path. Each row's
+        `path` can be passed straight to `open_document`. Every allowed root is
+        scanned recursively (hidden directories skipped); only files with a GAEB
+        extension are listed unless the server allows any extension.
+        """
+        needle = name_contains.lower() if name_contains else None
+
+        def _scan() -> tuple[list[dict[str, Any]], bool]:
+            found: list[dict[str, Any]] = []
+            for root in ctx.roots:
+                for dirpath, dirnames, filenames in os.walk(root):
+                    dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
+                    for name in sorted(filenames):
+                        if name.startswith("."):
+                            continue
+                        if not ctx.allow_any_extension and not is_gaeb_suffix(Path(name).suffix):
+                            continue
+                        if needle is not None and needle not in name.lower():
+                            continue
+                        file = Path(dirpath) / name
+                        # A symlink out of the root would be refused by open_document anyway.
+                        if file.is_symlink():
+                            continue
+                        try:
+                            stat = file.stat()
+                        except OSError:
+                            continue
+                        found.append(
+                            {
+                                "path": str(file),
+                                "name": name,
+                                "root": str(root),
+                                "size_bytes": stat.st_size,
+                                "modified": datetime.fromtimestamp(
+                                    stat.st_mtime, tz=timezone.utc
+                                ).isoformat(timespec="seconds"),
+                            }
+                        )
+                        if len(found) >= MAX_LISTED_DOCUMENTS:
+                            return found, True
+            return found, False
+
+        # Walking a large tree is blocking I/O; keep it off the event loop.
+        files, scan_truncated = await asyncio.to_thread(_scan)
+        page, total, has_more = views.paginate(files, offset, limit)
+        return views.bound(
+            {
+                "roots": [str(r) for r in ctx.roots],
+                "files": page,
+                "total_matched": total,
+                "offset": offset,
+                "limit": limit,
+                "has_more": has_more,
+                "scan_truncated": scan_truncated,
+            }
+        )
 
     # ── open_document ──────────────────────────────────────────────────
 
@@ -106,11 +180,15 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         """Open a GAEB file and return a handle plus a summary of the document.
 
         Call this first. The returned `handle` is required by every other tool.
-        Re-opening an unchanged file is free and returns the same handle.
+        Re-opening an unchanged file is free and returns the same handle. A bare
+        file name is looked up under the allowed roots; use `list_documents` if
+        you do not know the name.
 
         The summary is deliberately small — totals, counts, project metadata, and
         quality scores. To see the contents, drill down with `list_structure` and
-        `list_items`; do not expect this to return the items themselves.
+        `list_items`; do not expect this to return the items themselves. On an
+        unpriced tender (an X83 before bids) `is_priced` is false and the totals
+        are null, not zero.
         """
         mode = ValidationMode.STRICT if validation == "strict" else ValidationMode.LENIENT
         resolved = resolve_within_roots(
@@ -228,8 +306,8 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
 
         `sum_of_matched_totals` follows VOB/A: alternative and eventual positions
         are excluded (each row's `affects_total` says whether it counted). On an
-        unpriced tender (e.g. an X83 before bids), totals are null — price
-        filters and total-based sorting are meaningless there.
+        unpriced tender (e.g. an X83 before bids), totals are null, not zero —
+        price filters and total-based sorting are meaningless there.
         """
         entry = ctx.cache.get(handle)
 
@@ -266,16 +344,13 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         elif sort == "qty_desc":
             matched.sort(key=lambda i: getattr(i, "qty", None) or Decimal(0), reverse=True)
 
-        sum_matched = sum(
-            (
-                getattr(i, "total_price", None) or Decimal(0)
-                for i in matched
-                if _affects_total(i)
-            ),
-            Decimal(0),
-        )
-        grand = entry.doc.grand_total if entry.doc.is_procurement else Decimal(0)
-        pct = float(sum_matched / grand * 100) if grand else None
+        priced = [i for i in matched if getattr(i, "total_price", None) is not None]
+        sum_matched: Decimal | None = None
+        pct: float | None = None
+        if priced:
+            sum_matched = sum((i.total_price for i in priced if _affects_total(i)), Decimal(0))
+            grand = entry.doc.grand_total if entry.doc.is_procurement else Decimal(0)
+            pct = float(sum_matched / grand * 100) if grand else None
 
         page, total, has_more = views.paginate(matched, offset, limit)
         return views.bound(
@@ -285,7 +360,8 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
                 "offset": offset,
                 "limit": limit,
                 "has_more": has_more,
-                "sum_of_matched_totals": str(sum_matched),
+                # Null when nothing matched carries a price (an unpriced X83).
+                "sum_of_matched_totals": str(sum_matched) if sum_matched is not None else None,
                 "pct_of_grand_total": round(pct, 2) if pct is not None else None,
             }
         )
@@ -634,6 +710,7 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         return views.bound(await asyncio.to_thread(_analyze))
 
     tools: list[ToolFn] = [
+        list_documents,
         open_document,
         list_structure,
         list_items,

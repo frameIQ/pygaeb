@@ -198,7 +198,8 @@ class TestBoQRecalculateTotals:
 
 class TestEditRoundTrip:
     def test_edit_and_write(self, tmp_path: Path) -> None:
-        doc = _make_doc(phase=ExchangePhase.X83)
+        # X86 so the edited price is written back (an X83 carries no prices).
+        doc = _make_doc(phase=ExchangePhase.X86)
         doc.award.boq.add_item(
             "01.0030", "01",
             short_text="Zusaetzlich",
@@ -207,7 +208,7 @@ class TestEditRoundTrip:
             total_price=Decimal("2500.00"),
             item_type=ItemType.NORMAL,
         )
-        out = tmp_path / "edited.X83"
+        out = tmp_path / "edited.X86"
         GAEBWriter.write(doc, out)
         doc2 = GAEBParser.parse(str(out))
         assert doc2.award.boq.get_item("01.0030") is not None

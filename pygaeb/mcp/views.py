@@ -35,6 +35,7 @@ __all__ = [
     "SHORT_TEXT_CHARS",
     "bound",
     "document_summary",
+    "is_priced",
     "item_detail",
     "item_row",
     "paginate",
@@ -174,6 +175,19 @@ def attachment_meta(att: Attachment) -> dict[str, Any]:
     }
 
 
+def is_priced(doc: Any) -> bool:
+    """Whether any item carries a unit or total price.
+
+    An X83 before bids has no prices at all, and the library's ``grand_total``
+    sums to ``0`` there — which a model would faithfully report as "the tender
+    costs 0 €". Summaries use this to report ``null`` instead.
+    """
+    return any(
+        _attr(item, "unit_price") is not None or _attr(item, "total_price") is not None
+        for item in doc.iter_items()
+    )
+
+
 def document_summary(doc: Any, handle: str, path: str, cached: bool) -> dict[str, Any]:
     """The orienting payload for ``open_document``.
 
@@ -213,14 +227,17 @@ def document_summary(doc: Any, handle: str, path: str, cached: bool) -> dict[str
 
     if doc.is_procurement:
         award = doc.award
+        priced = is_priced(doc)
         payload.update(
             {
                 "project_no": award.project_no,
                 "project_name": award.project_name,
                 "client": award.client,
                 "currency": award.currency,
-                "grand_total": _dec(doc.grand_total),
-                "computed_grand_total": _dec(doc.computed_grand_total),
+                # Null, not "0", on an unpriced tender — see is_priced().
+                "is_priced": priced,
+                "grand_total": _dec(doc.grand_total) if priced else None,
+                "computed_grand_total": _dec(doc.computed_grand_total) if priced else None,
             }
         )
         boq = getattr(award, "boq", None)

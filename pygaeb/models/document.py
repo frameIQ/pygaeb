@@ -44,6 +44,26 @@ class GAEBInfo(BaseModel):
     source_element: Any = Field(default=None, exclude=True, repr=False)
 
 
+class Party(BaseModel):
+    """A contracting party block (``<OWN>`` owner or ``<CTR>`` contractor)."""
+
+    address: Address | None = None
+    dp_no: str | None = None
+    award_no: str | None = None
+    #: ``AcctRecNo`` (OWN) / ``AcctsPayNo`` (CTR).
+    acct_no: str | None = None
+    #: ``BidderNo`` — CTR only.
+    bidder_no: str | None = None
+
+
+class ConstructionSite(BaseModel):
+    """``<CnstSite>`` — where the work is performed."""
+
+    address: Address | None = None
+    id_no: str | None = None
+    name: str | None = None
+
+
 class AwardInfo(BaseModel):
     """Project-level award information (procurement phases X80-X89).
 
@@ -79,6 +99,9 @@ class AwardInfo(BaseModel):
     # --- OWN (owner/client) ---
     owner_address: Address | None = None
     award_no: str | None = None
+    # --- CTR (contractor / bidder) and CnstSite ---
+    contractor: Party | None = None
+    construction_site: ConstructionSite | None = None
 
     # --- PrjInfo fields ---
     prj_id: str | None = None

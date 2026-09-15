@@ -479,6 +479,10 @@ for issue in issues:
 | DA XML 3.3 | Track B (English elements) | v1.0 |
 | GAEB 90 | Track C (fixed-width) | Planned |
 
+Written DA XML 3.3 procurement files (X81–X86) validate against the official
+GAEB 2021-05 XSDs — verified on the BVBS certification test files (since
+v1.17.0; see the [writing guide](docs/guides/writing.md#schema-conformance)).
+
 | Phase | Description | Since |
 |-------|-------------|-------|
 | X31 | Quantity Determination | v1.4.0 |

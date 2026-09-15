@@ -6,6 +6,8 @@
     "vers_date": null,
     "prog_system": null,
     "prog_system_version": null,
+    "prog_name": null,
+    "time": null,
     "date": null
   },
   "award": {
@@ -31,39 +33,49 @@
     "warranty_unit": null,
     "owner_address": null,
     "award_no": null,
+    "contractor": null,
+    "construction_site": null,
     "prj_id": null,
     "lbl_prj": null,
     "description": null,
     "currency_label": null,
+    "boq_id": null,
     "bid_comm_perm": false,
     "alter_bid_perm": false,
     "up_frac_dig": null,
     "ctlg_assigns": [],
     "boq": {
+      "id": null,
       "boq_info": null,
       "lots": [
         {
+          "id": null,
           "rno": "1",
           "label": "Default",
           "boq_info": null,
           "body": {
             "categories": [
               {
+                "id": null,
                 "rno": "01",
                 "label": "Rohbau",
                 "items": [
                   {
+                    "id": null,
                     "oz": "0010",
+                    "rno_index": null,
                     "oz_path": [
                       "01"
                     ],
                     "short_text": "Mauerwerk KS 240mm",
                     "long_text": null,
                     "qty": "100",
+                    "qty_tbd": false,
                     "unit": "m2",
                     "unit_price": "45.50",
                     "total_price": "4550.00",
                     "item_type": "Normal",
+                    "provis": null,
                     "qty_splits": [],
                     "hierarchy_path": [
                       "Rohbau"
@@ -74,6 +86,7 @@
                     "attachments": [],
                     "bim_guid": null,
                     "change_order_number": null,
+                    "co_status": null,
                     "cost_approaches": [],
                     "up_components": [],
                     "discount_pct": null,
@@ -84,17 +97,21 @@
                     "bidder_prices": []
                   },
                   {
+                    "id": null,
                     "oz": "0020",
+                    "rno_index": null,
                     "oz_path": [
                       "01"
                     ],
                     "short_text": "Beton C25/30",
                     "long_text": null,
                     "qty": "50",
+                    "qty_tbd": false,
                     "unit": "m3",
                     "unit_price": "180.00",
                     "total_price": "9000.00",
                     "item_type": "Normal",
+                    "provis": null,
                     "qty_splits": [],
                     "hierarchy_path": [
                       "Rohbau"
@@ -105,6 +122,7 @@
                     "attachments": [],
                     "bim_guid": null,
                     "change_order_number": null,
+                    "co_status": null,
                     "cost_approaches": [],
                     "up_components": [],
                     "discount_pct": null,
@@ -138,6 +156,6 @@
       "version_specific": false
     }
   ],
-  "source_file": "/private/var/folders/yn/5cv_3lxj4qb1qxh4v5dsdf940000gn/T/pytest-of-kalyanakannanpadivasu/pytest-0/test_export_default_output_nam0/tender.X86",
+  "source_file": "/private/tmp/claude-501/pytest-of-kalyanakannanpadivasu/pytest-11/test_export_default_output_nam0/tender.X86",
   "raw_namespace": "http://www.gaeb.de/GAEB_DA_XML/DA86/3.3"
 }

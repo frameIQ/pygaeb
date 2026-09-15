@@ -1,12 +1,19 @@
 """Unified domain models for GAEB DA XML documents."""
 
 from pygaeb.models.boq import BoQBkdn, BoQBody, BoQCtgy, BoQInfo, Lot
-from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
+from pygaeb.models.document import (
+    AwardInfo,
+    ConstructionSite,
+    GAEBDocument,
+    GAEBInfo,
+    Party,
+)
 from pygaeb.models.enums import (
     BkdnType,
     DocumentKind,
     ExchangePhase,
     ItemType,
+    Provis,
     SourceVersion,
     ValidationMode,
     ValidationSeverity,
@@ -43,6 +50,7 @@ __all__ = [
     "BoQCtgy",
     "BoQInfo",
     "ClassificationResult",
+    "ConstructionSite",
     "CostEstimate",
     "CustomerInfo",
     "DeliveryPlaceInfo",
@@ -57,7 +65,9 @@ __all__ = [
     "Lot",
     "OrderInfo",
     "OrderItem",
+    "Party",
     "PlannerInfo",
+    "Provis",
     "QtySplit",
     "RichText",
     "SourceVersion",

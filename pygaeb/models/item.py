@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from pygaeb.models.catalog import CtlgAssign
-from pygaeb.models.enums import ClassificationFlag, ItemType, ValidationSeverity
+from pygaeb.models.enums import ClassificationFlag, ItemType, Provis, ValidationSeverity
 
 
 class QtySplit(BaseModel):
@@ -106,9 +106,12 @@ class ExtractionResult(BaseModel):
 
 
 class MarkupSubQty(BaseModel):
-    """Reference to an item being marked up (X52 ``<MarkupSubQty>``)."""
+    """Reference to an item being marked up (``<MarkupSubQty>``)."""
 
     ref_rno: str = ""
+    #: ``RefItem/@IDRef`` — the referenced item's ``@ID``; resolved from
+    #: ``ref_rno`` on write when absent.
+    ref_id: str | None = None
     sub_qty: Decimal | None = None
 
 
@@ -157,7 +160,11 @@ class Item(BaseModel):
             parts.append(f"total={self.total_price}")
         return f"Item({', '.join(parts)})"
 
+    #: Source ``@ID`` (xs:ID); the writer generates one when absent.
+    id: str | None = None
     oz: str = ""
+    #: ``@RNoIndex`` — index suffix (e.g. "A") distinguishing sibling items.
+    rno_index: str | None = None
     oz_path: list[str] = Field(default_factory=list)
     short_text: str = ""
     long_text: RichText | None = None
@@ -168,6 +175,8 @@ class Item(BaseModel):
     unit_price: Decimal | None = None
     total_price: Decimal | None = None
     item_type: ItemType = ItemType.NORMAL
+    #: ``<Provis>`` value for EVENTUAL items; None when the source left it unsaid.
+    provis: Provis | None = None
     qty_splits: list[QtySplit] = Field(default_factory=list)
     hierarchy_path: list[str] = Field(default_factory=list)
     lot_label: str | None = None
@@ -176,6 +185,8 @@ class Item(BaseModel):
     attachments: list[Attachment] = Field(default_factory=list)
     bim_guid: str | None = None
     change_order_number: str | None = None
+    #: ``<COStatus>`` — the schema only allows CONo together with it.
+    co_status: str | None = None
     cost_approaches: list[CostApproach] = Field(default_factory=list)
     up_components: list[Decimal] = Field(default_factory=list)
     discount_pct: Decimal | None = None
