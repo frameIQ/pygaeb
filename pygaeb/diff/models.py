@@ -174,6 +174,14 @@ class DiffDocInfo(BaseModel):
     grand_total: Decimal | None = None
 
 
+class DuplicateOz(BaseModel):
+    """A full OZ one document repeats; only its first copy took part in matching."""
+
+    oz: str = ""
+    count_a: int = 1
+    count_b: int = 1
+
+
 class DiffSummary(BaseModel):
     """Top-level summary of the comparison."""
 
@@ -187,6 +195,7 @@ class DiffSummary(BaseModel):
     is_likely_same_project: bool = True
     financial_impact: Decimal | None = None
     max_significance: Significance = Significance.LOW
+    duplicates_collapsed: list[DuplicateOz] = Field(default_factory=list)
 
 
 class DiffResult(BaseModel):

@@ -630,3 +630,24 @@ class TestLikelySameProject:
         summary = BoQDiff.compare(a, b).summary
         assert summary.match_ratio == 0.0
         assert summary.is_likely_same_project is False
+
+
+class TestCollapsedDuplicates:
+    def test_repeated_full_oz_is_matched_once_and_reported(self):
+        items = [
+            _make_item(oz="0010", oz_path=["01"], short_text="first", unit_price=Decimal("48")),
+            _make_item(oz="0010", oz_path=["01"], short_text="second", unit_price=Decimal("48")),
+            _make_item(oz="0020", oz_path=["01"]),
+        ]
+        boq_a = BoQ(lots=[Lot(rno="1", body=BoQBody(categories=[BoQCtgy(rno="01", items=items)]))])
+        ctgy_b = BoQCtgy(rno="01", items=items[:1] + items[2:])
+        boq_b = BoQ(lots=[Lot(rno="1", body=BoQBody(categories=[ctgy_b]))])
+        result = match_items(BoQTree(boq_a), BoQTree(boq_b))
+        assert len(result.matched) == 2 and not result.unmatched_a and not result.unmatched_b
+        assert result.duplicates_a == {"01.0010": 2} and result.duplicates_b == {}
+        assert result.matched[0][0].item.short_text == "first"
+
+        summary = BoQDiff.compare(_make_doc(boq=boq_a), _make_doc(boq=boq_b)).summary
+        assert [d.model_dump() for d in summary.duplicates_collapsed] == [
+            {"oz": "01.0010", "count_a": 2, "count_b": 1}
+        ]

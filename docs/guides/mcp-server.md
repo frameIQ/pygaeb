@@ -45,13 +45,13 @@ Every tool except `list_documents` and `open_document` takes a `handle`.
 
 | Tool | Purpose | Bounding |
 |---|---|---|
-| `list_documents` | GAEB files under the allowed roots, so the model can find a file by name | paginated; scan capped at 5 000 files |
+| `list_documents` | GAEB files under the allowed roots, so the model can find a file by name; `with_digest` adds a content hash per file | paginated; scan capped at 5 000 files |
 | `open_document` | Parse a file, return a handle + summary | ~25 scalars, fixed size |
 | `list_structure` | Direct children of a level, with `item_count` and `subtotal` | paginated, `depth=1` |
 | `list_items` | Filtered, sorted item rows | paginated; no long text |
-| `get_item` | One item in full | long text previewed to 500 chars |
+| `get_item` | One item in full; refuses an ambiguous OZ, `item_id` picks a copy | long text previewed to 500 chars |
 | `get_item_long_text` | Full specification prose | explicit character paging |
-| `search_items` | Find text, return ±80-char snippets | paginated; windows, not fields |
+| `search_items` | Find text in OZ, short text, category label or long text; `whole_word` for short queries | paginated; ±80-char windows, not fields |
 | `list_validation_issues` | Parse problems | counts always; entries paginated |
 | `compare_documents` | Diff two procurement docs | counts + paginated change stream |
 | `analyze_bids` | Rank bidders, price spreads | ranking + capped spreads |
