@@ -303,7 +303,7 @@ class BaseV3Parser:
 
         boq_body_el = self._find(boq_el, "BoQBody")
         if boq_body_el is not None:
-            lot = Lot(rno="1", label="Default", boq_info=boq.boq_info)
+            lot = Lot(rno="1", label="Default", synthetic=True, boq_info=boq.boq_info)
             lot.body = self._parse_boq_body(boq_body_el, doc)
             lot.totals = self._parse_totals(boq_body_el)
             boq.lots.append(lot)

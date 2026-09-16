@@ -7,6 +7,7 @@ from decimal import Decimal
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import ValidationSeverity
 from pygaeb.models.item import ValidationResult
+from pygaeb.validation._common import item_ref
 
 _ROUNDING_TOLERANCE = Decimal("0.01")
 
@@ -30,7 +31,7 @@ def validate_numerics(doc: GAEBDocument) -> list[ValidationResult]:
                 results.append(ValidationResult(
                     severity=ValidationSeverity.WARNING,
                     message=(
-                        f"Item {item.oz}: Total price mismatch — "
+                        f"{item_ref(item)}: Total price mismatch — "
                         f"stored={item.total_price}, "
                         f"computed={item.computed_total} "
                         f"(diff={diff})"
@@ -45,7 +46,7 @@ def validate_numerics(doc: GAEBDocument) -> list[ValidationResult]:
                 results.append(ValidationResult(
                     severity=ValidationSeverity.WARNING,
                     message=(
-                        f"Item {item.oz}: Unit price {item.unit_price} exceeds "
+                        f"{item_ref(item)}: Unit price {item.unit_price} exceeds "
                         f"GAEB limit of {_MAX_PRE_DECIMAL_EP} pre-decimal digits "
                         f"(has {pre_decimal})"
                     ),
@@ -59,7 +60,7 @@ def validate_numerics(doc: GAEBDocument) -> list[ValidationResult]:
                 results.append(ValidationResult(
                     severity=ValidationSeverity.WARNING,
                     message=(
-                        f"Item {item.oz}: Total price {item.total_price} exceeds "
+                        f"{item_ref(item)}: Total price {item.total_price} exceeds "
                         f"GAEB limit of {_MAX_PRE_DECIMAL_GB} pre-decimal digits "
                         f"(has {pre_decimal})"
                     ),
@@ -73,7 +74,7 @@ def validate_numerics(doc: GAEBDocument) -> list[ValidationResult]:
                 results.append(ValidationResult(
                     severity=ValidationSeverity.WARNING,
                     message=(
-                        f"Item {item.oz}: Quantity {item.qty} exceeds "
+                        f"{item_ref(item)}: Quantity {item.qty} exceeds "
                         f"GAEB limit of {_MAX_PRE_DECIMAL_QTY} pre-decimal digits "
                         f"(has {pre_decimal})"
                     ),
@@ -85,7 +86,7 @@ def validate_numerics(doc: GAEBDocument) -> list[ValidationResult]:
                 results.append(ValidationResult(
                     severity=ValidationSeverity.WARNING,
                     message=(
-                        f"Item {item.oz}: Quantity {item.qty} has {dec_places} "
+                        f"{item_ref(item)}: Quantity {item.qty} has {dec_places} "
                         f"decimal places, GAEB limit is {_MAX_DECIMAL_QTY}"
                     ),
                     xpath_location=f"Item[@RNoPart='{item.oz}']/Qty",
@@ -96,7 +97,7 @@ def validate_numerics(doc: GAEBDocument) -> list[ValidationResult]:
             results.append(ValidationResult(
                 severity=ValidationSeverity.WARNING,
                 message=(
-                    f"Item {item.oz}: {len(item.up_components)} unit price components, "
+                    f"{item_ref(item)}: {len(item.up_components)} unit price components, "
                     f"GAEB limit is {_MAX_UP_COMPONENTS}"
                 ),
                 xpath_location=f"Item[@RNoPart='{item.oz}']/UPComp",

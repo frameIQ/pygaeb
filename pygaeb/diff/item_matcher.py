@@ -58,12 +58,12 @@ def match_items(tree_a: BoQTree, tree_b: BoQTree) -> MatchResult:
 
 
 def _build_item_index(tree: BoQTree) -> dict[tuple[str, str], BoQNode]:
-    """Build (lot_rno, oz) → BoQNode index. Uses first occurrence for duplicates."""
+    """Build (lot_rno, full oz) → BoQNode index. Uses first occurrence for duplicates."""
     index: dict[tuple[str, str], BoQNode] = {}
     for lot_node in tree.lots:
         lot_rno = lot_node.rno
         for item_node in lot_node.iter_items():
-            key = (lot_rno, item_node.rno)
+            key = (lot_rno, item_node.oz)
             if key not in index:
                 index[key] = item_node
     return index
@@ -80,19 +80,19 @@ def _try_global_oz_fallback(
     """
     oz_to_b: dict[str, BoQNode] = {}
     for node in unmatched_b:
-        if node.rno not in oz_to_b:
-            oz_to_b[node.rno] = node
+        if node.oz not in oz_to_b:
+            oz_to_b[node.oz] = node
 
     newly_matched_a: list[BoQNode] = []
-    newly_matched_b_rnos: set[str] = set()
+    newly_matched_b_ozs: set[str] = set()
 
     for node_a in unmatched_a:
-        if node_a.rno in oz_to_b and node_a.rno not in newly_matched_b_rnos:
-            node_b = oz_to_b[node_a.rno]
+        if node_a.oz in oz_to_b and node_a.oz not in newly_matched_b_ozs:
+            node_b = oz_to_b[node_a.oz]
             matched.append((node_a, node_b))
             newly_matched_a.append(node_a)
-            newly_matched_b_rnos.add(node_a.rno)
+            newly_matched_b_ozs.add(node_a.oz)
 
     for node in newly_matched_a:
         unmatched_a.remove(node)
-    unmatched_b[:] = [n for n in unmatched_b if n.rno not in newly_matched_b_rnos]
+    unmatched_b[:] = [n for n in unmatched_b if n.oz not in newly_matched_b_ozs]

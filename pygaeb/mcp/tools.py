@@ -36,7 +36,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
-from pygaeb.api.boq_tree import BoQNode
+from pygaeb.api.boq_tree import BoQNode, NodeKind
 from pygaeb.mcp import views
 from pygaeb.mcp.handles import DocumentCache
 from pygaeb.mcp.safety import is_gaeb_suffix, resolve_output_path, resolve_within_roots
@@ -79,6 +79,43 @@ def _to_decimal(value: float | str | None) -> Decimal | None:
     if not result.is_finite():
         raise ValueError(f"Not a finite number: {value!r}")
     return result
+
+
+def _one_item(tree: Any, oz: str, handle: str) -> BoQNode:
+    """Resolve an OZ to exactly one item, refusing to guess between categories."""
+    nodes: list[BoQNode] = tree.find_items(oz)
+    if not nodes:
+        raise ValueError(f"No item with OZ {oz!r} in {handle}.")
+    if len(nodes) > 1:
+        candidates = ", ".join(n.oz for n in nodes)
+        raise ValueError(
+            f"OZ {oz!r} is ambiguous in {handle}: {candidates}. Pass the full OZ."
+        )
+    return nodes[0]
+
+
+_STRUCTURE_DETAIL_CAP = 20
+
+
+def _structure_detail(structure: Any) -> dict[str, Any]:
+    """The section-level changes, each list capped so a reorganised tender stays readable."""
+    payload: dict[str, Any] = {}
+    for name in ("sections_added", "sections_removed", "sections_renamed", "items_moved"):
+        rows = list(getattr(structure, name, []) or [])
+        payload[name] = [views.section_change(r) for r in rows[:_STRUCTURE_DETAIL_CAP]]
+        if len(rows) > _STRUCTURE_DETAIL_CAP:
+            payload[f"{name}_truncated"] = True
+    return payload
+
+
+def _priced_rows(items: list[Any]) -> list[tuple[Any, Decimal]]:
+    """Each item that has a stated or computed total, paired with it."""
+    rows: list[tuple[Any, Decimal]] = []
+    for item in items:
+        total = views.effective_total(item)
+        if total is not None:
+            rows.append((item, total))
+    return rows
 
 
 def _affects_total(item: Any) -> bool:
@@ -253,6 +290,14 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
             parent = found
 
         children = list(parent.children)
+        # A lot-less file gets a placeholder lot from the parser; show its
+        # categories directly rather than a "Default" lot the file never had.
+        if (
+            parent.kind == NodeKind.ROOT
+            and len(children) == 1
+            and getattr(children[0].lot, "synthetic", False)
+        ):
+            children = list(children[0].children)
         page, total, has_more = views.paginate(children, offset, limit)
         return views.bound(
             {
@@ -281,16 +326,22 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
             str | None, Field(description="Case-insensitive substring of the short text.")
         ] = None,
         min_total: Annotated[
-            float | None, Field(description="Only items with total_price >= this.")
+            float | None,
+            Field(description="Only items whose total (stated, else qty x unit price) >= this."),
         ] = None,
         max_total: Annotated[
-            float | None, Field(description="Only items with total_price <= this.")
+            float | None,
+            Field(description="Only items whose total (stated, else qty x unit price) <= this."),
         ] = None,
         has_attachments: Annotated[
             bool | None, Field(description="Filter on presence of attachments.")
         ] = None,
         sort: Annotated[
-            Sort, Field(description="'total_desc' surfaces cost drivers first.")
+            Sort,
+            Field(
+                description="'oz' = document order; 'total_desc' surfaces cost drivers "
+                "first; 'qty_desc' the largest quantities first."
+            ),
         ] = "oz",
         limit: Annotated[int, Field(description="Max items to return.", ge=1, le=200)] = 50,
         offset: Annotated[int, Field(description="Items to skip.", ge=0)] = 0,
@@ -304,6 +355,8 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         For "what are the biggest cost drivers?", use sort='total_desc' with a
         small limit; do not page through every item.
 
+        Totals are the stated `total_price`, falling back to `computed_total`
+        (qty x unit price) — bids often carry unit prices only.
         `sum_of_matched_totals` follows VOB/A: alternative and eventual positions
         are excluded (each row's `affects_total` says whether it counted). On an
         unpriced tender (e.g. an X83 before bids), totals are null, not zero —
@@ -326,7 +379,7 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         def keep(item: Any) -> bool:
             if needle is not None and needle not in (getattr(item, "short_text", "") or "").lower():
                 return False
-            total = getattr(item, "total_price", None)
+            total = views.effective_total(item)
             if lo is not None and (total is None or total < lo):
                 return False
             if hi is not None and (total is None or total > hi):
@@ -340,16 +393,16 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         matched = [i for i in items if keep(i)]
 
         if sort == "total_desc":
-            matched.sort(key=lambda i: getattr(i, "total_price", None) or Decimal(0), reverse=True)
+            matched.sort(key=lambda i: views.effective_total(i) or Decimal(0), reverse=True)
         elif sort == "qty_desc":
             matched.sort(key=lambda i: getattr(i, "qty", None) or Decimal(0), reverse=True)
 
-        priced = [i for i in matched if getattr(i, "total_price", None) is not None]
+        priced = _priced_rows(matched)
         sum_matched: Decimal | None = None
         pct: float | None = None
         if priced:
-            sum_matched = sum((i.total_price for i in priced if _affects_total(i)), Decimal(0))
-            grand = entry.doc.grand_total if entry.doc.is_procurement else Decimal(0)
+            sum_matched = sum((t for i, t in priced if _affects_total(i)), Decimal(0))
+            grand = views.effective_grand_total(entry.doc) if entry.doc.is_procurement else None
             pct = float(sum_matched / grand * 100) if grand else None
 
         page, total, has_more = views.paginate(matched, offset, limit)
@@ -381,9 +434,7 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         Attachments are listed as metadata — their contents are never returned.
         """
         entry = ctx.cache.get(handle)
-        node = entry.tree.find_item(oz)
-        if node is None:
-            raise ValueError(f"No item with OZ {oz!r} in {handle}.")
+        node = _one_item(entry.tree, oz, handle)
         return views.item_detail(node.item, node)
 
     # ── get_item_long_text ─────────────────────────────────────────────
@@ -404,9 +455,7 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         budget; the `limit` in the response is the window actually used.
         """
         entry = ctx.cache.get(handle)
-        node = entry.tree.find_item(oz)
-        if node is None:
-            raise ValueError(f"No item with OZ {oz!r} in {handle}.")
+        node = _one_item(entry.tree, oz, handle)
         item = node.item
         text = item.long_text_plain
         effective = min(limit, views.max_text_window())
@@ -439,14 +488,27 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
 
         Returns a context window around each hit rather than the whole field, so
         searching megabytes of specification prose stays cheap. Use this to locate
-        a clause; use `get_item_long_text` to read around it.
+        a clause; use `get_item_long_text` to read around it. Each match says
+        which `field` matched: the item's `oz`, its `short_text`, the label of an
+        enclosing `category`, or its `long_text`.
         """
         entry = ctx.cache.get(handle)
+        tree = entry.tree if entry.doc.is_procurement else None
 
         def _scan() -> list[dict[str, Any]]:
             found: list[dict[str, Any]] = []
-            for item in entry.doc.iter_items():
+            needle = query.lower()
+            nodes: list[Any] = list(tree.root.iter_items()) if tree else []
+            items: list[tuple[Any, Any]] = (
+                [(n.item, n) for n in nodes]
+                if nodes
+                else [(i, None) for i in entry.doc.iter_items()]
+            )
+            for item, node in items:
                 oz = getattr(item, "full_oz", None) or getattr(item, "oz", "") or ""
+                if needle in oz.lower():
+                    found.append({"oz": oz, "field": "oz", "snippet": oz, "match_count": 1})
+                    continue
                 short_text = getattr(item, "short_text", "") or ""
                 snip, count = views.snippet(short_text, query)
                 if count:
@@ -454,6 +516,17 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
                         {"oz": oz, "field": "short_text", "snippet": snip, "match_count": count}
                     )
                     continue
+                if node is not None:
+                    labels = [
+                        n.label for n in node.path if n.kind == NodeKind.CATEGORY
+                    ]
+                    hit = next((lbl for lbl in labels if needle in lbl.lower()), None)
+                    if hit is not None:
+                        snip, count = views.snippet(hit, query)
+                        found.append(
+                            {"oz": oz, "field": "category", "snippet": snip, "match_count": count}
+                        )
+                        continue
                 if search_long_text:
                     snip, count = views.snippet(
                         getattr(item, "long_text_plain", "") or "", query
@@ -534,8 +607,10 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         """Compare two procurement documents and list what changed.
 
         Returns counts plus a significance-sorted, paginated stream of item
-        changes. Structural changes are reported as counts only — use
-        `list_structure` on either handle for the detail. Paging through the
+        changes. `structure` lists the sections added, removed or renamed and
+        the items that moved (first 20 of each). Items are matched by their
+        full OZ within a lot, so `summary.is_likely_same_project` and a low
+        `match_ratio` tell you when two files are unrelated. Paging through the
         changes is cheap: the diff is computed once per document pair.
         """
         from pygaeb.diff.boq_diff import BoQDiff
@@ -634,6 +709,7 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
                     "sections_removed": len(result.structure.sections_removed),
                     "sections_renamed": len(result.structure.sections_renamed),
                 },
+                "structure": _structure_detail(result.structure),
                 "changes": page,
                 "total_matched": total,
                 "offset": offset,
@@ -653,7 +729,10 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         ] = None,
         spread_for: Annotated[
             list[str] | None,
-            Field(description="OZs to report min/max/avg price spread for (max 25)."),
+            Field(
+                description="Full OZs ('01.02.0010') to report min/max/avg unit-price "
+                "spread for (max 25). A bare leaf works when only one position has it."
+            ),
         ] = None,
     ) -> dict[str, Any]:
         """Rank bidders and report price spreads.
@@ -661,8 +740,12 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         Pass X84 bid handles alongside the tender, or omit `bids` for an X82
         Preisspiegel that already carries every bidder's prices.
 
-        `items_priced_by_all_count` is a count, not a list — use `list_items` if
-        you need the items themselves.
+        `grand_total` sums each bidder's stated item totals, falling back to
+        qty x unit price, over the positions that count toward the contract. A
+        bidder with no priced item gets a null total and rank — a missing bid is
+        not a zero bid. `spreads` covers the OZs found; `spread_unmatched` and
+        `spread_ambiguous` say why the rest are absent. `items_priced_by_all_count`
+        is a count, not a list — use `list_items` if you need the items themselves.
         """
         from pygaeb.bid_analysis import BidAnalysis
 
@@ -684,20 +767,35 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
             else:
                 analysis = BidAnalysis.from_x82(entry.doc)
 
-            ranking = [
-                {"bidder": name, "grand_total": str(total), "rank": i + 1}
-                for i, (name, total) in enumerate(analysis.ranking())
-            ]
+            ranking = []
+            for i, (name, total) in enumerate(analysis.ranking()):
+                priced = analysis.priced_item_count(name)
+                ranking.append(
+                    {
+                        "bidder": name,
+                        "grand_total": str(total) if priced else None,
+                        "rank": i + 1 if priced else None,
+                        "priced_items": priced,
+                    }
+                )
 
             spreads: dict[str, Any] = {}
+            unmatched: list[str] = []
+            ambiguous: dict[str, list[str]] = {}
             for oz in (spread_for or [])[:25]:
-                spread = analysis.price_spread(oz)
-                if spread is not None:
-                    # Decimals stringify for lossless JSON; counts stay ints.
-                    spreads[oz] = {
-                        k: (str(v) if isinstance(v, Decimal) else v)
-                        for k, v in spread.items()
-                    }
+                try:
+                    spread = analysis.price_spread(oz)
+                except ValueError as exc:
+                    # "ambiguous OZ '0010': 01.0010, 02.0010"
+                    ambiguous[oz] = str(exc).split(": ", 1)[-1].split(", ")
+                    continue
+                if spread is None:
+                    unmatched.append(oz)
+                    continue
+                # Decimals stringify for lossless JSON; counts stay ints.
+                spreads[oz] = {
+                    k: (str(v) if isinstance(v, Decimal) else v) for k, v in spread.items()
+                }
 
             return {
                 "ranking": ranking,
@@ -705,6 +803,8 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
                 "bidder_count": len(analysis.bidders),
                 "items_priced_by_all_count": len(analysis.items_priced_by_all()),
                 "spreads": spreads,
+                "spread_unmatched": unmatched,
+                "spread_ambiguous": ambiguous,
             }
 
         return views.bound(await asyncio.to_thread(_analyze))

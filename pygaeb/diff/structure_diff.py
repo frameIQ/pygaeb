@@ -22,11 +22,11 @@ def compare_structure(tree_a: BoQTree, tree_b: BoQTree) -> StructureDiffSummary:
     cats_a = _build_category_index(tree_a)
     cats_b = _build_category_index(tree_b)
 
-    keys_a = set(cats_a.keys())
-    keys_b = set(cats_b.keys())
-
-    for key in keys_b - keys_a:
-        node = cats_b[key]
+    # Walk the indexes (document order) rather than set differences so the
+    # report is deterministic.
+    for key, node in cats_b.items():
+        if key in cats_a:
+            continue
         lot_rno = _get_lot_rno(node)
         result.sections_added.append(SectionChange(
             rno=node.rno,
@@ -35,8 +35,9 @@ def compare_structure(tree_a: BoQTree, tree_b: BoQTree) -> StructureDiffSummary:
             item_count=sum(1 for _ in node.iter_items()),
         ))
 
-    for key in keys_a - keys_b:
-        node = cats_a[key]
+    for key, node in cats_a.items():
+        if key in cats_b:
+            continue
         lot_rno = _get_lot_rno(node)
         result.sections_removed.append(SectionChange(
             rno=node.rno,
@@ -45,9 +46,10 @@ def compare_structure(tree_a: BoQTree, tree_b: BoQTree) -> StructureDiffSummary:
             item_count=sum(1 for _ in node.iter_items()),
         ))
 
-    for key in keys_a & keys_b:
-        node_a = cats_a[key]
-        node_b = cats_b[key]
+    for key, node_a in cats_a.items():
+        node_b = cats_b.get(key)
+        if node_b is None:
+            continue
         if node_a.label != node_b.label:
             result.sections_renamed.append(SectionRenamed(
                 rno=node_a.rno,
@@ -72,7 +74,7 @@ def detect_moved_items(
 
         if cat_rno_a != cat_rno_b or lot_rno_a != lot_rno_b:
             moved.append(ItemMoved(
-                oz=node_a.rno,
+                oz=node_a.oz,
                 short_text=node_a.label,
                 old_category_rno=cat_rno_a,
                 new_category_rno=cat_rno_b,
@@ -84,15 +86,24 @@ def detect_moved_items(
 
 
 def _build_category_index(tree: BoQTree) -> dict[tuple[str, str], BoQNode]:
-    """Build (lot_rno, category_rno) → BoQNode index."""
+    """Build (lot_rno, category path) → BoQNode index.
+
+    The path joins the rnos from the lot down, so a sub-category "01" under
+    "02" does not collide with the top-level "01".
+    """
     index: dict[tuple[str, str], BoQNode] = {}
     for node in tree.walk():
         if node.kind == NodeKind.CATEGORY:
             lot_rno = _get_lot_rno(node)
-            key = (lot_rno, node.rno)
+            key = (lot_rno, _category_path(node))
             if key not in index:
                 index[key] = node
     return index
+
+
+def _category_path(node: BoQNode) -> str:
+    rnos = [n.rno for n in node.path if n.kind == NodeKind.CATEGORY]
+    return ".".join(rnos)
 
 
 def _get_lot_rno(node: BoQNode) -> str:

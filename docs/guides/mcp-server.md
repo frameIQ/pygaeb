@@ -152,7 +152,10 @@ server.run()  # stdio
 | `mcp_max_page_size` | `PYGAEB_MCP_MAX_PAGE_SIZE` | `200` |
 | `mcp_max_response_chars` | `PYGAEB_MCP_MAX_RESPONSE_CHARS` | `20000` |
 
-CLI flags take precedence over environment variables.
+CLI flags take precedence over environment variables. `--xsd-dir DIR` (or
+`PYGAEB_XSD_DIR`) points at the official GAEB DA XML schemas so every
+`open_document` also validates against the XSD; without it the summary carries
+one info note saying schema validation was skipped.
 
 ## Troubleshooting
 

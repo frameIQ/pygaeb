@@ -16,7 +16,7 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-from pygaeb.config import get_settings
+from pygaeb.config import configure, get_settings
 from pygaeb.mcp.handles import DocumentCache
 from pygaeb.mcp.prompts import bid_evaluation, compare_tenders, tender_review
 from pygaeb.mcp.safety import resolve_roots
@@ -171,6 +171,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default="stdio",
         help="Transport. stdio (the default) keeps the server local to one client.",
     )
+    parser.add_argument(
+        "--xsd-dir",
+        metavar="DIR",
+        help="Directory holding the official GAEB DA XML schemas, enabling XSD "
+        "validation on open. Defaults to PYGAEB_XSD_DIR.",
+    )
     return parser
 
 
@@ -181,6 +187,9 @@ def main(argv: list[str] | None = None) -> None:
     ``cli`` extra.
     """
     args = _build_parser().parse_args(argv)
+
+    if args.xsd_dir:
+        configure(xsd_dir=args.xsd_dir)
 
     if args.transport != "stdio" and not args.roots and not get_settings().mcp_roots:
         raise SystemExit(

@@ -145,7 +145,7 @@ class BoQCtgy(BaseModel):
             The removed Item, or None if not found.
         """
         for i, item in enumerate(self.items):
-            if item.oz == oz:
+            if oz in (item.oz, item.full_oz):
                 return self.items.pop(i)
         return None
 
@@ -166,6 +166,8 @@ class Lot(BaseModel):
     id: str | None = None
     rno: str = ""
     label: str = ""
+    #: True for the placeholder the parser wraps a lot-less BoQ in; the file has no Lot.
+    synthetic: bool = False
     boq_info: BoQInfo | None = None
     body: BoQBody = Field(default_factory=BoQBody)
     totals: Totals | None = None
@@ -203,9 +205,9 @@ class BoQ(BaseModel):
             yield from lot.iter_items()
 
     def get_item(self, oz: str) -> Item | None:
-        """Find an item by its OZ (ordinal number)."""
+        """Find an item by its leaf or full OZ (ordinal number)."""
         for item in self.iter_items():
-            if item.oz == oz:
+            if oz in (item.oz, item.full_oz):
                 return item
         return None
 
