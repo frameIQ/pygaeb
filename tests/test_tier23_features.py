@@ -153,6 +153,28 @@ class TestQualityScore:
         score = quality_score(doc)
         assert score.overall >= 0
 
+    def test_bid_without_unit_prices_is_incomplete(self) -> None:
+        doc = _make_doc()
+        doc.exchange_phase = ExchangePhase.X84
+        for item in doc.iter_items():
+            item.unit_price = None
+        assert quality_score(doc).completeness < 100
+
+    def test_tender_without_unit_prices_is_complete(self) -> None:
+        doc = _make_doc()
+        doc.exchange_phase = ExchangePhase.X83
+        for item in doc.iter_items():
+            item.unit_price = None
+        assert quality_score(doc).completeness == 100
+
+    def test_markup_item_needs_no_short_text(self) -> None:
+        doc = _make_doc()
+        doc.exchange_phase = ExchangePhase.X84
+        doc.award.boq.lots[0].body.categories[0].items.append(
+            Item(oz="0090", oz_path=["01"], item_type=ItemType.MARKUP)
+        )
+        assert quality_score(doc).completeness == 100
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # T2.3 + T2.4: Diff HTML/Excel Export

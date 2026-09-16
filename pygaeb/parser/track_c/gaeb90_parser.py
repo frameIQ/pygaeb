@@ -130,7 +130,7 @@ class GAEB90Parser:
             categories["1"] = BoQCtgy(rno="1", label="Default", items=items)
 
         body = BoQBody(categories=list(categories.values()))
-        lot = Lot(rno="1", label="Lot 1", body=body)
+        lot = Lot(rno="1", label="Lot 1", synthetic=True, body=body)
         boq = BoQ(lots=[lot])
 
         warnings.append(ValidationResult(

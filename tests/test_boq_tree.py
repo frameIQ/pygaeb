@@ -594,3 +594,51 @@ class TestWithConftestFixtures:
         assert len(all_nodes) == tree.node_count
         item_nodes = [n for n in all_nodes if n.kind == NodeKind.ITEM]
         assert len(item_nodes) == 3
+
+
+# ── Full OZ on nodes ──────────────────────────────────────────────────
+
+
+@pytest.fixture
+def parsed_shape_tree() -> BoQTree:
+    """Items as the parser builds them: leaf ``oz`` plus ``oz_path``."""
+    fenster = BoQCtgy(rno="02", label="Fenster", items=[
+        Item(oz="0010", oz_path=["02"], short_text="Fenster 1-flg."),
+        Item(oz="0020", oz_path=["02"], short_text="Fenster 2-flg."),
+    ])
+    tueren = BoQCtgy(rno="03", label="Türen", items=[
+        Item(oz="0010", oz_path=["03"], short_text="Haustür"),
+    ])
+    lot = Lot(rno="1", label="Default", synthetic=True, body=BoQBody(categories=[fenster, tueren]))
+    return BoQTree(BoQ(lots=[lot]))
+
+
+class TestFullOzNodes:
+    def test_rno_is_leaf_and_oz_is_full(self, parsed_shape_tree: BoQTree):
+        node = parsed_shape_tree.find_item("03.0010")
+        assert node is not None
+        assert node.rno == "0010"
+        assert node.oz == "03.0010"
+        assert parsed_shape_tree.lots[0].oz == ""
+
+    def test_label_falls_back_to_full_oz(self):
+        tree = BoQTree(BoQ(lots=[Lot(rno="1", body=BoQBody(categories=[
+            BoQCtgy(rno="02", items=[Item(oz="0010", oz_path=["02"])]),
+        ]))]))
+        assert tree.find_item("02.0010").label == "02.0010"
+
+    def test_find_items_lists_every_leaf_match(self, parsed_shape_tree: BoQTree):
+        assert [n.oz for n in parsed_shape_tree.find_items("0010")] == ["02.0010", "03.0010"]
+        assert [n.oz for n in parsed_shape_tree.find_items("0020")] == ["02.0020"]
+        assert [n.oz for n in parsed_shape_tree.find_items("03.0010")] == ["03.0010"]
+        assert parsed_shape_tree.find_items("9999") == []
+
+    def test_find_item_leaf_is_first_in_document_order(self, parsed_shape_tree: BoQTree):
+        assert parsed_shape_tree.find_item("0010").oz == "02.0010"
+
+    def test_label_path_skips_synthetic_lot(self, parsed_shape_tree: BoQTree):
+        assert parsed_shape_tree.find_item("03.0010").label_path == ["BoQ", "Türen", "Haustür"]
+
+    def test_label_path_keeps_real_lots(self, multi_tree: BoQTree):
+        node = multi_tree.find_item("01.0020")
+        assert node.label_path[1] == "Los 2 - Beton"

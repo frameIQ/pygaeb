@@ -16,6 +16,8 @@ from decimal import Decimal
 from pathlib import Path
 from textwrap import dedent
 
+import pytest
+
 from pygaeb import (
     BidAnalysis,
     BidderPrice,
@@ -423,3 +425,93 @@ class TestEndToEndBidComparison:
         assert spread is not None
         assert spread["min"] == Decimal("45.00")
         assert spread["max"] == Decimal("50.00")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Full-OZ keys, computed totals, unpriced bidders
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _parsed_shape_bid(
+    bidder: str,
+    unit_prices: dict[tuple[str, str], str],
+    *,
+    totals: bool = True,
+    item_type: ItemType = ItemType.NORMAL,
+) -> GAEBDocument:
+    """A bid the way the parser builds it: leaf ``oz`` plus ``oz_path``."""
+    by_ctgy: dict[str, list[Item]] = {}
+    for (ctgy, leaf), up in unit_prices.items():
+        price = Decimal(up) if up else None
+        by_ctgy.setdefault(ctgy, []).append(Item(
+            oz=leaf, oz_path=[ctgy], short_text=f"{ctgy}.{leaf}", qty=Decimal("10"), unit="m2",
+            unit_price=price,
+            total_price=(price * 10) if (price is not None and totals) else None,
+            item_type=item_type,
+        ))
+    ctgys = [BoQCtgy(rno=rno, label=rno, items=items) for rno, items in by_ctgy.items()]
+    return GAEBDocument(
+        source_version=SourceVersion.DA_XML_33,
+        exchange_phase=ExchangePhase.X84,
+        gaeb_info=GAEBInfo(version="3.3"),
+        award=AwardInfo(
+            project_no=f"BID-{bidder}", currency="EUR",
+            boq=BoQ(lots=[Lot(rno="1", label="Lot", body=BoQBody(categories=ctgys))]),
+        ),
+    )
+
+
+class TestFullOzKeys:
+    def test_positions_in_different_categories_do_not_collapse(self) -> None:
+        bid = _parsed_shape_bid(
+            "A", {("01", "0010"): "5", ("02", "0010"): "7", ("02", "0020"): "9"}
+        )
+        analysis = BidAnalysis.from_x84_bids(_make_tender(), {"A": bid})
+        assert analysis.items_priced_by_all() == ["01.0010", "02.0010", "02.0020"]
+        assert analysis.grand_total("A") == Decimal("210")
+
+    def test_leaf_lookup_resolves_when_unique_and_refuses_when_shared(self) -> None:
+        bid = _parsed_shape_bid(
+            "A", {("01", "0010"): "5", ("02", "0010"): "7", ("02", "0020"): "9"}
+        )
+        analysis = BidAnalysis.from_x84_bids(_make_tender(), {"A": bid})
+        assert analysis.price_spread("0020")["min"] == Decimal("9")
+        assert analysis.get_bidder_price("A", "02.0010").unit_price == Decimal("7")
+        assert analysis.price_spread("9999") is None
+        with pytest.raises(ValueError, match=r"ambiguous OZ '0010': 01\.0010, 02\.0010"):
+            analysis.price_spread("0010")
+
+    def test_totals_fall_back_to_qty_times_unit_price(self) -> None:
+        bid = _parsed_shape_bid("A", {("01", "0010"): "5", ("01", "0020"): "7"}, totals=False)
+        analysis = BidAnalysis.from_x84_bids(_make_tender(), {"A": bid})
+        assert analysis.grand_total("A") == Decimal("120.00")
+        assert analysis.get_bidder_price("A", "01.0010").total_price == Decimal("50.00")
+
+    def test_alternative_positions_are_priced_but_not_summed(self) -> None:
+        bid = _parsed_shape_bid("A", {("01", "0010"): "5"}, item_type=ItemType.ALTERNATIVE)
+        analysis = BidAnalysis.from_x84_bids(_make_tender(), {"A": bid})
+        assert analysis.grand_total("A") == Decimal("0")
+        assert analysis.price_spread("01.0010")["count"] == 1
+        assert analysis.priced_item_count("A") == 1
+
+    def test_unpriced_bidder_ranks_last_not_first(self) -> None:
+        priced = _parsed_shape_bid("A", {("01", "0010"): "5"})
+        empty = _parsed_shape_bid("B", {("01", "0010"): ""})
+        analysis = BidAnalysis.from_x84_bids(_make_tender(), {"Empty": empty, "Priced": priced})
+        assert analysis.ranking() == [("Priced", Decimal("50")), ("Empty", Decimal("0"))]
+        assert analysis.lowest_bidder == "Priced"
+        assert analysis.rank("Empty") == 2
+        assert analysis.priced_item_count("Empty") == 0
+
+    def test_nobody_priced_means_no_lowest_bidder(self) -> None:
+        empty = _parsed_shape_bid("B", {("01", "0010"): ""})
+        analysis = BidAnalysis.from_x84_bids(_make_tender(), {"Empty": empty})
+        assert analysis.lowest_bidder is None
+
+    def test_constructor_path_keeps_caller_keys(self) -> None:
+        prices = {"A": {"01.0010": BidderPrice(bidder_name="A", unit_price=Decimal("5"),
+                                               total_price=Decimal("50"))}}
+        analysis = BidAnalysis(_make_tender(), prices)
+        analysis._compute_ranks()
+        assert analysis.ranking() == [("A", Decimal("50"))]
+        assert analysis.get_bidder_price("A", "01.0010").rank == 1

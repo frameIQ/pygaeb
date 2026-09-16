@@ -131,13 +131,16 @@ class BidderPrice(BaseModel):
     Each ``BidderPrice`` represents one bidder's submitted price.
 
     The optional ``rank`` field is populated by ``BidAnalysis`` after
-    sorting bidders by total price (1 = lowest).
+    sorting bidders by total price (1 = lowest). ``affects_total`` mirrors
+    the item type: alternative and eventual positions are priced but do not
+    count toward a bidder's grand total.
     """
 
     bidder_name: str = ""
     bidder_id: str | None = None
     unit_price: Decimal | None = None
     total_price: Decimal | None = None
+    affects_total: bool = True
     rank: int | None = None
     source_element: Any = Field(default=None, exclude=True, repr=False)
 
@@ -152,7 +155,7 @@ class Item(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
     def __repr__(self) -> str:
-        parts = [f"oz={self.oz!r}"]
+        parts = [f"oz={self.full_oz!r}"]
         if self.short_text:
             text = self.short_text[:40] + ("..." if len(self.short_text) > 40 else "")
             parts.append(f"text={text!r}")

@@ -549,3 +549,84 @@ class TestEdgeCases:
         result = BoQDiff.compare(doc_a, doc_b)
         assert result.summary.is_likely_same_project is True
         assert not any("different projects" in w for w in result.warnings)
+
+
+# ── Full-OZ matching ───────────────────────────────────────────────────
+
+def _two_category_boq(door_price: str = "2800") -> BoQ:
+    """Two categories that both hold a 0010, the way parsed files look."""
+    fenster = BoQCtgy(rno="02", label="Fenster", items=[
+        _make_item(oz="0010", oz_path=["02"], short_text="Fenster 1-flg.",
+                   qty=Decimal("14"), unit_price=Decimal("500"), total_price=Decimal("7000")),
+        _make_item(oz="0020", oz_path=["02"], short_text="Fenster 2-flg.",
+                   qty=Decimal("8"), unit_price=Decimal("800"), total_price=Decimal("6400")),
+    ])
+    tueren = BoQCtgy(rno="03", label="Türen", items=[
+        _make_item(oz="0010", oz_path=["03"], short_text="Haustür",
+                   qty=Decimal("2"), unit_price=Decimal(door_price),
+                   total_price=Decimal(door_price) * 2),
+    ])
+    return BoQ(lots=[Lot(rno="1", label="Default", body=BoQBody(categories=[fenster, tueren]))])
+
+
+class TestFullOzMatching:
+    def test_items_pair_by_full_oz_not_leaf(self):
+        result = match_items(BoQTree(_two_category_boq()), BoQTree(_two_category_boq()))
+        assert len(result.matched) == 3
+        assert {(a.oz, b.oz) for a, b in result.matched} == {
+            ("02.0010", "02.0010"), ("02.0020", "02.0020"), ("03.0010", "03.0010"),
+        }
+
+    def test_price_change_in_one_category_is_the_only_change(self):
+        result = BoQDiff.compare(
+            _make_doc(boq=_two_category_boq()), _make_doc(boq=_two_category_boq("3000"))
+        )
+        assert [m.oz for m in result.items.modified] == ["03.0010"]
+        assert result.items.unchanged_count == 2
+        assert result.items.added == [] and result.items.removed == []
+
+    def test_added_and_removed_report_full_oz(self):
+        boq_b = _two_category_boq()
+        boq_b.lots[0].body.categories[1].items.append(
+            _make_item(oz="0020", oz_path=["03"], short_text="Nebentür")
+        )
+        result = BoQDiff.compare(_make_doc(boq=_two_category_boq()), _make_doc(boq=boq_b))
+        assert [a.oz for a in result.items.added] == ["03.0020"]
+
+    def test_sub_category_with_same_rno_as_top_level_is_distinct(self):
+        inner = BoQCtgy(
+            rno="01", label="Inner 01", items=[_make_item(oz="0010", oz_path=["02", "01"])]
+        )
+        outer = BoQCtgy(rno="02", label="Outer", subcategories=[inner])
+        top = BoQCtgy(rno="01", label="Top 01", items=[_make_item(oz="0010", oz_path=["01"])])
+        boq_a = BoQ(lots=[Lot(rno="1", body=BoQBody(categories=[top, outer]))])
+        boq_b = BoQ(lots=[Lot(rno="1", body=BoQBody(categories=[top]))])
+        structure = compare_structure(BoQTree(boq_a), BoQTree(boq_b))
+        assert [s.rno for s in structure.sections_removed] == ["02", "01"]
+        assert structure.sections_renamed == []
+
+
+class TestLikelySameProject:
+    def test_project_numbers_decide(self):
+        a = _make_doc(boq=_two_category_boq(), project_no="P-1", project_name="X")
+        b = _make_doc(boq=_two_category_boq(), project_no="P-2", project_name="X")
+        assert BoQDiff.compare(a, b).summary.is_likely_same_project is False
+
+    def test_prj_id_counts_as_project_number(self):
+        a = _make_doc(boq=_two_category_boq(), project_no=None)
+        b = _make_doc(boq=_two_category_boq(), project_no=None)
+        a.award.prj_id = "2026-042"
+        b.award.prj_id = "2026-042"
+        assert BoQDiff.compare(a, b).summary.is_likely_same_project is True
+
+    def test_names_decide_when_no_numbers(self):
+        a = _make_doc(boq=_two_category_boq(), project_no=None, project_name="Schule Lindenhof")
+        b = _make_doc(boq=_two_category_boq(), project_no=None, project_name="schule lindenhof")
+        assert BoQDiff.compare(a, b).summary.is_likely_same_project is True
+
+    def test_unrelated_documents_without_ids_are_not_same_project(self):
+        a = _make_doc(boq=_two_category_boq(), project_no=None, project_name=None)
+        b = _make_doc(project_no=None, project_name=None)  # one item, OZ 01.0010
+        summary = BoQDiff.compare(a, b).summary
+        assert summary.match_ratio == 0.0
+        assert summary.is_likely_same_project is False

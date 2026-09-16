@@ -12,6 +12,7 @@ from pygaeb.models.item import Item, QtySplit
 from pygaeb.validation.cross_phase_validator import CrossPhaseValidator
 from pygaeb.validation.item_validator import validate_items
 from pygaeb.validation.numeric_validator import validate_numerics
+from pygaeb.validation.structural_validator import validate_structure
 
 
 class TestNumericValidator:
@@ -127,3 +128,65 @@ class TestCrossPhaseValidator:
         results = CrossPhaseValidator.check(source, response)
         errors = [r for r in results if r.severity == ValidationSeverity.ERROR]
         assert len(errors) == 0
+
+
+class TestFullOzMessages:
+    def _doc(self, categories):
+        return GAEBDocument(award=AwardInfo(boq=BoQ(lots=[
+            Lot(rno="1", body=BoQBody(categories=categories)),
+        ])))
+
+    def test_messages_name_the_full_oz_and_the_node_kind(self):
+        doc = self._doc([
+            BoQCtgy(rno="02", items=[
+                Item(oz="0030", oz_path=["02"], item_type=ItemType.MARKUP),
+                Item(oz="0010", oz_path=["02"], short_text="Fenster", item_type=ItemType.NORMAL),
+            ]),
+        ])
+        messages = [r.message for r in validate_items(doc)]
+        assert "MarkupItem 02.0030: Missing short text" in messages
+        assert "Item 02.0010: Normal item has no quantity" in messages
+        assert not any(m.startswith("Item 0010") for m in messages)
+
+    def test_duplicate_oz_within_a_lot_is_an_error(self):
+        doc = self._doc([
+            BoQCtgy(rno="001", items=[
+                Item(oz="0010", oz_path=["001"], short_text="Baustelle", item_type=ItemType.NORMAL),
+                Item(oz="0010", oz_path=["001"], short_text="Wasserhaltung"),
+                Item(oz="0010", oz_path=["001"], short_text="Überwachung"),
+            ]),
+        ])
+        results = validate_structure(doc)
+        errors = [r for r in results if r.severity == ValidationSeverity.ERROR]
+        assert [e.message for e in errors] == ["Duplicate OZ 001.0010 (3x) in lot '1'"]
+
+    def test_same_leaf_in_different_categories_is_not_a_duplicate(self):
+        doc = self._doc([
+            BoQCtgy(rno="01", items=[Item(oz="0010", oz_path=["01"], short_text="A")]),
+            BoQCtgy(rno="02", items=[Item(oz="0010", oz_path=["02"], short_text="B")]),
+        ])
+        assert not [r for r in validate_structure(doc) if "Duplicate" in r.message]
+
+    def test_index_positions_share_a_leaf_legitimately(self):
+        doc = self._doc([
+            BoQCtgy(rno="01", items=[
+                Item(oz="0010", oz_path=["01"], rno_index="1", short_text="Variante 1"),
+                Item(oz="0010", oz_path=["01"], rno_index="A", short_text="Variante A"),
+            ]),
+        ])
+        assert not [r for r in validate_structure(doc) if "Duplicate" in r.message]
+
+    def test_cross_phase_compares_by_full_oz(self):
+        def item(ctgy: str, price: str | None) -> Item:
+            return Item(oz="0010", oz_path=[ctgy], qty=Decimal("1"),
+                        unit_price=Decimal(price) if price else None, item_type=ItemType.NORMAL)
+
+        def make(price_for_03: str | None):
+            return self._doc([
+                BoQCtgy(rno="02", items=[item("02", "5")]),
+                BoQCtgy(rno="03", items=[item("03", price_for_03)]),
+            ])
+        results = CrossPhaseValidator.check(make("5"), make(None))
+        assert [r.message for r in results] == [
+            "Item 03.0010: Priced item missing unit price in response"
+        ]

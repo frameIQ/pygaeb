@@ -228,6 +228,9 @@ def document_summary(doc: Any, handle: str, path: str, cached: bool) -> dict[str
     if doc.is_procurement:
         award = doc.award
         priced = is_priced(doc)
+        # Stated totals need an item total somewhere; a bid with unit prices only
+        # has none, and reporting "0" there reads as a zero bid.
+        stated = priced and any(_attr(i, "total_price") is not None for i in doc.iter_items())
         payload.update(
             {
                 "project_no": award.project_no,
@@ -236,14 +239,19 @@ def document_summary(doc: Any, handle: str, path: str, cached: bool) -> dict[str
                 "currency": award.currency,
                 # Null, not "0", on an unpriced tender — see is_priced().
                 "is_priced": priced,
-                "grand_total": _dec(doc.grand_total) if priced else None,
+                "grand_total": _dec(doc.grand_total) if stated else None,
                 "computed_grand_total": _dec(doc.computed_grand_total) if priced else None,
+                "award": award_info(award),
             }
         )
         boq = getattr(award, "boq", None)
         if boq is not None:
             payload.update(_totals(getattr(boq.boq_info, "totals", None) if boq.boq_info else None))
-            lots = list(getattr(boq, "lots", []) or [])
+            # The placeholder lot the parser adds to lot-less files is not a Los.
+            lots = [
+                lot for lot in (getattr(boq, "lots", []) or [])
+                if not getattr(lot, "synthetic", False)
+            ]
             labels = [lot.label or lot.rno for lot in lots][:_MAX_LOT_LABELS]
             payload["lot_count"] = len(lots)
             payload["is_multi_lot"] = len(lots) > 1
@@ -252,6 +260,28 @@ def document_summary(doc: Any, handle: str, path: str, cached: bool) -> dict[str
                 payload["lot_labels_truncated"] = True
 
     return bound(payload)
+
+
+def award_info(award: Any) -> dict[str, Any]:
+    """The tender's dates and terms from ``AwardInfo`` — what an estimator asks first."""
+
+    def _date(name: str) -> str | None:
+        value = _attr(award, name)
+        return value.isoformat() if value is not None else None
+
+    return {
+        "open_date": _date("open_date"),
+        "open_time": _attr(award, "open_time"),
+        "eval_end": _date("eval_end"),
+        "submit_location": _attr(award, "submit_location"),
+        "construction_start": _date("construction_start"),
+        "construction_end": _date("construction_end"),
+        "contract_no": _attr(award, "contract_no"),
+        "contract_date": _date("contract_date"),
+        "award_no": _attr(award, "award_no"),
+        "procurement_type": _attr(award, "procurement_type"),
+        "description": _attr(award, "description"),
+    }
 
 
 def item_row(item: Any) -> dict[str, Any]:
@@ -273,6 +303,8 @@ def item_row(item: Any) -> dict[str, Any]:
         "unit": _attr(item, "unit"),
         "unit_price": _dec(_attr(item, "unit_price")),
         "total_price": _dec(_attr(item, "total_price")),
+        # qty x unit price; the stated total is often absent in bids.
+        "computed_total": _dec(_attr(item, "computed_total")),
         "item_type": item_type.value if item_type is not None else None,
         # Whether the price counts toward the contract total (VOB/A) —
         # False for alternative/eventual/text-only positions.
@@ -354,7 +386,7 @@ def structure_node(node: BoQNode) -> dict[str, Any]:
         totals = node.lot.totals
 
     label, _ = _clip(node.label, SHORT_TEXT_CHARS)
-    return {
+    payload = {
         "rno": node.rno,
         "label": label,
         "kind": node.kind.value,
@@ -363,6 +395,40 @@ def structure_node(node: BoQNode) -> dict[str, Any]:
         "item_count": sum(1 for _ in node.iter_items()),
         "subtotal": _dec(totals.total) if totals else None,
     }
+    if node.kind == NodeKind.LOT and getattr(node.lot, "synthetic", False):
+        payload["synthetic"] = True
+    return payload
+
+
+def effective_total(item: Any) -> Decimal | None:
+    """The stated item total, else qty x unit price."""
+    total: Decimal | None = _attr(item, "total_price")
+    if total is None:
+        total = _attr(item, "computed_total")
+    return total
+
+
+def effective_grand_total(doc: Any) -> Decimal | None:
+    """Sum of :func:`effective_total` over the positions that count toward the contract."""
+    total = Decimal(0)
+    seen = False
+    for item in doc.iter_items():
+        value = effective_total(item)
+        item_type = _attr(item, "item_type")
+        if value is None or (item_type is not None and not item_type.affects_total):
+            continue
+        total += value
+        seen = True
+    return total if seen else None
+
+
+def section_change(change: Any) -> dict[str, Any]:
+    """Project a section added/removed/renamed or an item moved, whichever it is."""
+    payload: dict[str, Any] = change.model_dump()
+    for key in ("label", "old_label", "new_label", "short_text"):
+        if key in payload and isinstance(payload[key], str):
+            payload[key], _ = _clip(payload[key], SHORT_TEXT_CHARS)
+    return payload
 
 
 def validation_issue(issue: ValidationResult) -> dict[str, Any]:

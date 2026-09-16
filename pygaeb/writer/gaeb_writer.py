@@ -1205,7 +1205,7 @@ def _add_item_v2(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
         etree.SubElement(item_el, marker)
         if item.item_type in NON_INTEROP_TYPES:
             warnings.append(
-                f"Item {item.oz}: {item.item_type.value} written as pyGAEB-internal "
+                f"Item {item.full_oz}: {item.item_type.value} written as pyGAEB-internal "
                 f"<{marker}> — round-trips within pyGAEB but is not read by other AVA "
                 f"software yet (real GAEB serialization not implemented)"
             )
@@ -1235,16 +1235,16 @@ def _add_item_v2(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
 
     if item.bim_guid:
         warnings.append(
-            f"Item {item.oz}: bim_guid dropped (not supported in DA XML {meta.version_tag})"
+            f"Item {item.full_oz}: bim_guid dropped (not supported in DA XML {meta.version_tag})"
         )
     if item.change_order_number:
         warnings.append(
-            f"Item {item.oz}: change_order_number dropped "
+            f"Item {item.full_oz}: change_order_number dropped "
             f"(not supported in DA XML {meta.version_tag})"
         )
     if item.attachments:
         warnings.append(
-            f"Item {item.oz}: {len(item.attachments)} attachment(s) dropped "
+            f"Item {item.full_oz}: {len(item.attachments)} attachment(s) dropped "
             f"(not supported in DA XML {meta.version_tag})"
         )
 

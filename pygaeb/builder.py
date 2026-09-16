@@ -399,7 +399,7 @@ class BoQBuilder:
         for lot in doc.award.boq.lots:
             seen: dict[str, int] = {}
             for item in lot.iter_items():
-                seen[item.oz] = seen.get(item.oz, 0) + 1
+                seen[item.full_oz] = seen.get(item.full_oz, 0) + 1
             duplicates = {oz: count for oz, count in seen.items() if count > 1}
             if duplicates:
                 msg = (
@@ -429,7 +429,7 @@ class BoQBuilder:
             for field_name in warn_present:
                 if getattr(item, field_name, None) is not None:
                     msg = (
-                        f"Item {item.oz}: {field_name!r} is set but phase "
+                        f"Item {item.full_oz}: {field_name!r} is set but phase "
                         f"{phase_key} ({label}) typically should not have it."
                     )
                     if strict:
@@ -439,7 +439,7 @@ class BoQBuilder:
             for field_name in warn_missing:
                 if getattr(item, field_name, None) is None:
                     msg = (
-                        f"Item {item.oz}: {field_name!r} is missing for phase "
+                        f"Item {item.full_oz}: {field_name!r} is missing for phase "
                         f"{phase_key} ({label})."
                     )
                     if strict:
@@ -477,7 +477,7 @@ class BoQBuilder:
                     )
                     if target_ver_idx < min_idx or field_name in unsupported:
                         msg = (
-                            f"Item {item.oz}: {field_name!r} requires DA XML "
+                            f"Item {item.full_oz}: {field_name!r} requires DA XML "
                             f"{min_ver}+, but target is {target_ver}. "
                             f"This field will be dropped during export."
                         )
@@ -488,7 +488,7 @@ class BoQBuilder:
                 if "phases" in compat and phase_key not in compat["phases"]:
                     allowed = ", ".join(sorted(compat["phases"]))
                     msg = (
-                        f"Item {item.oz}: {field_name!r} is only valid for "
+                        f"Item {item.full_oz}: {field_name!r} is only valid for "
                         f"phases {allowed}, but target is {phase_key}."
                     )
                     if strict:

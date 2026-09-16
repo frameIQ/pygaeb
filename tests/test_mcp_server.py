@@ -14,6 +14,7 @@ import inspect
 import json
 import sys
 import threading
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import ClassVar
@@ -791,7 +792,9 @@ class TestAnalyzeBids:
         assert result["lowest_bidder"] == "Alpha"
         assert result["bidder_count"] == 2
         assert [r["rank"] for r in result["ranking"]] == [1, 2]
-        assert result["ranking"][0] == {"bidder": "Alpha", "grand_total": "450.00", "rank": 1}
+        assert result["ranking"][0] == {
+            "bidder": "Alpha", "grand_total": "450.00", "rank": 1, "priced_items": 2,
+        }
 
     async def test_spread_decimals_are_strings_counts_are_ints(self, tmp_path: Path):
         ctx = _ctx(_make_x82_doc(), tmp_path)
@@ -1147,3 +1150,198 @@ class TestLazyImport:
         from pygaeb.mcp.server import create_server as direct
 
         assert lazy is direct
+
+
+# ── Full OZ, computed totals, synthetic lot ────────────────────────────
+
+
+def _two_category_doc(*, totals: bool = True, prices: bool = True) -> GAEBDocument:
+    """Two categories that both hold a 0010 — the shape every real tender has."""
+
+    def _item(oz_path: list[str], oz: str, text: str, qty: str, up: str) -> Item:
+        return Item(
+            oz=oz,
+            oz_path=oz_path,
+            short_text=text,
+            qty=Decimal(qty),
+            unit="St",
+            unit_price=Decimal(up) if prices else None,
+            total_price=(Decimal(qty) * Decimal(up)) if (prices and totals) else None,
+            item_type=ItemType.NORMAL,
+        )
+
+    fenster = BoQCtgy(
+        rno="02",
+        label="Fensterelemente Kunststoff",
+        items=[
+            _item(["02"], "0010", "Kunststofffenster 1-flg.", "14", "500.00"),
+            _item(["02"], "0020", "Kunststofffenster 2-flg.", "8", "800.00"),
+        ],
+    )
+    tueren = BoQCtgy(
+        rno="03",
+        label="Außentüren Aluminium",
+        items=[_item(["03"], "0010", "Haustürelement", "2", "2800.00")],
+    )
+    lot = Lot(rno="1", label="Default", synthetic=True, body=BoQBody(categories=[fenster, tueren]))
+    return GAEBDocument(
+        source_version=SourceVersion.DA_XML_33,
+        exchange_phase=ExchangePhase.X84,
+        gaeb_info=GAEBInfo(version="3.3"),
+        award=AwardInfo(
+            project_name="Sanierung Grundschule",
+            currency="EUR",
+            open_date=datetime(2026, 8, 14),
+            boq=BoQ(lots=[lot]),
+        ),
+    )
+
+
+class TestFullOz:
+    def test_get_item_refuses_to_guess_between_categories(self, tmp_path: Path):
+        ctx = _ctx(_two_category_doc(), tmp_path)
+        with pytest.raises(ValueError, match=r"ambiguous.*02\.0010, 03\.0010"):
+            _tools(ctx)["get_item"](handle="doc_test", oz="0010")  # type: ignore[operator]
+        with pytest.raises(ValueError, match="ambiguous"):
+            _tools(ctx)["get_item_long_text"](handle="doc_test", oz="0010")  # type: ignore[operator]
+
+    def test_get_item_full_oz_and_unique_leaf(self, tmp_path: Path):
+        ctx = _ctx(_two_category_doc(), tmp_path)
+        full = _tools(ctx)["get_item"](handle="doc_test", oz="03.0010")  # type: ignore[operator]
+        assert full["short_text"] == "Haustürelement"
+        assert full["label_path"] == ["BoQ", "Außentüren Aluminium", "Haustürelement"]
+        leaf = _tools(ctx)["get_item"](handle="doc_test", oz="0020")  # type: ignore[operator]
+        assert leaf["oz"] == "02.0020"
+
+    def test_rows_carry_full_oz_and_computed_total(self, tmp_path: Path):
+        ctx = _ctx(_two_category_doc(totals=False), tmp_path)
+        result = _tools(ctx)["list_items"](handle="doc_test")  # type: ignore[operator]
+        rows = {r["oz"]: r for r in result["items"]}
+        assert set(rows) == {"02.0010", "02.0020", "03.0010"}
+        assert rows["02.0010"]["total_price"] is None
+        assert rows["02.0010"]["computed_total"] == "7000.00"
+
+    def test_total_filters_and_sort_fall_back_to_computed_total(self, tmp_path: Path):
+        ctx = _ctx(_two_category_doc(totals=False), tmp_path)
+        result = _tools(ctx)["list_items"](  # type: ignore[operator]
+            handle="doc_test", min_total=6000, sort="total_desc"
+        )
+        # 02.0010 = 14 x 500, 02.0020 = 8 x 800; 03.0010 = 2 x 2800 stays under the floor.
+        assert [r["oz"] for r in result["items"]] == ["02.0010", "02.0020"]
+        assert result["sum_of_matched_totals"] == "13400.00"
+        assert result["pct_of_grand_total"] == 70.53
+
+    def test_summary_grand_total_null_when_no_item_totals(self, tmp_path: Path):
+        from pygaeb.mcp.views import document_summary
+
+        summary = document_summary(
+            _two_category_doc(totals=False), "doc_x", "bid.X84", cached=False
+        )
+        assert summary["is_priced"] is True
+        assert summary["grand_total"] is None
+        assert summary["computed_grand_total"] == "19000.00"
+
+    def test_summary_exposes_award_dates(self, tmp_path: Path):
+        from pygaeb.mcp.views import document_summary
+
+        summary = document_summary(_two_category_doc(), "doc_x", "bid.X84", cached=False)
+        assert summary["award"]["open_date"] == "2026-08-14T00:00:00"
+        assert summary["award"]["contract_no"] is None
+
+    def test_synthetic_lot_hidden_from_summary_and_structure(self, tmp_path: Path):
+        from pygaeb.mcp.views import document_summary
+
+        summary = document_summary(_two_category_doc(), "doc_x", "bid.X84", cached=False)
+        assert summary["lot_count"] == 0
+        assert summary["lot_labels"] == []
+
+        ctx = _ctx(_two_category_doc(), tmp_path)
+        top = _tools(ctx)["list_structure"](handle="doc_test")  # type: ignore[operator]
+        assert [n["rno"] for n in top["nodes"]] == ["02", "03"]
+        assert all(n["kind"] == "category" for n in top["nodes"])
+
+    def test_real_lots_still_listed(self, tmp_path: Path):
+        ctx = _ctx(_make_procurement_doc(), tmp_path)
+        top = _tools(ctx)["list_structure"](handle="doc_test")  # type: ignore[operator]
+        assert [n["kind"] for n in top["nodes"]] == ["lot"]
+        assert "synthetic" not in top["nodes"][0]
+
+    async def test_search_matches_category_label_and_oz(self, tmp_path: Path):
+        ctx = _ctx(_two_category_doc(), tmp_path)
+        by_label = await _call(_tools(ctx)["search_items"], handle="doc_test", query="Außentür")
+        assert [(m["oz"], m["field"]) for m in by_label["matches"]] == [("03.0010", "category")]
+        by_oz = await _call(_tools(ctx)["search_items"], handle="doc_test", query="02.00")
+        assert [m["oz"] for m in by_oz["matches"]] == ["02.0010", "02.0020"]
+        assert by_oz["matches"][0]["field"] == "oz"
+
+    async def test_compare_matches_by_full_oz_and_lists_sections(self, tmp_path: Path):
+        a = _two_category_doc()
+        b = _two_category_doc()
+        b.award.boq.lots[0].body.categories[1].items[0].unit_price = Decimal("3000.00")
+        b.award.boq.lots[0].body.categories[1].items[0].total_price = Decimal("6000.00")
+        b.award.boq.lots[0].body.categories.append(
+            BoQCtgy(rno="04", label="Beschläge", items=[
+                Item(oz="0010", oz_path=["04"], short_text="Türschließer", qty=Decimal("5"),
+                     unit="St", unit_price=Decimal("90.00"), total_price=Decimal("450.00"),
+                     item_type=ItemType.NORMAL),
+            ])
+        )
+        cache = DocumentCache()
+        cache.put("doc_a", tmp_path / "a.X84", a)
+        cache.put("doc_b", tmp_path / "b.X84", b)
+        ctx = ToolContext(cache=cache, roots=[tmp_path.resolve()])
+
+        result = await _tools(ctx)["compare_documents"](handle_a="doc_a", handle_b="doc_b")  # type: ignore[operator]
+        kinds = {(c["kind"], c["oz"]) for c in result["changes"]}
+        assert kinds == {("modified", "03.0010"), ("added", "04.0010")}
+        assert result["counts"]["unchanged"] == 2
+        assert result["structure"]["sections_added"] == [
+            {"rno": "04", "label": "Beschläge", "lot_rno": "1", "item_count": 1}
+        ]
+        assert result["structure"]["sections_removed"] == []
+        assert result["summary"]["is_likely_same_project"] is True
+
+    async def test_compare_unrelated_documents_not_same_project(self, tmp_path: Path):
+        a = _two_category_doc()
+        a.award.project_name = None
+        b = _make_procurement_doc()
+        b.award.project_name = None
+        cache = DocumentCache()
+        cache.put("doc_a", tmp_path / "a.X84", a)
+        cache.put("doc_b", tmp_path / "b.X83", b)
+        ctx = ToolContext(cache=cache, roots=[tmp_path.resolve()])
+
+        result = await _tools(ctx)["compare_documents"](handle_a="doc_a", handle_b="doc_b")  # type: ignore[operator]
+        assert result["summary"]["match_ratio"] == 0.0
+        assert result["summary"]["is_likely_same_project"] is False
+
+    async def test_analyze_bids_full_oz_keys_and_unpriced_bidder(self, tmp_path: Path):
+        tender = _two_category_doc(prices=False)
+        bid_a = _two_category_doc(totals=False)
+        bid_b = _two_category_doc(prices=False)
+        cache = DocumentCache()
+        cache.put("doc_t", tmp_path / "t.X83", tender)
+        cache.put("doc_a", tmp_path / "a.X84", bid_a)
+        cache.put("doc_b", tmp_path / "b.X84", bid_b)
+        ctx = ToolContext(cache=cache, roots=[tmp_path.resolve()])
+
+        result = await _tools(ctx)["analyze_bids"](  # type: ignore[operator]
+            tender_handle="doc_t",
+            bids=[{"name": "Empty", "handle": "doc_b"}, {"name": "Priced", "handle": "doc_a"}],
+            spread_for=["03.0010", "0020", "0010", "99.9999"],
+        )
+        assert result["lowest_bidder"] == "Priced"
+        assert result["ranking"] == [
+            {"bidder": "Priced", "grand_total": "19000.00", "rank": 1, "priced_items": 3},
+            {"bidder": "Empty", "grand_total": None, "rank": None, "priced_items": 0},
+        ]
+        assert set(result["spreads"]) == {"03.0010", "0020"}
+        assert result["spreads"]["03.0010"]["min"] == "2800.00"
+        assert result["spread_ambiguous"] == {"0010": ["02.0010", "03.0010"]}
+        assert result["spread_unmatched"] == ["99.9999"]
+
+    def test_xsd_dir_flag_configures_settings(self, tmp_path: Path):
+        from pygaeb.mcp.server import _build_parser
+
+        args = _build_parser().parse_args(["--root", str(tmp_path), "--xsd-dir", "/schemas"])
+        assert args.xsd_dir == "/schemas"

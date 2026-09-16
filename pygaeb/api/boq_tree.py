@@ -193,10 +193,11 @@ class BoQNode:
             return self._model.label or self._model.rno or "Lot"  # type: ignore[union-attr]
         if self._kind == NodeKind.CATEGORY:
             return self._model.label or self._model.rno or ""  # type: ignore[union-attr]
-        return self._model.short_text or self._model.oz or ""  # type: ignore[union-attr]
+        return self._model.short_text or self._model.full_oz or ""  # type: ignore[union-attr]
 
     @property
     def rno(self) -> str:
+        """The node's own ``RNoPart`` (leaf segment for items). See :attr:`oz`."""
         if self._kind == NodeKind.ROOT:
             return ""
         if self._kind == NodeKind.ITEM:
@@ -204,9 +205,23 @@ class BoQNode:
         return self._model.rno  # type: ignore[union-attr]
 
     @property
+    def oz(self) -> str:
+        """The item's full ordinal number (``"01.02.0010"``); empty for non-items."""
+        if self._kind == NodeKind.ITEM:
+            return self._model.full_oz  # type: ignore[union-attr]
+        return ""
+
+    @property
     def label_path(self) -> list[str]:
-        """Labels from root to self (human-readable breadcrumb)."""
-        return [n.label for n in self.path]
+        """Labels from root to self (human-readable breadcrumb).
+
+        The placeholder lot the parser adds to lot-less documents is skipped.
+        """
+        return [
+            n.label
+            for n in self.path
+            if not (n._kind == NodeKind.LOT and getattr(n._model, "synthetic", False))
+        ]
 
     # ------------------------------------------------------------------
     # Subtree queries
@@ -257,10 +272,11 @@ class BoQTree:
     Construction is O(n) where n is the total number of nodes.
     """
 
-    __slots__ = ("_item_count", "_items_by_oz", "_node_count", "_root")
+    __slots__ = ("_item_count", "_items_by_leaf", "_items_by_oz", "_node_count", "_root")
 
     def __init__(self, boq: BoQ) -> None:
         self._items_by_oz: dict[str, BoQNode] = {}
+        self._items_by_leaf: dict[str, list[BoQNode]] = {}
         self._node_count = 0
         self._item_count = 0
         self._root = self._build_root(boq)
@@ -300,8 +316,17 @@ class BoQTree:
     def find_item(self, oz: str) -> BoQNode | None:
         """O(1) item lookup by OZ. Accepts either the leaf ``RNoPart``
         (e.g. ``"0004"``) or the full OZ (e.g. ``"01.02.0004"``). Returns
-        None if not found."""
+        None if not found. A leaf shared by several categories resolves to the
+        first item in document order; use :meth:`find_items` to see them all."""
         return self._items_by_oz.get(oz)
+
+    def find_items(self, oz: str) -> list[BoQNode]:
+        """Every item whose full OZ or leaf ``RNoPart`` equals *oz*, in document order."""
+        leaf = self._items_by_leaf.get(oz)
+        if leaf:
+            return list(leaf)
+        full = self._items_by_oz.get(oz)
+        return [full] if full is not None else []
 
     def find_category(self, rno: str) -> BoQNode | None:
         """First category node with this rno (depth-first). None if not found."""
@@ -421,10 +446,11 @@ class BoQTree:
         self._node_count += 1
         self._item_count += 1
 
+        # Index by both the leaf RNoPart and the full OZ (e.g. "01.02.0004");
+        # the leaf may recur across categories, so it also keeps every match.
         if item_model.oz:
             self._items_by_oz.setdefault(item_model.oz, item_node)
-        # Also index by the full OZ (e.g. "01.02.0004") so lookups work with
-        # either the leaf RNoPart or the complete ordinal number.
+            self._items_by_leaf.setdefault(item_model.oz, []).append(item_node)
         full_oz = item_model.full_oz
         if full_oz and full_oz != item_model.oz:
             self._items_by_oz.setdefault(full_oz, item_node)

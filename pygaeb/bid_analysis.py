@@ -18,11 +18,15 @@ Usage::
     analysis = BidAnalysis.from_x84_bids(tender, bids)
     print(analysis.ranking())             # [("Bidder A", 1234.56), ...]
     print(analysis.lowest_bidder)         # "Bidder A"
-    print(analysis.price_spread("01.0010"))  # {"min": 45.50, "max": 52.00, ...}
+    print(analysis.price_spread("01.02.0010"))  # {"min": 45.50, "max": 52.00, ...}
 
     # From a Preisspiegel X82 document (if bidder_prices are populated)
     doc = GAEBParser.parse("preisspiegel.X82")
     analysis = BidAnalysis.from_x82(doc)
+
+Prices are keyed by the full OZ (``"01.02.0010"``); the leaf ``RNoPart``
+alone recurs in every category. Lookups accept a bare leaf when it is
+unambiguous and raise ``ValueError`` when several positions share it.
 """
 
 from __future__ import annotations
@@ -32,7 +36,17 @@ from collections.abc import Mapping
 from decimal import Decimal
 
 from pygaeb.models.document import GAEBDocument
-from pygaeb.models.item import BidderPrice
+from pygaeb.models.item import BidderPrice, Item
+
+
+def _effective_price(item: Item) -> BidderPrice:
+    """One bidder's price row for *item*: stated total, else qty x unit price."""
+    total = item.total_price if item.total_price is not None else item.computed_total
+    return BidderPrice(
+        unit_price=item.unit_price,
+        total_price=total,
+        affects_total=item.item_type.affects_total,
+    )
 
 
 class BidAnalysis:
@@ -79,11 +93,9 @@ class BidAnalysis:
         for bidder_name, bid_doc in bids.items():
             prices: dict[str, BidderPrice] = {}
             for item in bid_doc.iter_items():
-                prices[item.oz] = BidderPrice(
-                    bidder_name=bidder_name,
-                    unit_price=item.unit_price,
-                    total_price=item.total_price,
-                )
+                bp = _effective_price(item)
+                bp.bidder_name = bidder_name
+                prices[item.full_oz] = bp
             by_bidder[bidder_name] = prices
 
         analysis = BidAnalysis(tender, by_bidder)
@@ -108,7 +120,9 @@ class BidAnalysis:
                 if bp.bidder_name not in by_bidder:
                     by_bidder[bp.bidder_name] = {}
                 # Defensive copy — never mutate models owned by the source doc
-                by_bidder[bp.bidder_name][item.oz] = copy.copy(bp)
+                row = copy.copy(bp)
+                row.affects_total = item.item_type.affects_total
+                by_bidder[bp.bidder_name][item.full_oz] = row
 
         analysis = BidAnalysis(doc, by_bidder)
         analysis._compute_ranks()
@@ -117,26 +131,27 @@ class BidAnalysis:
     def _compute_ranks(self) -> None:
         """Compute rank values (1 = lowest grand total) into ``_ranks``.
 
-        Ranks are stored on the analysis instance — never written back to
-        the BidderPrice models, which may be shared with the source bid
-        documents.
+        Bidders who priced nothing sort last — a missing bid is not a zero bid.
+        Ranks are stored on the analysis instance, never written back to the
+        BidderPrice models, which may be shared with the source documents.
         """
-        sorted_bidders = sorted(
-            self._by_bidder.items(),
-            key=lambda kv: self._grand_total(kv[1]),
-        )
-        self._ranks = {
-            name: rank
-            for rank, (name, _) in enumerate(sorted_bidders, start=1)
-        }
+        self._ranks = {name: rank for rank, (name, _) in enumerate(self.ranking(), start=1)}
 
     @staticmethod
     def _grand_total(prices: dict[str, BidderPrice]) -> Decimal:
-        """Sum all total_price values from a bidder's price set."""
+        """Sum the totals that count toward the contract (VOB/A)."""
         return sum(
-            (bp.total_price for bp in prices.values() if bp.total_price is not None),
+            (
+                bp.total_price
+                for bp in prices.values()
+                if bp.total_price is not None and bp.affects_total
+            ),
             Decimal("0"),
         )
+
+    @staticmethod
+    def _priced_count(prices: dict[str, BidderPrice]) -> int:
+        return sum(1 for bp in prices.values() if bp.unit_price is not None)
 
     @property
     def bidders(self) -> list[str]:
@@ -145,18 +160,23 @@ class BidAnalysis:
 
     @property
     def lowest_bidder(self) -> str | None:
-        """Return the bidder name with the lowest grand total, or None if no bidders."""
-        ranking = self.ranking()
-        return ranking[0][0] if ranking else None
+        """The bidder with the lowest grand total; None if nobody priced anything."""
+        for name, _ in self.ranking():
+            if self.priced_item_count(name):
+                return name
+        return None
 
     def ranking(self) -> list[tuple[str, Decimal]]:
-        """Return [(bidder_name, grand_total), ...] sorted ascending by total."""
+        """Return [(bidder_name, grand_total), ...] sorted ascending by total.
+
+        Bidders without a single priced item come last, whatever their (zero) total.
+        """
         results = [
-            (name, self._grand_total(prices))
+            (name, self._grand_total(prices), self._priced_count(prices) == 0)
             for name, prices in self._by_bidder.items()
         ]
-        results.sort(key=lambda x: x[1])
-        return results
+        results.sort(key=lambda x: (x[2], x[1]))
+        return [(name, total) for name, total, _ in results]
 
     def grand_total(self, bidder_name: str) -> Decimal | None:
         """Return the grand total for a specific bidder."""
@@ -165,20 +185,41 @@ class BidAnalysis:
             return None
         return self._grand_total(prices)
 
+    def priced_item_count(self, bidder_name: str) -> int:
+        """How many positions this bidder gave a unit price for."""
+        prices = self._by_bidder.get(bidder_name)
+        return self._priced_count(prices) if prices is not None else 0
+
+    def resolve_oz(self, oz: str) -> str | None:
+        """The stored key for *oz*: exact, or the single position with that leaf.
+
+        Raises ``ValueError`` when the leaf is shared by several positions.
+        """
+        keys = {k for prices in self._by_bidder.values() for k in prices}
+        if oz in keys:
+            return oz
+        candidates = sorted(k for k in keys if k.endswith("." + oz))
+        if len(candidates) > 1:
+            raise ValueError(f"ambiguous OZ {oz!r}: {', '.join(candidates)}")
+        return candidates[0] if candidates else None
+
     def price_spread(self, oz: str) -> dict[str, Decimal | int] | None:
         """Return min/max/avg/spread for unit prices on a given item.
 
         Args:
-            oz: Item OZ to look up.
+            oz: Item OZ to look up (full, or an unambiguous leaf).
 
         Returns:
             ``{"min": Decimal, "max": Decimal, "avg": Decimal,
             "spread": Decimal, "count": int}`` or ``None`` if no bidders
             priced this item.
         """
+        key = self.resolve_oz(oz)
+        if key is None:
+            return None
         unit_prices: list[Decimal] = []
         for prices in self._by_bidder.values():
-            bp = prices.get(oz)
+            bp = prices.get(key)
             if bp and bp.unit_price is not None:
                 unit_prices.append(bp.unit_price)
 
@@ -205,7 +246,8 @@ class BidAnalysis:
         prices = self._by_bidder.get(bidder_name)
         if prices is None:
             return None
-        bp = prices.get(oz)
+        key = self.resolve_oz(oz)
+        bp = prices.get(key) if key is not None else None
         if bp is None:
             return None
         result = copy.copy(bp)

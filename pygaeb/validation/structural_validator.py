@@ -25,10 +25,29 @@ def validate_structure(doc: GAEBDocument) -> list[ValidationResult]:
     for lot in boq.lots:
         if lot.boq_info:
             results.extend(_validate_bkdn(lot.boq_info.bkdn, lot.rno))
+        results.extend(_validate_unique_oz(lot))
 
     if boq.boq_info:
         results.extend(_validate_bkdn(boq.boq_info.bkdn, "root"))
 
+    return results
+
+
+def _validate_unique_oz(lot: Any) -> list[ValidationResult]:
+    """An OZ (with its index, for Indexpositionen) must be unique within a lot."""
+    seen: dict[tuple[str, str], int] = {}
+    for item in lot.iter_items():
+        key = (item.full_oz, item.rno_index or "")
+        seen[key] = seen.get(key, 0) + 1
+    results: list[ValidationResult] = []
+    for (oz, index), count in seen.items():
+        if count > 1:
+            shown = f"{oz}[{index}]" if index else oz
+            results.append(ValidationResult(
+                severity=ValidationSeverity.ERROR,
+                message=f"Duplicate OZ {shown} ({count}x) in lot {lot.rno!r}",
+                xpath_location=f"Item[@RNoPart='{oz.rsplit('.', 1)[-1]}']",
+            ))
     return results
 
 

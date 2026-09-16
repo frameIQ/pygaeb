@@ -210,7 +210,11 @@ def _parse_core(
     if xsd_dir:
         _run_xsd_validation(doc, source_path, text, route, xsd_dir)
     else:
-        doc.add_info("XSD validation skipped: no schema directory configured")
+        doc.add_info(
+            "XSD validation skipped: no schema directory configured — set "
+            "PYGAEB_XSD_DIR (or GAEBParser(xsd_dir=...), pygaeb-mcp --xsd-dir) "
+            "to the directory holding the official GAEB DA XML schemas"
+        )
 
     from pygaeb.validation import _compile_suppress, _suppress_matches, run_validation
     run_validation(
@@ -479,3 +483,32 @@ def _run_xsd_validation(
 
     for err in result.errors:
         doc.add_warning(f"XSD validation: {err.message}", xpath=f"line {err.line}")
+
+    if result.errors:
+        _hint_older_pygaeb_writer(doc)
+
+
+def _hint_older_pygaeb_writer(doc: GAEBDocument) -> None:
+    """Schema errors in a file an older pyGAEB wrote are cured by re-exporting."""
+    from pygaeb import __version__
+
+    info = doc.gaeb_info
+    if not info or (info.prog_system or "").strip().lower() != "pygaeb":
+        return
+    written_by = (info.prog_system_version or "").strip()
+    if not written_by or _version_tuple(written_by) >= _version_tuple(__version__):
+        return
+    doc.add_info(
+        f"File written by pyGAEB {written_by}; re-exporting with pyGAEB {__version__} "
+        "fixes the schema-order and header issues of older writers"
+    )
+
+
+def _version_tuple(text: str) -> tuple[int, ...]:
+    parts: list[int] = []
+    for piece in text.split("."):
+        digits = "".join(ch for ch in piece if ch.isdigit())
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts)

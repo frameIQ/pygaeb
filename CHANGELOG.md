@@ -5,14 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.18.0] - 2026-09-17
+
+Driving the MCP server from Claude Desktop against real bid files showed that every consumer of an item's identity used `Item.oz` — the leaf `RNoPart` alone, `"0010"` — although `Item.full_oz` (`"02.0010"`) had existed since 1.14. A leaf recurs in every category, so the diff paired a window position with a trench excavation, the bid analysis collapsed 28 positions into 7 keys, validation said "Item 0030" when five items carried that number, and `get_item("0010")` silently returned the first one. This release moves every reader, key and message to the full OZ. Written XML is untouched: `RNoPart` attributes stay the leaf.
+
+### Changed
+
+- **Diff matches positions by full OZ within a lot.** `BoQDiff.compare` no longer pairs `02.0020` with `001.002.0020`; `ItemAdded`/`ItemRemoved`/`ItemModified.oz` and `ItemMoved.oz` carry the full OZ, and the structure diff keys categories by their rno path so a sub-category "01" under "02" is distinct from the top-level "01". Section changes are reported in document order.
+- **`BidAnalysis` keys prices by full OZ.** `from_x84_bids` and `from_x82` no longer overwrite positions that share a leaf. `price_spread` and `get_bidder_price` still accept a bare leaf when only one position has it and raise `ValueError("ambiguous OZ '0010': 01.0010, 02.0010")` otherwise (`resolve_oz` exposes the rule). Totals fall back to qty × unit price when a bid states no item totals, alternative and eventual positions are priced but no longer summed (`BidderPrice.affects_total`), and a bidder without a single priced item sorts last instead of winning with 0 € (`priced_item_count`, `lowest_bidder` is `None` when nobody priced). The constructor contract is unchanged: callers who build the `{bidder: {oz: BidderPrice}}` mapping themselves keep their own keys.
+- **Validation messages name the full OZ and the node kind.** `Item 02.0010: …`, `MarkupItem 002.001.0030: Missing short text`. `CrossPhaseValidator` compares source and response by full OZ. `BoQ.get_item`, `BoQCtgy.remove_item` and `Item.__repr__` accept or show the full OZ; `BoQBuilder`'s duplicate check and warning texts use it too. `convert_document`'s database export keeps its `oz` column as the leaf.
+- **`is_likely_same_project` no longer defaults to true.** Two documents without project numbers compared as "the same project" whatever they contained. Project numbers (`Prj`, falling back to `PrjID`) decide when both exist, then project names, then a match ratio of at least 50 %.
+- **Quality score expects unit prices in priced phases.** In X82/X84/X86/X88/X89 an item that counts toward the total is incomplete without a unit price; markup items no longer count as incomplete for lacking a short text (3.x files never carry one).
 
 ### Added
 
+- **`BoQNode.oz` and `BoQTree.find_items()`.** `node.rno` stays the leaf, as for categories; `node.oz` is the full OZ. `find_items("0010")` returns every item with that leaf so a caller can refuse to guess; `find_item` keeps its first-match behaviour. `node.label` falls back to the full OZ.
+- **Duplicate OZ is a validation error.** `Duplicate OZ 001.001.0010 (3x) in lot '1'` — keyed on the full OZ and `RNoIndex`, so index positions sharing a number are fine and the same leaf in two categories is not a duplicate.
+- **`Lot.synthetic`.** The placeholder lot the parser wraps a lot-less BoQ in is marked, so summaries, structure listings and `label_path` can hide it — the file has no "Default" lot.
+- **MCP: `open_document` reports the tender's dates.** `award.open_date`, `open_time`, `eval_end`, `submit_location`, `construction_start`/`_end`, `contract_no`, `contract_date`, `award_no`, `procurement_type`, `description` — the submission date is the first thing an estimator asks.
 - **MCP: `list_documents` tool.** Lists the GAEB files under the allowed roots (recursive, hidden directories and symlinks skipped, paginated, scan capped at 5 000 files) so an assistant can find a file without the user typing an absolute path. Ten read tools now.
+- **MCP: `--xsd-dir`.** Same as `PYGAEB_XSD_DIR`; the "XSD validation skipped" note now names both. When schema errors appear in a file an older pyGAEB wrote, an info note says that re-exporting with the current version fixes them.
+- **MCP: `compare_documents` returns `structure`** — the sections added, removed and renamed and the items moved (first 20 of each), not just their counts.
+- **MCP: `search_items` also matches the OZ and category labels.** Each hit says which `field` matched (`oz`, `short_text`, `category`, `long_text`), so "Außentür" finds the positions under *Außentüren Aluminium*.
 
 ### Fixed
 
+- **MCP: `get_item` and `get_item_long_text` refuse an ambiguous leaf.** `get_item("0010")` on a file with `02.0010` and `03.0010` raises and lists both instead of returning the first.
+- **MCP: `list_items` filters and sorts on the computed total.** `min_total`, `max_total`, `sort='total_desc'`, `sum_of_matched_totals` and `pct_of_grand_total` use the stated total, else qty × unit price; rows carry `computed_total`. A bid with unit prices only used to return nothing for "items above 5 000 €".
+- **MCP: `open_document` reports `grand_total: null` when no item states a total**, keeping `computed_grand_total`, instead of `"0"` next to a six-figure computed total. `analyze_bids` ranks on computed totals, returns `grand_total`/`rank` null with `priced_items: 0` for a bidder who priced nothing, and reports `spread_unmatched`/`spread_ambiguous` instead of silently dropping OZs.
 - **MCP: bare file names now open.** `open_document` and `convert_document` resolved relative paths against the server's working directory, which desktop clients set to `/`, so `tender.X83` with a correct `--root` failed with "outside the allowed roots". Relative paths are now looked up under each root in order; write destinations resolve against `--output-dir`.
 - **MCP: unpriced tenders no longer report a total of `"0"`.** `open_document` returns `is_priced` and null totals for an X83 without prices, and `list_items` returns a null `sum_of_matched_totals`, so an assistant cannot read a blank tender as costing 0 €.
 

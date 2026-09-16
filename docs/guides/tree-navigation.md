@@ -103,6 +103,17 @@ if node:
 > `Item.oz` holds only this item's own segment (the leaf `RNoPart`). Use
 > `item.full_oz` for the complete ordinal number built from the whole
 > category/lot chain, or `item.full_oz_with("-")` for a custom separator.
+> On a node, `node.rno` is the leaf and `node.oz` the full OZ.
+
+A leaf recurs in every category (`02.0010`, `03.0010`, …). `find_item()` with a
+bare leaf returns the first in document order; `find_items()` returns them all,
+so you can refuse to guess:
+
+```python
+hits = tree.find_items("0010")        # [<02.0010>, <03.0010>]
+if len(hits) > 1:
+    raise ValueError(f"ambiguous: {[n.oz for n in hits]}")
+```
 
 ### Find category by rno
 

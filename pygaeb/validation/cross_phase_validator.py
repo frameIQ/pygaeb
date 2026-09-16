@@ -76,15 +76,17 @@ def _check_tender_bid(
     """X83 -> X84: Bidder may not add/remove/reorder OZ items. Must add prices."""
     results: list[ValidationResult] = []
 
-    source_ozs = {item.oz for item in source.award.boq.iter_items()}
-    response_ozs = {item.oz for item in response.award.boq.iter_items()}
+    source_items = {item.full_oz: item for item in source.award.boq.iter_items()}
+    response_items = {item.full_oz: item for item in response.award.boq.iter_items()}
+    source_ozs = set(source_items)
+    response_ozs = set(response_items)
 
     missing_in_response = source_ozs - response_ozs
     extra_in_response = response_ozs - source_ozs
 
     for oz in sorted(missing_in_response):
-        source_item = source.award.boq.get_item(oz)
-        if source_item and source_item.item_type.affects_total:
+        source_item = source_items[oz]
+        if source_item.item_type.affects_total:
             results.append(ValidationResult(
                 severity=ValidationSeverity.ERROR,
                 message=f"Item {oz} present in source but missing in response",
@@ -92,8 +94,8 @@ def _check_tender_bid(
             ))
 
     for oz in sorted(extra_in_response):
-        response_item = response.award.boq.get_item(oz)
-        if response_item and response_item.item_type not in (
+        response_item = response_items[oz]
+        if response_item.item_type not in (
             ItemType.ALTERNATIVE, ItemType.SUPPLEMENT
         ):
             results.append(ValidationResult(
@@ -103,26 +105,25 @@ def _check_tender_bid(
             ))
 
     for oz in sorted(source_ozs & response_ozs):
-        source_item = source.award.boq.get_item(oz)
-        response_item = response.award.boq.get_item(oz)
-        if source_item and response_item:
-            if (source_item.qty is not None and response_item.qty is not None
-                    and source_item.qty != response_item.qty):
-                results.append(ValidationResult(
-                    severity=ValidationSeverity.WARNING,
-                    message=(
-                        f"Item {oz}: Quantity modified in response "
-                        f"(source={source_item.qty}, response={response_item.qty})"
-                    ),
-                    xpath_location=f"Item[@RNoPart='{oz}']/Qty",
-                ))
+        source_item = source_items[oz]
+        response_item = response_items[oz]
+        if (source_item.qty is not None and response_item.qty is not None
+                and source_item.qty != response_item.qty):
+            results.append(ValidationResult(
+                severity=ValidationSeverity.WARNING,
+                message=(
+                    f"Item {oz}: Quantity modified in response "
+                    f"(source={source_item.qty}, response={response_item.qty})"
+                ),
+                xpath_location=f"Item[@RNoPart='{oz}']/Qty",
+            ))
 
-            if response_item.item_type.affects_total and response_item.unit_price is None:
-                results.append(ValidationResult(
-                    severity=ValidationSeverity.WARNING,
-                    message=f"Item {oz}: Priced item missing unit price in response",
-                    xpath_location=f"Item[@RNoPart='{oz}']/UP",
-                ))
+        if response_item.item_type.affects_total and response_item.unit_price is None:
+            results.append(ValidationResult(
+                severity=ValidationSeverity.WARNING,
+                message=f"Item {oz}: Priced item missing unit price in response",
+                xpath_location=f"Item[@RNoPart='{oz}']/UP",
+            ))
 
     return results
 
@@ -142,10 +143,10 @@ def _check_contract_invoice(
     results: list[ValidationResult] = []
 
     contract_items = {
-        item.oz: item for item in source.award.boq.iter_items()
+        item.full_oz: item for item in source.award.boq.iter_items()
     }
     invoice_items = {
-        item.oz: item for item in response.award.boq.iter_items()
+        item.full_oz: item for item in response.award.boq.iter_items()
     }
 
     # Invoice items must reference existing contract items
@@ -208,10 +209,10 @@ def _check_contract_addendum(
     results: list[ValidationResult] = []
 
     contract_items = {
-        item.oz: item for item in source.award.boq.iter_items()
+        item.full_oz: item for item in source.award.boq.iter_items()
     }
     addendum_items = {
-        item.oz: item for item in response.award.boq.iter_items()
+        item.full_oz: item for item in response.award.boq.iter_items()
     }
 
     new_items = addendum_items.keys() - contract_items.keys()

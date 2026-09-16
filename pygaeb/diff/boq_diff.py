@@ -126,7 +126,7 @@ def _extract_doc_info(doc: GAEBDocument) -> DiffDocInfo:
     return DiffDocInfo(
         source_version=doc.source_version.value,
         exchange_phase=doc.exchange_phase.value,
-        project_no=doc.award.project_no,
+        project_no=doc.award.project_no or doc.award.prj_id,
         project_name=doc.award.project_name or doc.award.lbl_prj,
         currency=doc.award.currency,
         item_count=doc.item_count,
@@ -146,7 +146,7 @@ def _build_item_summary(match_result: object) -> ItemDiffSummary:
         lot_rno = _node_lot_rno(node_b)
         cat_rno = _node_category_rno(node_b)
         added.append(ItemAdded(
-            oz=item.oz,
+            oz=item.full_oz,
             short_text=item.short_text,
             lot_rno=lot_rno,
             category_rno=cat_rno,
@@ -158,7 +158,7 @@ def _build_item_summary(match_result: object) -> ItemDiffSummary:
         lot_rno = _node_lot_rno(node_a)
         cat_rno = _node_category_rno(node_a)
         removed.append(ItemRemoved(
-            oz=item.oz,
+            oz=item.full_oz,
             short_text=item.short_text,
             lot_rno=lot_rno,
             category_rno=cat_rno,
@@ -170,7 +170,7 @@ def _build_item_summary(match_result: object) -> ItemDiffSummary:
         if changes:
             lot_rno = _node_lot_rno(node_a)
             modified.append(ItemModified(
-                oz=node_a.item.oz,
+                oz=node_a.item.full_oz,
                 short_text_a=node_a.item.short_text,
                 short_text_b=node_b.item.short_text,
                 lot_rno=lot_rno,
@@ -273,9 +273,7 @@ def _build_summary(
             max_sig = sig
             break
 
-    prj_a = info_a.project_no
-    prj_b = info_b.project_no
-    is_likely_same = not (prj_a and prj_b and prj_a != prj_b)
+    is_likely_same = _is_likely_same_project(info_a, info_b, match_ratio)
 
     return DiffSummary(
         has_changes=has_changes,
@@ -289,6 +287,18 @@ def _build_summary(
         financial_impact=financial_impact,
         max_significance=max_sig,
     )
+
+
+_SAME_PROJECT_MATCH_RATIO = 0.5
+
+
+def _is_likely_same_project(info_a: DiffDocInfo, info_b: DiffDocInfo, match_ratio: float) -> bool:
+    """Project numbers decide when both exist, then names, then how well the OZs overlap."""
+    if info_a.project_no and info_b.project_no:
+        return info_a.project_no == info_b.project_no
+    if info_a.project_name and info_b.project_name:
+        return info_a.project_name.casefold() == info_b.project_name.casefold()
+    return match_ratio >= _SAME_PROJECT_MATCH_RATIO
 
 
 def _compute_financial_impact(

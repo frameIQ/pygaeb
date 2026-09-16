@@ -52,6 +52,7 @@
           "id": null,
           "rno": "1",
           "label": "Default",
+          "synthetic": true,
           "boq_info": null,
           "body": {
             "categories": [
@@ -151,11 +152,11 @@
   "validation_results": [
     {
       "severity": "INFO",
-      "message": "XSD validation skipped: no schema directory configured",
+      "message": "XSD validation skipped: no schema directory configured — set PYGAEB_XSD_DIR (or GAEBParser(xsd_dir=...), pygaeb-mcp --xsd-dir) to the directory holding the official GAEB DA XML schemas",
       "xpath_location": null,
       "version_specific": false
     }
   ],
-  "source_file": "/private/tmp/claude-501/pytest-of-kalyanakannanpadivasu/pytest-11/test_export_default_output_nam0/tender.X86",
+  "source_file": "/private/tmp/claude-501/pytest-of-kalyanakannanpadivasu/pytest-18/test_export_default_output_nam0/tender.X86",
   "raw_namespace": "http://www.gaeb.de/GAEB_DA_XML/DA86/3.3"
 }

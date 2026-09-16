@@ -7,6 +7,7 @@ from decimal import Decimal
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import ItemType, ValidationSeverity
 from pygaeb.models.item import ValidationResult
+from pygaeb.validation._common import item_ref
 
 
 def validate_items(doc: GAEBDocument) -> list[ValidationResult]:
@@ -17,7 +18,7 @@ def validate_items(doc: GAEBDocument) -> list[ValidationResult]:
         if item.item_type == ItemType.SUPPLEMENT and not item.change_order_number:
             results.append(ValidationResult(
                 severity=ValidationSeverity.WARNING,
-                message=f"Item {item.oz}: Supplement item missing change order number (CONo)",
+                message=f"{item_ref(item)}: Supplement item missing change order number (CONo)",
                 xpath_location=f"Item[@RNoPart='{item.oz}']",
             ))
 
@@ -27,7 +28,7 @@ def validate_items(doc: GAEBDocument) -> list[ValidationResult]:
                 results.append(ValidationResult(
                     severity=ValidationSeverity.WARNING,
                     message=(
-                        f"Item {item.oz}: QtySplit total ({split_total}) "
+                        f"{item_ref(item)}: QtySplit total ({split_total}) "
                         f"does not match item quantity ({item.qty})"
                     ),
                     xpath_location=f"Item[@RNoPart='{item.oz}']/QtySplit",
@@ -36,14 +37,14 @@ def validate_items(doc: GAEBDocument) -> list[ValidationResult]:
         if item.item_type == ItemType.NORMAL and item.qty is None:
             results.append(ValidationResult(
                 severity=ValidationSeverity.INFO,
-                message=f"Item {item.oz}: Normal item has no quantity",
+                message=f"{item_ref(item)}: Normal item has no quantity",
                 xpath_location=f"Item[@RNoPart='{item.oz}']",
             ))
 
         if not item.short_text and item.item_type != ItemType.INDEX:
             results.append(ValidationResult(
                 severity=ValidationSeverity.INFO,
-                message=f"Item {item.oz}: Missing short text",
+                message=f"{item_ref(item)}: Missing short text",
                 xpath_location=f"Item[@RNoPart='{item.oz}']",
             ))
 

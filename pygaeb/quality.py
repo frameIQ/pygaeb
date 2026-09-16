@@ -21,7 +21,8 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from pygaeb.models.document import GAEBDocument
-from pygaeb.models.enums import ValidationSeverity
+from pygaeb.models.enums import ItemType, ValidationSeverity
+from pygaeb.validation.phase_validator import _PHASES_REQUIRING_PRICE
 
 
 class QualityScore(BaseModel):
@@ -62,12 +63,19 @@ def quality_score(doc: GAEBDocument) -> QualityScore:
         if r.severity == ValidationSeverity.INFO
     )
 
+    phase = (
+        doc.exchange_phase.normalized()
+        if hasattr(doc.exchange_phase, "normalized")
+        else doc.exchange_phase
+    )
+    price_expected = phase in _PHASES_REQUIRING_PRICE
+
     if total_items == 0:
         complete = 100
     else:
         complete_items = sum(
             1 for item in items
-            if _is_complete(item)
+            if _is_complete(item, price_expected)
         )
         complete = int(100 * complete_items / total_items)
 
@@ -104,9 +112,19 @@ def quality_score(doc: GAEBDocument) -> QualityScore:
     )
 
 
-def _is_complete(item: object) -> bool:
-    """Heuristic: an item is complete if it has short_text and either qty or price."""
+def _is_complete(item: object, price_expected: bool = False) -> bool:
+    """Heuristic: short text plus qty or price; in priced phases the unit price too.
+
+    Markup items (Zuschlagspositionen) carry no short text in 3.x files, and
+    positions that do not count toward the total need no price.
+    """
+    item_type = getattr(item, "item_type", None)
     short_text = getattr(item, "short_text", "")
     qty = getattr(item, "qty", None)
     unit_price = getattr(item, "unit_price", None)
-    return bool(short_text) and (qty is not None or unit_price is not None)
+    if item_type == ItemType.MARKUP:
+        return True
+    if not short_text or (qty is None and unit_price is None):
+        return False
+    counts = getattr(item_type, "affects_total", True)
+    return not (price_expected and counts and unit_price is None)

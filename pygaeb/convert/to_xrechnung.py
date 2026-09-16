@@ -141,7 +141,7 @@ def to_xrechnung(
         _add(line, _CBC, "LineExtensionAmount",
              str(item.total_price), currencyID="EUR")
         item_el = etree.SubElement(line, f"{{{_CAC}}}Item")
-        _add(item_el, _CBC, "Name", (item.short_text or item.oz)[:200])
+        _add(item_el, _CBC, "Name", (item.short_text or item.full_oz)[:200])
         item_tax = etree.SubElement(item_el, f"{{{_CAC}}}ClassifiedTaxCategory")
         _add(item_tax, _CBC, "ID", "S")
         _add(item_tax, _CBC, "Percent", str(vat_rate))
