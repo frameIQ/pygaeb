@@ -21,6 +21,7 @@ Truncated values always report their true length (``short_text_chars``,
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
@@ -188,7 +189,9 @@ def is_priced(doc: Any) -> bool:
     )
 
 
-def document_summary(doc: Any, handle: str, path: str, cached: bool) -> dict[str, Any]:
+def document_summary(
+    doc: Any, handle: str, path: str, cached: bool, content_sha256: str | None = None
+) -> dict[str, Any]:
     """The orienting payload for ``open_document``.
 
     Fixed-size: roughly 25 scalars plus one capped list, regardless of whether the
@@ -207,6 +210,8 @@ def document_summary(doc: Any, handle: str, path: str, cached: bool) -> dict[str
         "handle": handle,
         "file": path,
         "cached": cached,
+        # Same digest, same bytes — however the file is named or when it was touched.
+        "content_sha256": content_sha256,
         "source_version": doc.source_version.value,
         "exchange_phase": doc.exchange_phase.value,
         "document_kind": doc.document_kind.value,
@@ -295,16 +300,20 @@ def item_row(item: Any) -> dict[str, Any]:
     long_plain: str = _attr(item, "long_text_plain", "") or ""
     item_type = _attr(item, "item_type")
     attachments = _attr(item, "attachments", []) or []
-    return {
+    is_markup = item_type is not None and item_type.value == "Markup"
+    row = {
         "oz": _attr(item, "full_oz") or _attr(item, "oz", "") or "",
+        # The XML @ID — the only way to address one copy of a repeated OZ.
+        "id": _attr(item, "id"),
         "short_text": short_text,
         "short_text_chars": short_len,
         "qty": _dec(_attr(item, "qty")),
         "unit": _attr(item, "unit"),
-        "unit_price": _dec(_attr(item, "unit_price")),
-        "total_price": _dec(_attr(item, "total_price")),
+        # A markup item stores its rate where a price would sit; see "markup" below.
+        "unit_price": None if is_markup else _dec(_attr(item, "unit_price")),
+        "total_price": None if is_markup else _dec(_attr(item, "total_price")),
         # qty x unit price; the stated total is often absent in bids.
-        "computed_total": _dec(_attr(item, "computed_total")),
+        "computed_total": None if is_markup else _dec(_attr(item, "computed_total")),
         "item_type": item_type.value if item_type is not None else None,
         # Whether the price counts toward the contract total (VOB/A) —
         # False for alternative/eventual/text-only positions.
@@ -313,6 +322,27 @@ def item_row(item: Any) -> dict[str, Any]:
         "long_text_chars": len(long_plain),
         "attachment_count": len(attachments),
         "has_classification": _attr(item, "classification") is not None,
+    }
+    if is_markup:
+        row["markup"] = markup_info(item)
+    return row
+
+
+def markup_info(item: Any) -> dict[str, Any]:
+    """What a markup item (Zuschlagsposition) applies and to what.
+
+    ``AllInCat`` is a percentage on every position of the enclosing category;
+    ``SubQty`` lists its base positions explicitly in ``base_positions``.
+    """
+    refs = _attr(item, "markup_sub_qtys", []) or []
+    return {
+        "type": _attr(item, "markup_type"),
+        "rate_pct": _dec(_attr(item, "unit_price")),
+        "amount": _dec(_attr(item, "total_price")),
+        "base_positions": [
+            {"oz": r.ref_rno, "id": r.ref_id, "sub_qty": _dec(r.sub_qty)}
+            for r in refs[:_MAX_NESTED_LIST]
+        ],
     }
 
 
@@ -442,20 +472,40 @@ def validation_issue(issue: ValidationResult) -> dict[str, Any]:
     }
 
 
-def snippet(text: str, query: str, radius: int = SNIPPET_RADIUS) -> tuple[str, int]:
+def find_matches(text: str, query: str, whole_word: bool = False) -> list[int]:
+    """Start offsets of every case-insensitive match of *query* in *text*.
+
+    ``whole_word`` bounds the match on both sides so "U" does not hit "und".
+    """
+    if not text:
+        return []
+    if whole_word:
+        pattern = re.compile(rf"(?<!\w){re.escape(query)}(?!\w)", re.IGNORECASE)
+        return [m.start() for m in pattern.finditer(text)]
+    lowered, needle = text.lower(), query.lower()
+    hits: list[int] = []
+    pos = lowered.find(needle)
+    while pos != -1:
+        hits.append(pos)
+        pos = lowered.find(needle, pos + max(len(needle), 1))
+    return hits
+
+
+def snippet(
+    text: str, query: str, radius: int = SNIPPET_RADIUS, whole_word: bool = False
+) -> tuple[str, int]:
     """Extract a context window around the first match of *query*.
 
     Returns (snippet, match_count). Returning windows rather than whole fields is
     what makes searching megabytes of specification prose cost ~1 KB of context.
     """
-    lowered = text.lower()
-    needle = query.lower()
-    count = lowered.count(needle)
+    hits = find_matches(text, query, whole_word)
+    count = len(hits)
     if count == 0:
         return "", 0
-    pos = lowered.find(needle)
+    pos = hits[0]
     start = max(0, pos - radius)
-    end = min(len(text), pos + len(needle) + radius)
+    end = min(len(text), pos + len(query) + radius)
     prefix = "…" if start > 0 else ""
     suffix = "…" if end < len(text) else ""
     return f"{prefix}{text[start:end]}{suffix}", count

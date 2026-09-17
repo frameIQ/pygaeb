@@ -74,6 +74,8 @@ class BidAnalysis:
         # Mutating shared model fields would pollute the source documents
         # when the same bid is reused across multiple analyses.
         self._ranks: dict[str, int] = {}
+        # {bidder: {oz: copies}} for OZs a bid repeats; only the first copy is kept.
+        self._duplicates: dict[str, dict[str, int]] = {}
 
     @staticmethod
     def from_x84_bids(
@@ -90,15 +92,23 @@ class BidAnalysis:
             A populated :class:`BidAnalysis`.
         """
         by_bidder: dict[str, dict[str, BidderPrice]] = {}
+        duplicates: dict[str, dict[str, int]] = {}
         for bidder_name, bid_doc in bids.items():
             prices: dict[str, BidderPrice] = {}
+            seen: dict[str, int] = {}
             for item in bid_doc.iter_items():
                 bp = _effective_price(item)
                 bp.bidder_name = bidder_name
-                prices[item.full_oz] = bp
+                # Keep the first copy of a repeated OZ, as the diff does.
+                prices.setdefault(item.full_oz, bp)
+                seen[item.full_oz] = seen.get(item.full_oz, 0) + 1
             by_bidder[bidder_name] = prices
+            dups = {oz: n for oz, n in seen.items() if n > 1}
+            if dups:
+                duplicates[bidder_name] = dups
 
         analysis = BidAnalysis(tender, by_bidder)
+        analysis._duplicates = duplicates
         analysis._compute_ranks()
         return analysis
 
@@ -115,16 +125,23 @@ class BidAnalysis:
             A populated :class:`BidAnalysis`.
         """
         by_bidder: dict[str, dict[str, BidderPrice]] = {}
+        seen: dict[str, dict[str, int]] = {}
         for item in doc.iter_items():
             for bp in item.bidder_prices:
-                if bp.bidder_name not in by_bidder:
-                    by_bidder[bp.bidder_name] = {}
+                prices = by_bidder.setdefault(bp.bidder_name, {})
                 # Defensive copy — never mutate models owned by the source doc
                 row = copy.copy(bp)
                 row.affects_total = item.item_type.affects_total
-                by_bidder[bp.bidder_name][item.full_oz] = row
+                prices.setdefault(item.full_oz, row)
+                counts = seen.setdefault(bp.bidder_name, {})
+                counts[item.full_oz] = counts.get(item.full_oz, 0) + 1
 
         analysis = BidAnalysis(doc, by_bidder)
+        analysis._duplicates = {
+            name: dups
+            for name, counts in seen.items()
+            if (dups := {oz: n for oz, n in counts.items() if n > 1})
+        }
         analysis._compute_ranks()
         return analysis
 
@@ -184,6 +201,10 @@ class BidAnalysis:
         if prices is None:
             return None
         return self._grand_total(prices)
+
+    def duplicates_collapsed(self, bidder_name: str) -> dict[str, int]:
+        """``{oz: copies}`` for OZs this bid repeated; only the first copy was priced."""
+        return dict(self._duplicates.get(bidder_name, {}))
 
     def priced_item_count(self, bidder_name: str) -> int:
         """How many positions this bidder gave a unit price for."""

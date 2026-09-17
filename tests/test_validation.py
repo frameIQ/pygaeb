@@ -144,9 +144,16 @@ class TestFullOzMessages:
             ]),
         ])
         messages = [r.message for r in validate_items(doc)]
-        assert "MarkupItem 02.0030: Missing short text" in messages
         assert "Item 02.0010: Normal item has no quantity" in messages
         assert not any(m.startswith("Item 0010") for m in messages)
+        # A markup item never carries a ShortText in 3.x files, so no note for it.
+        assert not any("02.0030" in m for m in messages)
+
+    def test_markup_ref_names_the_kind(self):
+        from pygaeb.validation._common import item_ref
+
+        markup = Item(oz="0030", oz_path=["02"], item_type=ItemType.MARKUP)
+        assert item_ref(markup) == "MarkupItem 02.0030"
 
     def test_duplicate_oz_within_a_lot_is_an_error(self):
         doc = self._doc([

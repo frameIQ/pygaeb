@@ -26,6 +26,7 @@ Write them for the model first and the human second.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
@@ -81,16 +82,33 @@ def _to_decimal(value: float | str | None) -> Decimal | None:
     return result
 
 
-def _one_item(tree: Any, oz: str, handle: str) -> BoQNode:
-    """Resolve an OZ to exactly one item, refusing to guess between categories."""
+def _one_item(tree: Any, oz: str, handle: str, item_id: str | None = None) -> BoQNode:
+    """Resolve an OZ (or an XML id) to exactly one item, refusing to guess.
+
+    A leaf shared across categories and a full OZ a file genuinely repeats both
+    raise, listing the candidates with their ids so the caller can pick one.
+    """
     nodes: list[BoQNode] = tree.find_items(oz)
+    if item_id and item_id.startswith("#"):
+        # "#2" = the second copy in document order, for files that carry no ids.
+        ordinal = item_id[1:]
+        if not ordinal.isdigit() or not 1 <= int(ordinal) <= len(nodes):
+            raise ValueError(f"OZ {oz!r} has {len(nodes)} copies in {handle}; got {item_id!r}.")
+        return nodes[int(ordinal) - 1]
+    if item_id:
+        by_id: BoQNode | None = tree.find_item_by_id(item_id)
+        if by_id is None:
+            raise ValueError(f"No item with id {item_id!r} in {handle}.")
+        return by_id
     if not nodes:
         raise ValueError(f"No item with OZ {oz!r} in {handle}.")
     if len(nodes) > 1:
-        candidates = ", ".join(n.oz for n in nodes)
-        raise ValueError(
-            f"OZ {oz!r} is ambiguous in {handle}: {candidates}. Pass the full OZ."
+        candidates = "; ".join(
+            f"{n.oz} (item_id={n.item.id or f'#{i}'}) {n.item.short_text or ''}".strip()
+            for i, n in enumerate(nodes, start=1)
         )
+        hint = "Pass the full OZ." if len({n.oz for n in nodes}) > 1 else "Pass item_id."
+        raise ValueError(f"OZ {oz!r} is ambiguous in {handle}: {candidates}. {hint}")
     return nodes[0]
 
 
@@ -106,6 +124,15 @@ def _structure_detail(structure: Any) -> dict[str, Any]:
         if len(rows) > _STRUCTURE_DETAIL_CAP:
             payload[f"{name}_truncated"] = True
     return payload
+
+
+def _digest(path: Path) -> str:
+    """Short SHA-256 of the file bytes — equal digests mean identical files."""
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()[:12]
 
 
 def _priced_rows(items: list[Any]) -> list[tuple[Any, Decimal]]:
@@ -145,6 +172,10 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         ] = None,
         limit: Annotated[int, Field(description="Max files to return.", ge=1, le=200)] = 50,
         offset: Annotated[int, Field(description="Files to skip.", ge=0)] = 0,
+        with_digest: Annotated[
+            bool,
+            Field(description="Add content_sha256 per listed file (reads each file on the page)."),
+        ] = False,
     ) -> dict[str, Any]:
         """List the GAEB files the server is allowed to open.
 
@@ -152,6 +183,10 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         `path` can be passed straight to `open_document`. Every allowed root is
         scanned recursively (hidden directories skipped); only files with a GAEB
         extension are listed unless the server allows any extension.
+
+        To find out whether files are copies of each other, ask for `with_digest`:
+        equal `content_sha256` means identical bytes, whatever the name or date —
+        no need to open and compare them.
         """
         needle = name_contains.lower() if name_contains else None
 
@@ -193,6 +228,16 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         # Walking a large tree is blocking I/O; keep it off the event loop.
         files, scan_truncated = await asyncio.to_thread(_scan)
         page, total, has_more = views.paginate(files, offset, limit)
+        if with_digest:
+            # Only the page is hashed, so the cost is bounded by `limit`, not the scan.
+            def _hash_page() -> None:
+                for row in page:
+                    try:
+                        row["content_sha256"] = _digest(Path(row["path"]))
+                    except OSError:
+                        row["content_sha256"] = None
+
+            await asyncio.to_thread(_hash_page)
         return views.bound(
             {
                 "roots": [str(r) for r in ctx.roots],
@@ -245,7 +290,9 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
 
             doc = GAEBParser.parse(str(resolved), validation=mode)
             doc.discard_xml()
-            summary = views.document_summary(doc, handle, str(resolved), cached=False)
+            summary = views.document_summary(
+                doc, handle, str(resolved), cached=False, content_sha256=_digest(resolved)
+            )
             return doc, summary
 
         # Parse in a worker thread so a large file cannot stall the event loop.
@@ -426,15 +473,27 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         oz: Annotated[
             str, Field(description="Ordinal number — leaf ('0040') or full ('01.02.0040').")
         ],
+        item_id: Annotated[
+            str | None,
+            Field(
+                description="When a file repeats an OZ: the item's XML id (see list_items "
+                "rows), or '#2' for the second copy in document order."
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         """Get one item's full detail, with its specification text previewed.
 
         `long_text_preview` is the first 500 characters; `long_text_chars` is the
         true length. Fetch the rest with `get_item_long_text` only if you need it.
         Attachments are listed as metadata — their contents are never returned.
+
+        A leaf shared by several categories, or a full OZ the file repeats, is
+        refused with the candidates listed — pass the full OZ or `item_id`. For
+        a markup item (Zuschlagsposition) the `markup` block carries the rate and
+        what it applies to; its prices are null because the rate is not a price.
         """
         entry = ctx.cache.get(handle)
-        node = _one_item(entry.tree, oz, handle)
+        node = _one_item(entry.tree, oz, handle, item_id)
         return views.item_detail(node.item, node)
 
     # ── get_item_long_text ─────────────────────────────────────────────
@@ -446,6 +505,13 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         limit: Annotated[
             int, Field(description="Characters to return.", ge=1, le=20_000)
         ] = 4_000,
+        item_id: Annotated[
+            str | None,
+            Field(
+                description="When a file repeats an OZ: the item's XML id (see list_items "
+                "rows), or '#2' for the second copy in document order."
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         """Read an item's full specification text, one window at a time.
 
@@ -455,7 +521,7 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         budget; the `limit` in the response is the window actually used.
         """
         entry = ctx.cache.get(handle)
-        node = _one_item(entry.tree, oz, handle)
+        node = _one_item(entry.tree, oz, handle, item_id)
         item = node.item
         text = item.long_text_plain
         effective = min(limit, views.max_text_window())
@@ -481,6 +547,10 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         search_long_text: Annotated[
             bool, Field(description="Also search the full specification prose.")
         ] = True,
+        whole_word: Annotated[
+            bool,
+            Field(description="Match whole words only, so 'U' does not hit 'und'."),
+        ] = False,
         limit: Annotated[int, Field(description="Max matches.", ge=1, le=200)] = 25,
         offset: Annotated[int, Field(description="Matches to skip.", ge=0)] = 0,
     ) -> dict[str, Any]:
@@ -490,14 +560,14 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         searching megabytes of specification prose stays cheap. Use this to locate
         a clause; use `get_item_long_text` to read around it. Each match says
         which `field` matched: the item's `oz`, its `short_text`, the label of an
-        enclosing `category`, or its `long_text`.
+        enclosing `category`, or its `long_text`. Short queries ("U", "EN") match
+        inside ordinary words — set `whole_word` for those.
         """
         entry = ctx.cache.get(handle)
         tree = entry.tree if entry.doc.is_procurement else None
 
         def _scan() -> list[dict[str, Any]]:
             found: list[dict[str, Any]] = []
-            needle = query.lower()
             nodes: list[Any] = list(tree.root.iter_items()) if tree else []
             items: list[tuple[Any, Any]] = (
                 [(n.item, n) for n in nodes]
@@ -506,11 +576,11 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
             )
             for item, node in items:
                 oz = getattr(item, "full_oz", None) or getattr(item, "oz", "") or ""
-                if needle in oz.lower():
+                if views.find_matches(oz, query, whole_word):
                     found.append({"oz": oz, "field": "oz", "snippet": oz, "match_count": 1})
                     continue
                 short_text = getattr(item, "short_text", "") or ""
-                snip, count = views.snippet(short_text, query)
+                snip, count = views.snippet(short_text, query, whole_word=whole_word)
                 if count:
                     found.append(
                         {"oz": oz, "field": "short_text", "snippet": snip, "match_count": count}
@@ -520,16 +590,19 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
                     labels = [
                         n.label for n in node.path if n.kind == NodeKind.CATEGORY
                     ]
-                    hit = next((lbl for lbl in labels if needle in lbl.lower()), None)
+                    hit = next(
+                        (lbl for lbl in labels if views.find_matches(lbl, query, whole_word)),
+                        None,
+                    )
                     if hit is not None:
-                        snip, count = views.snippet(hit, query)
+                        snip, count = views.snippet(hit, query, whole_word=whole_word)
                         found.append(
                             {"oz": oz, "field": "category", "snippet": snip, "match_count": count}
                         )
                         continue
                 if search_long_text:
                     snip, count = views.snippet(
-                        getattr(item, "long_text_plain", "") or "", query
+                        getattr(item, "long_text_plain", "") or "", query, whole_word=whole_word
                     )
                     if count:
                         found.append(
@@ -698,6 +771,8 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
                     "is_likely_same_project": s.is_likely_same_project,
                     "financial_impact": str(s.financial_impact) if s.financial_impact else None,
                     "max_significance": s.max_significance.value,
+                    # OZs a file repeats: only the first copy was compared.
+                    "duplicates_collapsed": [d.model_dump() for d in s.duplicates_collapsed],
                 },
                 "counts": {
                     "added": len(result.items.added),
@@ -797,6 +872,13 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
                     k: (str(v) if isinstance(v, Decimal) else v) for k, v in spread.items()
                 }
 
+            # OZs a bid repeats: only the first copy is priced, so totals may be short.
+            collapsed = {
+                name: [{"oz": oz, "count": n} for oz, n in sorted(dups.items())]
+                for name in analysis.bidders
+                if (dups := analysis.duplicates_collapsed(name))
+            }
+
             return {
                 "ranking": ranking,
                 "lowest_bidder": analysis.lowest_bidder,
@@ -805,6 +887,7 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
                 "spreads": spreads,
                 "spread_unmatched": unmatched,
                 "spread_ambiguous": ambiguous,
+                "duplicates_collapsed": collapsed,
             }
 
         return views.bound(await asyncio.to_thread(_analyze))

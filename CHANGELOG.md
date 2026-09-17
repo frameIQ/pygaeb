@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.1] - 2026-09-17
+
+Follow-ups from driving the MCP server through multi-step questions in Claude Desktop. Every item is data the parser already held but the tools did not show, or two code paths that disagreed.
+
+### Changed
+
+- **Repeated OZs: diff and bid analysis both keep the first copy and say so.** `BoQDiff` matched the first copy of a full OZ a file repeats while `BidAnalysis` priced the last, so a bid's grand total in `analyze_bids` differed from `open_document`'s by an amount nobody could explain. Both keep the first copy now; `DiffSummary.duplicates_collapsed` (`{oz, count_a, count_b}`), `BidAnalysis.duplicates_collapsed(bidder)` and the two MCP results report which OZs were collapsed and how many copies each had.
+- **Markup items no longer get a "Missing short text" note.** DA XML 3.x never carries one on a `MarkupItem`.
+
+### Added
+
+- **`BoQTree.find_items()` returns every copy of a repeated full OZ; `find_item_by_id()`.** MCP `get_item` and `get_item_long_text` refuse a repeated OZ with the copies listed and accept `item_id` — the XML `@ID` (now on every `list_items` row) or `#2` for the second copy in document order when a file carries no ids.
+- **MCP: markup items show what they apply to.** Rows and details of a `Markup` item carry `markup: {type, rate_pct, amount, base_positions}` (`AllInCat` = a percentage on every position of the enclosing category; explicit `MarkupSubQty` references in `base_positions`), and their `unit_price`/`total_price` are null so a 48 % rate is never read as €48.
+- **MCP: `content_sha256`.** `open_document` reports a short digest of the file bytes, and `list_documents(with_digest=true)` adds it per listed file, so "are these seventeen files the same?" is one call instead of sixteen opens and fifteen diffs. Handles stay path-and-mtime based.
+- **MCP: `search_items(whole_word=true)`.** A one-letter query like "U" no longer matches every item through "und".
+
 ## [1.18.0] - 2026-09-17
 
 Driving the MCP server from Claude Desktop against real bid files showed that every consumer of an item's identity used `Item.oz` — the leaf `RNoPart` alone, `"0010"` — although `Item.full_oz` (`"02.0010"`) had existed since 1.14. A leaf recurs in every category, so the diff paired a window position with a trench excavation, the bid analysis collapsed 28 positions into 7 keys, validation said "Item 0030" when five items carried that number, and `get_item("0010")` silently returned the first one. This release moves every reader, key and message to the full OZ. Written XML is untouched: `RNoPart` attributes stay the leaf.
@@ -13,7 +29,7 @@ Driving the MCP server from Claude Desktop against real bid files showed that ev
 
 - **Diff matches positions by full OZ within a lot.** `BoQDiff.compare` no longer pairs `02.0020` with `001.002.0020`; `ItemAdded`/`ItemRemoved`/`ItemModified.oz` and `ItemMoved.oz` carry the full OZ, and the structure diff keys categories by their rno path so a sub-category "01" under "02" is distinct from the top-level "01". Section changes are reported in document order.
 - **`BidAnalysis` keys prices by full OZ.** `from_x84_bids` and `from_x82` no longer overwrite positions that share a leaf. `price_spread` and `get_bidder_price` still accept a bare leaf when only one position has it and raise `ValueError("ambiguous OZ '0010': 01.0010, 02.0010")` otherwise (`resolve_oz` exposes the rule). Totals fall back to qty × unit price when a bid states no item totals, alternative and eventual positions are priced but no longer summed (`BidderPrice.affects_total`), and a bidder without a single priced item sorts last instead of winning with 0 € (`priced_item_count`, `lowest_bidder` is `None` when nobody priced). The constructor contract is unchanged: callers who build the `{bidder: {oz: BidderPrice}}` mapping themselves keep their own keys.
-- **Validation messages name the full OZ and the node kind.** `Item 02.0010: …`, `MarkupItem 002.001.0030: Missing short text`. `CrossPhaseValidator` compares source and response by full OZ. `BoQ.get_item`, `BoQCtgy.remove_item` and `Item.__repr__` accept or show the full OZ; `BoQBuilder`'s duplicate check and warning texts use it too. `convert_document`'s database export keeps its `oz` column as the leaf.
+- **Validation messages name the full OZ and the node kind.** `Item 02.0010: …`, `MarkupItem 002.001.0030: …`. Markup items no longer get a "Missing short text" note — 3.x files never carry one. `CrossPhaseValidator` compares source and response by full OZ. `BoQ.get_item`, `BoQCtgy.remove_item` and `Item.__repr__` accept or show the full OZ; `BoQBuilder`'s duplicate check and warning texts use it too. `convert_document`'s database export keeps its `oz` column as the leaf.
 - **`is_likely_same_project` no longer defaults to true.** Two documents without project numbers compared as "the same project" whatever they contained. Project numbers (`Prj`, falling back to `PrjID`) decide when both exist, then project names, then a match ratio of at least 50 %.
 - **Quality score expects unit prices in priced phases.** In X82/X84/X86/X88/X89 an item that counts toward the total is incomplete without a unit price; markup items no longer count as incomplete for lacking a short text (3.x files never carry one).
 

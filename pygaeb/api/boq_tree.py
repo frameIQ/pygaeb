@@ -272,11 +272,16 @@ class BoQTree:
     Construction is O(n) where n is the total number of nodes.
     """
 
-    __slots__ = ("_item_count", "_items_by_leaf", "_items_by_oz", "_node_count", "_root")
+    __slots__ = (
+        "_item_count", "_items_by_full", "_items_by_id", "_items_by_leaf", "_items_by_oz",
+        "_node_count", "_root",
+    )
 
     def __init__(self, boq: BoQ) -> None:
         self._items_by_oz: dict[str, BoQNode] = {}
         self._items_by_leaf: dict[str, list[BoQNode]] = {}
+        self._items_by_full: dict[str, list[BoQNode]] = {}
+        self._items_by_id: dict[str, BoQNode] = {}
         self._node_count = 0
         self._item_count = 0
         self._root = self._build_root(boq)
@@ -321,12 +326,19 @@ class BoQTree:
         return self._items_by_oz.get(oz)
 
     def find_items(self, oz: str) -> list[BoQNode]:
-        """Every item whose full OZ or leaf ``RNoPart`` equals *oz*, in document order."""
+        """Every item whose full OZ or leaf ``RNoPart`` equals *oz*, in document order.
+
+        A full OZ normally names one item; a file that repeats it (a genuine
+        duplicate) yields every copy, so callers can tell them apart by ``id``.
+        """
         leaf = self._items_by_leaf.get(oz)
         if leaf:
             return list(leaf)
-        full = self._items_by_oz.get(oz)
-        return [full] if full is not None else []
+        return list(self._items_by_full.get(oz, []))
+
+    def find_item_by_id(self, item_id: str) -> BoQNode | None:
+        """The item carrying this XML ``@ID``, or None."""
+        return self._items_by_id.get(item_id)
 
     def find_category(self, rno: str) -> BoQNode | None:
         """First category node with this rno (depth-first). None if not found."""
@@ -452,7 +464,11 @@ class BoQTree:
             self._items_by_oz.setdefault(item_model.oz, item_node)
             self._items_by_leaf.setdefault(item_model.oz, []).append(item_node)
         full_oz = item_model.full_oz
-        if full_oz and full_oz != item_model.oz:
-            self._items_by_oz.setdefault(full_oz, item_node)
+        if full_oz:
+            self._items_by_full.setdefault(full_oz, []).append(item_node)
+            if full_oz != item_model.oz:
+                self._items_by_oz.setdefault(full_oz, item_node)
+        if item_model.id:
+            self._items_by_id.setdefault(item_model.id, item_node)
 
         return item_node

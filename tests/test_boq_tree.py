@@ -642,3 +642,18 @@ class TestFullOzNodes:
     def test_label_path_keeps_real_lots(self, multi_tree: BoQTree):
         node = multi_tree.find_item("01.0020")
         assert node.label_path[1] == "Los 2 - Beton"
+
+
+class TestDuplicateFullOz:
+    def test_find_items_returns_every_copy_and_ids_resolve(self):
+        items = [
+            Item(oz="0010", oz_path=["01"], id="a", short_text="first"),
+            Item(oz="0010", oz_path=["01"], id="b", short_text="second"),
+        ]
+        tree = BoQTree(BoQ(lots=[Lot(rno="1", body=BoQBody(categories=[
+            BoQCtgy(rno="01", items=items),
+        ]))]))
+        assert [n.item.short_text for n in tree.find_items("01.0010")] == ["first", "second"]
+        assert tree.find_item("01.0010").item.short_text == "first"
+        assert tree.find_item_by_id("b").item.short_text == "second"
+        assert tree.find_item_by_id("zzz") is None

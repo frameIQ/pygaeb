@@ -21,6 +21,7 @@ from pygaeb.diff.models import (
     DiffMode,
     DiffResult,
     DiffSummary,
+    DuplicateOz,
     ItemAdded,
     ItemDiffSummary,
     ItemModified,
@@ -83,6 +84,9 @@ class BoQDiff:
         warnings = _generate_warnings(doc_a, doc_b, match_result.match_ratio, mode)
 
         summary = _build_summary(info_a, info_b, item_summary, match_result.match_ratio)
+        summary.duplicates_collapsed = _collapsed_duplicates(
+            match_result.duplicates_a, match_result.duplicates_b
+        )
 
         return DiffResult(
             doc_a=info_a,
@@ -287,6 +291,14 @@ def _build_summary(
         financial_impact=financial_impact,
         max_significance=max_sig,
     )
+
+
+def _collapsed_duplicates(dups_a: dict[str, int], dups_b: dict[str, int]) -> list[DuplicateOz]:
+    """Every OZ either side repeats, with its copy count on both sides."""
+    return [
+        DuplicateOz(oz=oz, count_a=dups_a.get(oz, 1), count_b=dups_b.get(oz, 1))
+        for oz in sorted(set(dups_a) | set(dups_b))
+    ]
 
 
 _SAME_PROJECT_MATCH_RATIO = 0.5

@@ -515,3 +515,16 @@ class TestFullOzKeys:
         analysis._compute_ranks()
         assert analysis.ranking() == [("A", Decimal("50"))]
         assert analysis.get_bidder_price("A", "01.0010").rank == 1
+
+
+class TestCollapsedDuplicates:
+    def test_first_copy_is_kept_and_duplicates_reported(self) -> None:
+        bid = _parsed_shape_bid("A", {("01", "0010"): "5", ("01", "0020"): "7"})
+        first = bid.award.boq.lots[0].body.categories[0].items[0]
+        twin = first.model_copy(update={"unit_price": Decimal("9"), "total_price": Decimal("90")})
+        bid.award.boq.lots[0].body.categories[0].items.insert(1, twin)
+        analysis = BidAnalysis.from_x84_bids(_make_tender(), {"A": bid})
+        assert analysis.get_bidder_price("A", "01.0010").unit_price == Decimal("5")
+        assert analysis.grand_total("A") == Decimal("120")
+        assert analysis.duplicates_collapsed("A") == {"01.0010": 2}
+        assert analysis.duplicates_collapsed("nobody") == {}

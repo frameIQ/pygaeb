@@ -41,7 +41,8 @@ def validate_items(doc: GAEBDocument) -> list[ValidationResult]:
                 xpath_location=f"Item[@RNoPart='{item.oz}']",
             ))
 
-        if not item.short_text and item.item_type != ItemType.INDEX:
+        # Markup items (Zuschlagspositionen) carry no ShortText in 3.x files.
+        if not item.short_text and item.item_type not in (ItemType.INDEX, ItemType.MARKUP):
             results.append(ValidationResult(
                 severity=ValidationSeverity.INFO,
                 message=f"{item_ref(item)}: Missing short text",

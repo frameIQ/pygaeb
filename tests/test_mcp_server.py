@@ -1200,7 +1200,7 @@ def _two_category_doc(*, totals: bool = True, prices: bool = True) -> GAEBDocume
 class TestFullOz:
     def test_get_item_refuses_to_guess_between_categories(self, tmp_path: Path):
         ctx = _ctx(_two_category_doc(), tmp_path)
-        with pytest.raises(ValueError, match=r"ambiguous.*02\.0010, 03\.0010"):
+        with pytest.raises(ValueError, match=r"ambiguous.*02\.0010 .*; 03\.0010 .*full OZ"):
             _tools(ctx)["get_item"](handle="doc_test", oz="0010")  # type: ignore[operator]
         with pytest.raises(ValueError, match="ambiguous"):
             _tools(ctx)["get_item_long_text"](handle="doc_test", oz="0010")  # type: ignore[operator]
@@ -1345,3 +1345,127 @@ class TestFullOz:
 
         args = _build_parser().parse_args(["--root", str(tmp_path), "--xsd-dir", "/schemas"])
         assert args.xsd_dir == "/schemas"
+
+
+# ── 1.18.1: digests, duplicates, markup, whole-word search ────────────
+
+
+def _duplicate_oz_doc() -> GAEBDocument:
+    """A file that repeats one full OZ three times, as pyGAEB 1.14 exports did."""
+    items = [
+        Item(oz="0010", oz_path=["001"], id="i1", short_text="Baustelleneinrichtung",
+             qty=Decimal("1"), unit="psch", unit_price=Decimal("48"), item_type=ItemType.NORMAL,
+             long_text=RichText.from_plain("Vorhaltedauer 12 Wochen.")),
+        Item(oz="0010", oz_path=["001"], id="i2", short_text="Wasserhaltung",
+             qty=Decimal("1"), unit="psch", unit_price=Decimal("48"), item_type=ItemType.NORMAL,
+             long_text=RichText.from_plain("Betreiben der Wasserhaltungsanlage.")),
+        Item(oz="0010", oz_path=["001"], short_text="Wasserhaltung mit Überwachung",
+             qty=Decimal("1"), unit="psch", unit_price=Decimal("48"), item_type=ItemType.NORMAL),
+        Item(oz="0020", oz_path=["001"], short_text="Boden lösen", qty=Decimal("10"),
+             unit="m3", unit_price=Decimal("48"), item_type=ItemType.NORMAL),
+        Item(oz="0030", oz_path=["001"], item_type=ItemType.MARKUP, markup_type="AllInCat",
+             unit_price=Decimal("48.00")),
+    ]
+    ctgy = BoQCtgy(rno="001", label="Erdarbeiten", items=items)
+    lot = Lot(rno="1", label="Default", synthetic=True, body=BoQBody(categories=[ctgy]))
+    return GAEBDocument(
+        source_version=SourceVersion.DA_XML_33,
+        exchange_phase=ExchangePhase.X84,
+        gaeb_info=GAEBInfo(version="3.3"),
+        award=AwardInfo(project_name="Muster", currency="EUR", boq=BoQ(lots=[lot])),
+    )
+
+
+class TestDuplicateCopies:
+    def test_full_oz_repeated_is_refused_with_copies_listed(self, tmp_path: Path):
+        ctx = _ctx(_duplicate_oz_doc(), tmp_path)
+        with pytest.raises(ValueError, match=r"item_id=i1.*item_id=i2.*item_id=#3.*Pass item_id"):
+            _tools(ctx)["get_item"](handle="doc_test", oz="001.0010")  # type: ignore[operator]
+
+    def test_copies_addressable_by_id_and_ordinal(self, tmp_path: Path):
+        ctx = _ctx(_duplicate_oz_doc(), tmp_path)
+        by_id = _tools(ctx)["get_item"](handle="doc_test", oz="001.0010", item_id="i2")  # type: ignore[operator]
+        assert by_id["short_text"] == "Wasserhaltung"
+        third = _tools(ctx)["get_item"](handle="doc_test", oz="001.0010", item_id="#3")  # type: ignore[operator]
+        assert third["short_text"] == "Wasserhaltung mit Überwachung"
+        text = _tools(ctx)["get_item_long_text"](  # type: ignore[operator]
+            handle="doc_test", oz="001.0010", item_id="#2"
+        )
+        assert text["text"].startswith("Betreiben")
+        with pytest.raises(ValueError, match="3 copies"):
+            _tools(ctx)["get_item"](handle="doc_test", oz="001.0010", item_id="#4")  # type: ignore[operator]
+
+    def test_rows_carry_ids(self, tmp_path: Path):
+        ctx = _ctx(_duplicate_oz_doc(), tmp_path)
+        rows = _tools(ctx)["list_items"](handle="doc_test")["items"]  # type: ignore[operator]
+        assert [r["id"] for r in rows[:3]] == ["i1", "i2", None]
+
+    async def test_compare_and_bids_report_collapsed_duplicates(self, tmp_path: Path):
+        cache = DocumentCache()
+        cache.put("doc_a", tmp_path / "a.X84", _duplicate_oz_doc())
+        cache.put("doc_b", tmp_path / "b.X84", _duplicate_oz_doc())
+        ctx = ToolContext(cache=cache, roots=[tmp_path.resolve()])
+        diff = await _tools(ctx)["compare_documents"](handle_a="doc_a", handle_b="doc_b")  # type: ignore[operator]
+        assert diff["summary"]["duplicates_collapsed"] == [
+            {"oz": "001.0010", "count_a": 3, "count_b": 3}
+        ]
+        assert diff["counts"]["unchanged"] == 3
+
+        bids = await _tools(ctx)["analyze_bids"](  # type: ignore[operator]
+            tender_handle="doc_a", bids=[{"name": "A", "handle": "doc_b"}]
+        )
+        assert bids["duplicates_collapsed"] == {"A": [{"oz": "001.0010", "count": 3}]}
+        # First copy kept: 48 + 480 (0020) — the two dropped copies are not summed.
+        assert bids["ranking"][0]["grand_total"] == "528.00"
+
+
+class TestMarkupBlock:
+    def test_markup_item_shows_rate_not_price(self, tmp_path: Path):
+        ctx = _ctx(_duplicate_oz_doc(), tmp_path)
+        row = _tools(ctx)["get_item"](handle="doc_test", oz="001.0030")  # type: ignore[operator]
+        assert row["item_type"] == "Markup"
+        assert row["unit_price"] is None and row["total_price"] is None
+        assert row["markup"] == {
+            "type": "AllInCat", "rate_pct": "48.00", "amount": None, "base_positions": [],
+        }
+        normal = _tools(ctx)["get_item"](handle="doc_test", oz="001.0020")  # type: ignore[operator]
+        assert "markup" not in normal
+
+
+class TestContentDigest:
+    async def test_identical_files_share_a_digest(self, tmp_path: Path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "a.X83").write_text(SAMPLE_V33_XML)
+        (tmp_path / "b.X83").write_text(SAMPLE_V33_XML)
+        (tmp_path / "c.X83").write_text(SAMPLE_V33_XML.replace("EUR", "CHF", 1))
+        ctx = ToolContext(cache=DocumentCache(), roots=[tmp_path.resolve()])
+        tools = _tools(ctx)
+
+        listed = await _call(tools["list_documents"], with_digest=True)
+        digests = {row["name"]: row["content_sha256"] for row in listed["files"]}
+        assert digests["a.X83"] == digests["b.X83"] != digests["c.X83"]
+        assert all(len(d) == 12 for d in digests.values())
+
+        plain = await _call(tools["list_documents"])
+        assert "content_sha256" not in plain["files"][0]
+
+        opened = await _call(tools["open_document"], path="a.X83")
+        assert opened["content_sha256"] == digests["a.X83"]
+        again = await _call(tools["open_document"], path="a.X83")
+        assert again["cached"] is True and again["content_sha256"] == digests["a.X83"]
+
+
+class TestWholeWordSearch:
+    async def test_single_letter_query_is_bounded_with_whole_word(self, tmp_path: Path):
+        doc = _doc([
+            Item(oz="0010", oz_path=["01"], short_text="Fenster und Türen"),
+            Item(oz="0020", oz_path=["01"], short_text="Verglasung U 1,1 W/m²K"),
+        ])
+        ctx = _ctx(doc, tmp_path)
+        loose = await _call(_tools(ctx)["search_items"], handle="doc_test", query="U")
+        assert loose["total_matched"] == 2
+        strict = await _call(
+            _tools(ctx)["search_items"], handle="doc_test", query="U", whole_word=True
+        )
+        assert [m["oz"] for m in strict["matches"]] == ["01.0020"]
+        assert strict["matches"][0]["match_count"] == 1

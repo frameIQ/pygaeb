@@ -19,6 +19,9 @@ class MatchResult:
     matched: list[tuple[BoQNode, BoQNode]] = field(default_factory=list)
     unmatched_a: list[BoQNode] = field(default_factory=list)
     unmatched_b: list[BoQNode] = field(default_factory=list)
+    #: ``{full oz: copies}`` for OZs a document repeats; only the first copy is matched.
+    duplicates_a: dict[str, int] = field(default_factory=dict)
+    duplicates_b: dict[str, int] = field(default_factory=dict)
 
     @property
     def match_ratio(self) -> float:
@@ -37,8 +40,8 @@ def match_items(tree_a: BoQTree, tree_b: BoQTree) -> MatchResult:
     For multi-lot documents, matches within lots by (lot_rno, oz).
     Falls back to global OZ matching for items unmatched within their lot.
     """
-    index_a = _build_item_index(tree_a)
-    index_b = _build_item_index(tree_b)
+    index_a, duplicates_a = _build_item_index(tree_a)
+    index_b, duplicates_b = _build_item_index(tree_b)
 
     matched: list[tuple[BoQNode, BoQNode]] = []
     used_b_keys: set[tuple[str, str]] = set()
@@ -54,19 +57,33 @@ def match_items(tree_a: BoQTree, tree_b: BoQTree) -> MatchResult:
     if unmatched_a and unmatched_b:
         _try_global_oz_fallback(unmatched_a, unmatched_b, matched)
 
-    return MatchResult(matched=matched, unmatched_a=unmatched_a, unmatched_b=unmatched_b)
+    return MatchResult(
+        matched=matched,
+        unmatched_a=unmatched_a,
+        unmatched_b=unmatched_b,
+        duplicates_a=duplicates_a,
+        duplicates_b=duplicates_b,
+    )
 
 
-def _build_item_index(tree: BoQTree) -> dict[tuple[str, str], BoQNode]:
-    """Build (lot_rno, full oz) → BoQNode index. Uses first occurrence for duplicates."""
+def _build_item_index(
+    tree: BoQTree,
+) -> tuple[dict[tuple[str, str], BoQNode], dict[str, int]]:
+    """Build (lot_rno, full oz) → BoQNode index, keeping the first copy of a repeated OZ.
+
+    Also returns ``{oz: copies}`` for the OZs that repeated, so the caller can say
+    which items never took part in the comparison.
+    """
     index: dict[tuple[str, str], BoQNode] = {}
+    seen: dict[str, int] = {}
     for lot_node in tree.lots:
         lot_rno = lot_node.rno
         for item_node in lot_node.iter_items():
             key = (lot_rno, item_node.oz)
             if key not in index:
                 index[key] = item_node
-    return index
+            seen[item_node.oz] = seen.get(item_node.oz, 0) + 1
+    return index, {oz: n for oz, n in seen.items() if n > 1}
 
 
 def _try_global_oz_fallback(
