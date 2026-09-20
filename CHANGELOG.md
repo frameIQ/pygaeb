@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.2] - 2026-09-20
+
+### Changed
+
+- **A bid is no longer marked incomplete for carrying no short texts.** The X84 schema makes `Description` optional on an item (the client's software keeps the texts from its own X83) and carries no unit at all, yet `quality_score` rated every text-less bid position incomplete and the item validator noted "Missing short text" on each. Both now apply only in phases whose schema requires a description (X81–X83, X88), the same set the phase validator already uses. Found by checking DatumOS's own X84 export with GAEB-Check: a valid bid scored 66 with completeness 0.
+
 ## [1.18.1] - 2026-09-17
 
 Follow-ups from driving the MCP server through multi-step questions in Claude Desktop. Every item is data the parser already held but the tools did not show, or two code paths that disagreed.

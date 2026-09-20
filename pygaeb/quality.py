@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import ItemType, ValidationSeverity
-from pygaeb.validation.phase_validator import _PHASES_REQUIRING_PRICE
+from pygaeb.validation.phase_validator import _PHASES_REQUIRING_DESCRIPTION, _PHASES_REQUIRING_PRICE
 
 
 class QualityScore(BaseModel):
@@ -69,13 +69,14 @@ def quality_score(doc: GAEBDocument) -> QualityScore:
         else doc.exchange_phase
     )
     price_expected = phase in _PHASES_REQUIRING_PRICE
+    text_expected = phase in _PHASES_REQUIRING_DESCRIPTION
 
     if total_items == 0:
         complete = 100
     else:
         complete_items = sum(
             1 for item in items
-            if _is_complete(item, price_expected)
+            if _is_complete(item, price_expected, text_expected)
         )
         complete = int(100 * complete_items / total_items)
 
@@ -112,11 +113,12 @@ def quality_score(doc: GAEBDocument) -> QualityScore:
     )
 
 
-def _is_complete(item: object, price_expected: bool = False) -> bool:
+def _is_complete(item: object, price_expected: bool = False, text_expected: bool = True) -> bool:
     """Heuristic: short text plus qty or price; in priced phases the unit price too.
 
-    Markup items (Zuschlagspositionen) carry no short text in 3.x files, and
-    positions that do not count toward the total need no price.
+    Markup items (Zuschlagspositionen) carry no short text in 3.x files,
+    positions that do not count toward the total need no price, and a bid
+    (X84) carries texts only optionally, so none is expected there.
     """
     item_type = getattr(item, "item_type", None)
     short_text = getattr(item, "short_text", "")
@@ -124,7 +126,7 @@ def _is_complete(item: object, price_expected: bool = False) -> bool:
     unit_price = getattr(item, "unit_price", None)
     if item_type == ItemType.MARKUP:
         return True
-    if not short_text or (qty is None and unit_price is None):
+    if (text_expected and not short_text) or (qty is None and unit_price is None):
         return False
     counts = getattr(item_type, "affects_total", True)
     return not (price_expected and counts and unit_price is None)
