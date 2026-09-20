@@ -8,11 +8,15 @@ from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import ItemType, ValidationSeverity
 from pygaeb.models.item import ValidationResult
 from pygaeb.validation._common import item_ref
+from pygaeb.validation.phase_validator import _PHASES_REQUIRING_DESCRIPTION
 
 
 def validate_items(doc: GAEBDocument) -> list[ValidationResult]:
     """Validate individual item rules."""
     results: list[ValidationResult] = []
+    phase = doc.exchange_phase.normalized() if hasattr(doc.exchange_phase, "normalized") else doc.exchange_phase
+    # A bid (X84) only returns prices; its texts are optional by schema.
+    text_expected = phase in _PHASES_REQUIRING_DESCRIPTION
 
     for item in doc.award.boq.iter_items():
         if item.item_type == ItemType.SUPPLEMENT and not item.change_order_number:
@@ -42,7 +46,7 @@ def validate_items(doc: GAEBDocument) -> list[ValidationResult]:
             ))
 
         # Markup items (Zuschlagspositionen) carry no ShortText in 3.x files.
-        if not item.short_text and item.item_type not in (ItemType.INDEX, ItemType.MARKUP):
+        if text_expected and not item.short_text and item.item_type not in (ItemType.INDEX, ItemType.MARKUP):
             results.append(ValidationResult(
                 severity=ValidationSeverity.INFO,
                 message=f"{item_ref(item)}: Missing short text",

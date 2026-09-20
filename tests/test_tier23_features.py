@@ -167,6 +167,22 @@ class TestQualityScore:
             item.unit_price = None
         assert quality_score(doc).completeness == 100
 
+    def test_bid_without_short_texts_is_complete(self) -> None:
+        # The X84 schema makes Description optional: a bid returns prices,
+        # the client's software keeps the texts from its own X83.
+        doc = _make_doc()
+        doc.exchange_phase = ExchangePhase.X84
+        for item in doc.iter_items():
+            item.short_text = ""
+        assert quality_score(doc).completeness == 100
+
+    def test_tender_without_short_texts_is_incomplete(self) -> None:
+        doc = _make_doc()
+        doc.exchange_phase = ExchangePhase.X83
+        for item in doc.iter_items():
+            item.short_text = ""
+        assert quality_score(doc).completeness < 100
+
     def test_markup_item_needs_no_short_text(self) -> None:
         doc = _make_doc()
         doc.exchange_phase = ExchangePhase.X84
