@@ -43,7 +43,7 @@ TENDER_WITH_TYPES = b"""\
 <?xml version="1.0" encoding="UTF-8"?>
 <GAEB xmlns="http://www.gaeb.de/GAEB_DA_XML/DA86/3.3">
   <GAEBInfo><Version>3.3</Version><Date>2026-07-21</Date></GAEBInfo>
-  <Award><DP>83</DP><PrjInfo><NameProject>Lingel</NameProject><Cur>EUR</Cur></PrjInfo>
+  <Award><DP>83</DP><PrjInfo><NameProject>Musterprojekt</NameProject><Cur>EUR</Cur></PrjInfo>
     <BoQ><BoQInfo><Name>LV</Name><LblBoQ>Fenster</LblBoQ></BoQInfo>
       <BoQBody><BoQCtgy RNoPart="01"><LblTx>Fenster</LblTx><BoQBody><Itemlist>
         <Item RNoPart="0010"><ShortText>Fenster 2-fach</ShortText>
