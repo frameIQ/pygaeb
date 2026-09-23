@@ -1071,6 +1071,15 @@ def _add_item(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
             # X84 has no position-type markers: the bid inherits them from the tender.
             ctx.omit(f"{item.item_type.value} position marker", where)
 
+    # The issuer's demand for a broken-down unit price. Sits between the type
+    # markers and MarkupIt/CONo in every phase that has it; X84 has no such
+    # element, because a bid does not restate what the tender asked for.
+    if item.up_breakdown_required:
+        if slots.allows("UPBkdn"):
+            _add_text_el(item_el, "UPBkdn", "Yes")
+        else:
+            ctx.omit("UPBkdn", where)
+
     if item.change_order_number:
         if not meta.supports_change_order:
             ctx.warnings.append(

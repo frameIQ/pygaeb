@@ -65,7 +65,7 @@ _BOQ_INFO_LIB = (
 )
 _BOQ_INFO_REQUIRED = frozenset({"Name", "LblBoQ", "OutlCompl", "BoQBkdn"})
 _ITEM_LIB = (
-    "TypeMarker", "CONo", "COStatus", "QtyTBD", "Qty", "QtySplit", "QU", "CtlgAssign",
+    "TypeMarker", "UPBkdn", "CONo", "COStatus", "QtyTBD", "Qty", "QtySplit", "QU", "CtlgAssign",
     "UP", "UPComp", "DiscountPcnt", "IT", "VAT", "Description", "CostApproach",
 )
 _MARKUP_LIB = (
@@ -90,8 +90,8 @@ X83 = PhaseProfile(
     boq_info=Slots(tuple(s for s in _BOQ_INFO_LIB if s != "Totals"), _BOQ_INFO_REQUIRED),
     boq_ctgy=Slots(("LblTx", "CtlgAssign", "BoQBody"), frozenset({"LblTx"})),
     item=Slots(
-        ("TypeMarker", "CONo", "COStatus", "QtyTBD", "Qty", "QtySplit", "QU", "CtlgAssign",
-         "VAT", "Description"),
+        ("TypeMarker", "UPBkdn", "CONo", "COStatus", "QtyTBD", "Qty", "QtySplit", "QU",
+         "CtlgAssign", "VAT", "Description"),
         frozenset({"QU"}),
     ),
     markup_item=Slots(
