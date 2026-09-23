@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.3] - 2026-09-24
+
+### Fixed
+
+- **A graphic in a long text is found, and its base64 no longer lands in the prose.** GAEB DA XML writes a drawing as `<image Type="image/jpeg" Name="bagger.jpg">` with the base64 as the element's own content; the extractor looked only for `<img src="...">`, so `RichText.images` was always empty. Worse, the `<p>` wrapping the element yields its text, so the whole blob was swept into `RichText.paragraphs` and `plain_text` — tens of kilobytes of unreadable base64 sitting in the middle of the one field an estimator reads to price the work. Images are now lifted out first and returned as data URIs (`data:image/jpeg;base64,…`, ready for an `<img>`), taking the declared `Type` or falling back to `image/jpeg`; `<img src>` long texts keep working. Across the official BVBS DA XML 3.3 Prüfdateien this turns 227 long texts with 5 base64-polluted paragraphs and 0 images into 227 clean texts and 23 extracted drawings — one position's `plain_text` drops from 56,732 characters to 751.
+
+  Consumers reading `paragraphs` or `plain_text` on a text that contains a drawing will see the base64 disappear, which is the point; `images` is where it goes.
+
 ## [1.18.2] - 2026-09-20
 
 ### Changed
