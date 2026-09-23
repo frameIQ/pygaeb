@@ -62,7 +62,7 @@ KNOWN_ITEM_TAGS: frozenset[str] = frozenset({
     "ShortText", "Qty", "QU", "UP", "IT",
     "LongText", "Description", "CompleteText", "OutlineText",
     "QtySplit", "ItemTag", "GUID", "BIMRef", "CONo",
-    "CostApproach", "UPComp1", "UPComp2", "UPComp3",
+    "CostApproach", "UPBkdn", "UPComp1", "UPComp2", "UPComp3",
     "UPComp4", "UPComp5", "UPComp6", "DiscountPcnt", "VAT",
     "BidderUP", "BidderTender", "TenderingPty",
     "CtlgAssign", "Attachment", "ATTImage", "ATTBinary",
@@ -558,6 +558,12 @@ class BaseV3Parser:
         tbd_el = self._find(item_el, "QtyTBD")
         if tbd_el is not None:
             item.qty_tbd = (tbd_el.text or "").strip().lower() in ("yes", "true", "1")
+
+        bkdn_el = self._find(item_el, "UPBkdn")
+        if bkdn_el is not None:
+            item.up_breakdown_required = (
+                (bkdn_el.text or "").strip().lower() in ("yes", "true", "1")
+            )
 
         qu_el = self._find(item_el, "QU")
         if qu_el is not None:

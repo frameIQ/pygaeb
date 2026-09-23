@@ -191,6 +191,12 @@ class Item(BaseModel):
     #: ``<COStatus>`` — the schema only allows CONo together with it.
     co_status: str | None = None
     cost_approaches: list[CostApproach] = Field(default_factory=list)
+    #: ``<UPBkdn>`` — the issuer requires this position's unit price broken down
+    #: into its components. In German public procurement that is what feeds
+    #: EFB 223 (Aufgliederung der Einheitspreise), so a bidder needs to know which
+    #: positions carry it. Declared by the issuer in X81/X82/X83/X85/X86; X84 has
+    #: no such element, because a bid does not restate the demand.
+    up_breakdown_required: bool = False
     up_components: list[Decimal] = Field(default_factory=list)
     discount_pct: Decimal | None = None
     vat: Decimal | None = None

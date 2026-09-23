@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.4] - 2026-09-24
+
+### Added
+
+- **`Item.up_breakdown_required` — the issuer's `<UPBkdn>` demand is read and written.** The parser took `UPComp1..6` but never the flag that asks for them, and the writer dropped it, so the demand did not survive a round trip. `<UPBkdn>Yes</UPBkdn>` says *this position's unit price must be shown as its components*; in German public procurement that is what feeds EFB 223 (Aufgliederung der Einheitspreise), where an incomplete or inconsistent submission normally means the bid is excluded — so a bidder has to be able to see which positions carry it. Five positions in the official BVBS `ava/award.X86` Prüfdatei do.
+
+  Written back between the position-type markers and `MarkupIt`/`CONo`, which is where every phase schema carrying the element puts it; emitted anywhere else inside `Item` the official XSD refuses the document. X84 has no such element, so the flag is omitted there with a warning — a bid does not restate what the tender asked for.
+
 ## [1.18.3] - 2026-09-24
 
 ### Fixed
