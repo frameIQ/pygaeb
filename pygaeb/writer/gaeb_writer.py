@@ -768,6 +768,14 @@ def _add_boq_info(parent: etree._Element, info: BoQInfo, ctx: _Ctx) -> None:
     elif info.totals is not None:
         ctx.omit("Totals", "BoQInfo")
 
+    # After Totals, which is where every schema carrying the element puts it. The
+    # assignments on the positions are unreadable without these.
+    if slots.allows("Ctlg"):
+        for catalogue in info.catalogues:
+            _add_catalog(info_el, catalogue)
+    elif info.catalogues:
+        ctx.omit("Ctlg", "BoQInfo")
+
 
 def _fill_boq_info_v2(info_el: etree._Element, info: BoQInfo, meta: VersionMeta) -> None:
     """DA XML 2.x BoQInfo — the pre-1.17 shape, renamed by ``_translate_to_german``."""
@@ -794,6 +802,9 @@ def _fill_boq_info_v2(info_el: etree._Element, info: BoQInfo, meta: VersionMeta)
 
     if info.totals is not None:
         _add_totals(info_el, info.totals)
+
+    for catalogue in info.catalogues:
+        _add_catalog(info_el, catalogue)
 
 
 def _add_body_categories(

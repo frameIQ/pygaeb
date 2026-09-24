@@ -26,7 +26,7 @@ from pygaeb.models.boq import (
     Totals,
     VATPart,
 )
-from pygaeb.models.catalog import CtlgAssign
+from pygaeb.models.catalog import Catalog, CtlgAssign
 from pygaeb.models.document import (
     AwardInfo,
     ConstructionSite,
@@ -343,6 +343,18 @@ class BaseV3Parser:
             info.lbl_up_comps.append((label_el.text or "").strip())
             info.lbl_up_comp_types.append(label_el.get("Type", "Unknown"))
         info.lbl_time = self._text(info_el, "LblTime")
+
+        for ctlg_el in self._findall(info_el, "Ctlg"):
+            ctlg_id = self._text(ctlg_el, "CtlgID")
+            if ctlg_id:
+                info.catalogues.append(
+                    Catalog(
+                        ctlg_id=ctlg_id,
+                        ctlg_type=self._text(ctlg_el, "CtlgType") or "",
+                        ctlg_name=self._text(ctlg_el, "CtlgName") or "",
+                        assign_type=self._text(ctlg_el, "CtlgAssignType") or "",
+                    )
+                )
 
         bkdn_els = self._findall(info_el, "BoQBkdn")
         if bkdn_els:

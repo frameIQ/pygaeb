@@ -61,7 +61,7 @@ _PRJ_INFO_LIB = (
 )
 _BOQ_INFO_LIB = (
     "Name", "LblBoQ", "Date", "OutlCompl", "BoQBkdn", "NoUPComps", "LblUPComp",
-    "LblTime", "CtlgAssign", "Totals",
+    "LblTime", "CtlgAssign", "Totals", "Ctlg",
 )
 _BOQ_INFO_REQUIRED = frozenset({"Name", "LblBoQ", "OutlCompl", "BoQBkdn"})
 _ITEM_LIB = (

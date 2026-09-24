@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.5] - 2026-09-24
+
+### Added
+
+- **`BoQInfo.catalogues` — the `<Ctlg>` declarations are read and written.** A `<CtlgAssign>` on a position carries an opaque `CtlgID` and a code, so `331` means nothing on its own; the declaration is what says that id is *cost group DIN 276-06*, or that another is the Leistungsbereichkatalog and `012` is a trade. The parser read the assignments and never the declarations, so every consumer held an identifier with no way to resolve it — and the writer dropped them, which meant a document that went through pyGAEB came out with its codes permanently unreadable. Reuses the existing `Catalog` model, already used for X31 quantity determination, rather than adding a second shape for the same element. Written at the end of `<BoQInfo>` after `<Totals>`, which is where every phase schema carrying the element puts it. The official BVBS `ava/award.X86` Prüfdatei declares four: Leistungsbereichkatalog, DIN276_06, Orte and Kostenträger.
+
 ## [1.18.4] - 2026-09-24
 
 ### Added
