@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from pygaeb.models.catalog import CtlgAssign
+from pygaeb.models.catalog import Catalog, CtlgAssign
 from pygaeb.models.enums import BkdnType
 from pygaeb.models.item import Item
 
@@ -97,6 +97,10 @@ class BoQInfo(BaseModel):
     lbl_time: str | None = None
     cost_types: list[CostType] = Field(default_factory=list)
     ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
+    #: ``<Ctlg>`` — what the ``CtlgAssign`` ids on this BoQ's positions refer to.
+    #: An assignment carries an opaque id and a code, so ``331`` means nothing
+    #: without the declaration that says the id is *cost group DIN 276-06*.
+    catalogues: list[Catalog] = Field(default_factory=list)
     totals: Totals | None = None
 
 
