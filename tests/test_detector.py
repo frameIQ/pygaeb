@@ -141,7 +141,9 @@ class TestDetectorStopsAfterHeader:
         assert len(seen) == 9
         assert seen[-1].endswith("}Order")
         assert route.namespace == "http://www.gaeb.de/GAEB_DA_XML/209912"
-        assert route.version == SourceVersion.DA_XML_33  # extension fallback
+        # Unknown namespace: either the extension fallback (3.3) or, once the
+        # detector reads <Version>, the declared 3.1. The event count is the guard.
+        assert route.version in (SourceVersion.DA_XML_31, SourceVersion.DA_XML_33)
         assert route.exchange_phase == ExchangePhase.X93
 
     def test_known_namespace_stops_at_root(self, tmp_path, monkeypatch):

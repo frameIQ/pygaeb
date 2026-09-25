@@ -133,15 +133,8 @@ def _detect_xml_version(path: Path, text: str | None = None) -> ParseRoute:
     try:
         raw = text.encode("utf-8") if text is not None else path.read_bytes()
 
-        # NOTE: no elem.clear() in this loop. lxml's iterparse feeds libxml2
-        # whole chunks (32 KB) before replaying the queued start events, so an
-        # element delivered on "start" already carries the rest of its chunk as
-        # a partial subtree, including ancestors that libxml2 still has open on
-        # its node stack. Clearing such an element frees nodes the parser goes
-        # on writing to -> heap corruption / double free on the next chunk
-        # (GH-44). The detector only needs root, GAEBInfo and the first phase
-        # element, so nothing here is worth clearing; instead the loop stops as
-        # soon as the header is over.
+        # NOTE: no elem.clear() here. On "start" events the element still shares
+        # nodes with libxml2's open stack; clearing it corrupts the heap (#44).
         for events_seen, (_event, elem) in enumerate(
             safe_iterparse(source=_bytes_io(raw), events=("start",)),
             start=1,
@@ -156,11 +149,6 @@ def _detect_xml_version(path: Path, text: str | None = None) -> ParseRoute:
                     version = ns_version
 
             if tag == "GAEBInfo" or tag == "GAEB":
-                v = elem.get("Version") or elem.get("version")
-                if v:
-                    version = _parse_version_string(v)
-
-            if tag == "GAEB":
                 v = elem.get("Version") or elem.get("version")
                 if v:
                     version = _parse_version_string(v)
