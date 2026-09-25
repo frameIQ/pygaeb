@@ -21,7 +21,21 @@ _NS_PHASE_RE = re.compile(r"/((?:DA|D|X)\w+)/", re.IGNORECASE)
 _GAEB_NAMESPACES = {
     "http://www.gaeb.de/GAEB_DA_XML/200407": SourceVersion.DA_XML_20,
     "http://www.gaeb.de/GAEB_DA_XML/200511": SourceVersion.DA_XML_21,
+    "http://www.gaeb.de/GAEB_DA_XML/200706": SourceVersion.DA_XML_31,
 }
+
+# Elements that open the payload of a GAEB document. Once one of them is seen
+# the header (root + GAEBInfo) is complete and detection has everything it can
+# get, so the iterparse loop stops there regardless of what was found.
+_PHASE_ELEMENTS = frozenset({
+    "Award", "Order", "ElementalCosting", "QtyDeterm",
+    "Vergabe", "BoQ", "Leistungsverzeichnis",
+})
+
+# Hard upper bound on start events consumed during detection. A GAEB header
+# (root, GAEBInfo, PrjInfo and their children) is a few dozen elements; the
+# limit only matters for XML that carries a GAEB extension but no GAEB header.
+_MAX_HEADER_EVENTS = 1000
 
 _PHASE_FROM_EXT: dict[str, ExchangePhase] = {
     ".X80": ExchangePhase.X80,
@@ -119,9 +133,18 @@ def _detect_xml_version(path: Path, text: str | None = None) -> ParseRoute:
     try:
         raw = text.encode("utf-8") if text is not None else path.read_bytes()
 
-        for _event, elem in safe_iterparse(
-            source=_bytes_io(raw),
-            events=("start",),
+        # NOTE: no elem.clear() in this loop. lxml's iterparse feeds libxml2
+        # whole chunks (32 KB) before replaying the queued start events, so an
+        # element delivered on "start" already carries the rest of its chunk as
+        # a partial subtree, including ancestors that libxml2 still has open on
+        # its node stack. Clearing such an element frees nodes the parser goes
+        # on writing to -> heap corruption / double free on the next chunk
+        # (GH-44). The detector only needs root, GAEBInfo and the first phase
+        # element, so nothing here is worth clearing; instead the loop stops as
+        # soon as the header is over.
+        for events_seen, (_event, elem) in enumerate(
+            safe_iterparse(source=_bytes_io(raw), events=("start",)),
+            start=1,
         ):
             tag = _local_tag(elem.tag)
             ns = _extract_ns(elem.tag)
@@ -142,13 +165,9 @@ def _detect_xml_version(path: Path, text: str | None = None) -> ParseRoute:
                 if v:
                     version = _parse_version_string(v)
 
-            if tag in ("Award", "Order", "ElementalCosting", "QtyDeterm",
-                       "Vergabe", "BoQ", "Leistungsverzeichnis", "GAEBInfo",
-                       "GAEB"):
-                if tag in ("Vergabe", "Leistungsverzeichnis"):
-                    if version is None:
-                        version = SourceVersion.DA_XML_20
-                    break
+            if tag in _PHASE_ELEMENTS:
+                if tag in ("Vergabe", "Leistungsverzeichnis") and version is None:
+                    version = SourceVersion.DA_XML_20
                 if tag == "Order" and phase == ExchangePhase.X83:
                     phase_from_ns = _phase_from_namespace(namespace or "")
                     if phase_from_ns is not None:
@@ -160,9 +179,19 @@ def _detect_xml_version(path: Path, text: str | None = None) -> ParseRoute:
                 if tag == "QtyDeterm" and phase == ExchangePhase.X83:
                     phase_from_ns = _phase_from_namespace(namespace or "")
                     phase = phase_from_ns if phase_from_ns is not None else ExchangePhase.X31
-                if version is not None:
-                    break
-            elem.clear()
+                # The header is over: stop even if no version was found,
+                # otherwise an unknown namespace would parse the whole file.
+                break
+
+            if tag in ("GAEBInfo", "GAEB") and version is not None:
+                break
+
+            if events_seen >= _MAX_HEADER_EVENTS:
+                warnings.append(
+                    f"No GAEB phase element within the first {_MAX_HEADER_EVENTS} "
+                    "elements — stopped version detection"
+                )
+                break
 
     except etree.XMLSyntaxError as e:
         warnings.append(f"XML parse error during detection: {e}")
