@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Version detection no longer corrupts the heap on files with an unrecognised namespace.** `lxml.etree.iterparse` feeds libxml2 one parser chunk (32–64 KB depending on lxml) before it replays the queued `start` events, so an element delivered on `start` already carries the rest of its chunk as a partial subtree, including the ancestors libxml2 still has open on its node stack. The detector called `elem.clear()` on every element for which no version had been found yet; on a DA XML 3.1 settlement file (`.../200706`, `<Order>`/`DP 93`, not in `_GAEB_NAMESPACES`) that cleared every element of the file, freed nodes the parser went on writing to, and ended in `double free detected in tcache 2` — a process abort, not an exception. Files under one chunk were unaffected, which is why small files worked. The `clear()` is gone: the detector only needs the root, `GAEBInfo` and the first phase element, so the loop now stops after the header whether or not a version was found, with a hard cap of 1000 start events for XML that has no GAEB header at all. (#44)
+- **`http://www.gaeb.de/GAEB_DA_XML/200706` is recognised as DA XML 3.1.** GXML Toolbox writes it for `Version 3.1` / `VersDate 2010-09` files, which previously fell through to the extension fallback. (#44)
+
 ## [1.18.5] - 2026-09-24
 
 ### Added
