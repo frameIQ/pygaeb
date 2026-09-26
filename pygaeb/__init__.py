@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.18.6"
+__version__ = "1.19.0"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
@@ -76,6 +76,9 @@ def __getattr__(name: str) -> object:
         "ExtractionResult": ("pygaeb.models.item", "ExtractionResult"),
         "QtySplit": ("pygaeb.models.item", "QtySplit"),
         "RichText": ("pygaeb.models.item", "RichText"),
+        "TextComplement": ("pygaeb.models.item", "TextComplement"),
+        "ComplementKind": ("pygaeb.models.enums", "ComplementKind"),
+        "parse_richtext": ("pygaeb.parser.xml_v3.richtext_parser", "parse_richtext"),
         "ValidationResult": ("pygaeb.models.item", "ValidationResult"),
         "BoQ": ("pygaeb.models.boq", "BoQ"),
         "BoQBkdn": ("pygaeb.models.boq", "BoQBkdn"),
@@ -225,6 +228,7 @@ __all__ = [
     "ClassificationBackendError",
     "ClassificationFlag",
     "ClassificationResult",
+    "ComplementKind",
     "ConsortiumMember",
     "ConsortiumMemberRef",
     "ConstructionSite",
@@ -308,6 +312,7 @@ __all__ = [
     "StructureDiffSummary",
     "StructuredExtractor",
     "SupplierInfo",
+    "TextComplement",
     "Totals",
     "TradeOrder",
     "VATPart",
@@ -331,6 +336,7 @@ __all__ = [
     "normalize_units_in_doc",
     "off_event",
     "on_event",
+    "parse_richtext",
     "quality_score",
     "register_prompt",
     "register_validator",

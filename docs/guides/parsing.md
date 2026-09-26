@@ -237,6 +237,41 @@ for item in doc.iter_items():
 
 See the [Models Reference](../reference/models.md) for full details on every field.
 
+## Long Texts and Their Fields
+
+`item.long_text` is a `RichText`. Its `paragraphs` and `plain_text` read the way
+the issuer wrote the text: a `<br/>` is a line break (`\n`), a word split across
+two style runs stays one word, and the text's **fields** — `<TextComplement>` —
+appear where they stand.
+
+Standard texts leave gaps in the prose. The issuer fills its own fields and the
+bidder answers in paired ones, often right after a lead product:
+
+```text
+Rinne liefern, Material 'Beton C25/30' oder gleichwertiger Art, Material '…', einbauen.
+```
+
+An open field reads `'…'`. The fields also come back as structure, in document
+order:
+
+```python
+from pygaeb import ComplementKind
+
+for field in item.long_text.complements:
+    print(field.kind, field.mark, field.caption, field.value, field.empty)
+# ComplementKind.OWNER  31 Material Beton C25/30 False
+# ComplementKind.BIDDER 32 Material              True
+```
+
+`body` keeps the text as written, quote marks included; `value` is the entry
+without them. A body of only dots, dashes or quote marks counts as empty whether
+or not the file marks it `Empty="Yes"`. A field that takes a number carries it in
+`number` (`number_kind` is `"dec"` or `"int"`).
+
+`parse_richtext(markup)` is exported for re-reading a stored long text's
+`raw_html` — for instance a record saved by a pyGAEB before 1.19, whose
+`complements` list is empty.
+
 ## Advanced Parsing Options
 
 ### File size limit

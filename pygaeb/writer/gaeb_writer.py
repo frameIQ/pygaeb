@@ -34,8 +34,15 @@ from pygaeb.models.document import (
     GAEBInfo,
     Party,
 )
-from pygaeb.models.enums import BkdnType, ExchangePhase, ItemType, Provis, SourceVersion
-from pygaeb.models.item import CostApproach, Item, RichText
+from pygaeb.models.enums import (
+    BkdnType,
+    ComplementKind,
+    ExchangePhase,
+    ItemType,
+    Provis,
+    SourceVersion,
+)
+from pygaeb.models.item import CostApproach, Item, RichText, TextComplement
 from pygaeb.models.order import Address, OrderItem, TradeOrder
 from pygaeb.models.position_types import NON_INTEROP_TYPES, WRITER_MARKER
 from pygaeb.models.quantity import (
@@ -946,37 +953,54 @@ def _add_richtext(parent: etree._Element, text: RichText) -> bool:
 
 
 def _add_bidder_complements(parent: etree._Element, text: RichText) -> bool:
-    """X84 DetailTxt: only the bidder's ``TextComplement`` blocks, each reduced to
-    its ``ComplBody`` — the tender's own text is not repeated in a bid."""
-    inner = text.raw_html
-    if not inner or not inner.strip():
-        return False
-    try:
-        frag = etree.fromstring(f"<w>{inner}</w>")
-    except etree.XMLSyntaxError:
-        return False
+    """X84 DetailTxt: the bidder's fields only, each reduced to its ``ComplBody``.
 
-    found = False
-    for tc in frag.iter():
-        if callable(tc.tag) or etree.QName(tc).localname != "TextComplement":
-            continue
+    Neither the tender's prose nor the issuer's own fields are repeated in a bid —
+    a bid answers the tender, it does not restate it. A field the bidder answered
+    carries the answer; one left open says so with ``Empty="Yes"``.
+    """
+    fields = [c for c in _complements_of(text) if c.kind == ComplementKind.BIDDER]
+    for field in fields:
         tc_el = etree.SubElement(parent, "TextComplement")
-        for key, value in tc.attrib.items():
-            tc_el.set(etree.QName(key).localname if "}" in key else key, value)
-        for child in tc:
-            if callable(child.tag):
-                continue
-            if etree.QName(child).localname in ("ComplBodyDec", "ComplBodyInt", "ComplBody"):
-                _copy_stripped(child, tc_el)
-        if tc_el.find("ComplBody") is None:
-            etree.SubElement(tc_el, "ComplBody")
-        # Drop the source's inter-element whitespace so repeated writes are
-        # byte-identical; pretty_print re-indents element-only content.
-        tc_el.text = None
-        for copied in tc_el:
-            copied.tail = None
-        found = True
-    return found
+        tc_el.set("Kind", ComplementKind.BIDDER.value)
+        if field.mark:
+            tc_el.set("MarkLbl", field.mark)
+        if field.id:
+            tc_el.set("ID", field.id)
+        if field.art_chr_ident:
+            tc_el.set("ArtChrIdent", field.art_chr_ident)
+
+        answer = field.value
+        if not answer:
+            tc_el.set("Empty", "Yes")
+        elif field.number is not None and field.number_kind is not None:
+            typed = "ComplBodyDec" if field.number_kind == "dec" else "ComplBodyInt"
+            etree.SubElement(tc_el, typed).set("Value", _complement_number(field))
+
+        body_el = etree.SubElement(tc_el, "ComplBody")
+        for index, line in enumerate(answer.split("\n") if answer else []):
+            if index:
+                etree.SubElement(body_el, "br")
+            etree.SubElement(body_el, "span").text = line
+    return bool(fields)
+
+
+def _complements_of(text: RichText) -> list[TextComplement]:
+    """The text's fields — re-read from the markup for a record parsed before
+    pyGAEB kept them, which has the fields in ``raw_html`` and an empty list."""
+    if text.complements or not (text.raw_html or "").strip():
+        return list(text.complements)
+    from pygaeb.parser.xml_v3.richtext_parser import parse_richtext
+
+    reread = parse_richtext(text.raw_html)
+    return list(reread.complements) if reread is not None else []
+
+
+def _complement_number(field: TextComplement) -> str:
+    number = field.number if field.number is not None else Decimal(0)
+    if field.number_kind == "int":
+        return str(int(number))
+    return format(number.normalize(), "f")
 
 
 def _has_long_text(item: Item) -> bool:

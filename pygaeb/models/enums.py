@@ -154,6 +154,18 @@ class Provis(str, Enum):
     WITHOUT_TOTAL = "WithoutTotal"
 
 
+class ComplementKind(str, Enum):
+    """``TextComplement/@Kind`` — who fills a field inside a long text.
+
+    Standard texts leave gaps in the prose. The issuer fills its own (a material,
+    a dimension, a lead product); the bidder answers in paired fields, typically
+    with the product it offers.
+    """
+
+    OWNER = "Owner"
+    BIDDER = "Bidder"
+
+
 class BkdnType(str, Enum):
     """BoQ breakdown level type."""
 

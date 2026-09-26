@@ -92,6 +92,11 @@ Financial summary data from `<Totals>` elements on BoQInfo, BoQCtgy, and Lot. In
       show_root_heading: true
       members_order: source
 
+::: pygaeb.models.item.TextComplement
+    options:
+      show_root_heading: true
+      members_order: source
+
 ::: pygaeb.models.item.QtySplit
     options:
       show_root_heading: true

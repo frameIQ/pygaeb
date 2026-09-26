@@ -119,3 +119,42 @@ def test_synthetic_fixture_validates(phase: ExchangePhase) -> None:
     _assert_valid(SYNTHETIC.read_bytes(), ExchangePhase.X86, "synthetic source")
     xml, _ = GAEBWriter.to_bytes(doc, phase=phase)
     _assert_valid(xml, phase, "synthetic")
+
+
+FILLED = ["ava/tender.X81", "construction/bid.X83"]
+
+
+@pytest.mark.parametrize("source", FILLED)
+def test_a_bid_with_its_fields_answered_validates(source: str) -> None:
+    """Every bidder field answered — a number where the field takes one — and the
+    X84 still passes the schema, carries the answers, and writes the same twice."""
+    path = Path(_FIXTURES or "") / source
+    if not path.exists():
+        pytest.skip(f"{source} not present")
+
+    from pygaeb import ComplementKind, PhaseTransition
+
+    bid = PhaseTransition.tender_to_bid(GAEBParser.parse(path))
+    answered: dict[str, str] = {}
+    for item in bid.iter_items():
+        for field in (item.long_text.complements if item.long_text else []):
+            if field.kind == ComplementKind.BIDDER:
+                answer = "12" if field.number_kind else f"Fabrikat {field.mark}\nTyp A"
+                item.long_text.fill_bidder(field.mark, answer)  # type: ignore[union-attr]
+                answered[field.mark] = answer
+    assert answered, f"{source} has no bidder fields to answer"
+
+    xml, _ = GAEBWriter.to_bytes(bid, phase=ExchangePhase.X84)
+    _assert_valid(xml, ExchangePhase.X84, f"{source} answered")
+
+    again = GAEBParser.parse_bytes(xml, filename="answered.X84")
+    read_back = {
+        field.mark: field.value
+        for item in again.iter_items()
+        for field in (item.long_text.complements if item.long_text else [])
+    }
+    for mark, answer in answered.items():
+        assert read_back[mark] == answer.replace("\n", " ")
+
+    second, _ = GAEBWriter.to_bytes(bid, phase=ExchangePhase.X84)
+    assert second == xml
