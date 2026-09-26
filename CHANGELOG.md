@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-09-26
+
+### Added
+
+- **`RichText.complements` — the fields inside a long text are read.** Standard texts leave gaps in the prose — `<TextComplement>` — which the issuer fills (`Stoff 'Kies-Sand-Gemisch 0/32'`) and the bidder answers in paired fields (`Stoff '....'`), typically with the product it offers after an `oder gleichwertiger Art`. They were never parsed. Each now comes back as a `TextComplement` with its `kind` (`ComplementKind.OWNER` / `BIDDER`), `mark` (`MarkLbl`), `caption`, `body` as written, `tail`, `empty`, and `number`/`number_kind` for a field that takes a number (`ComplBodyDec`/`ComplBodyInt`). `value` is the entry without its quote marks, and `label` is the caption — or, for a field with none (`Angebotenes Fabrikat: '....'`), the words just before it (`context`). A body of only dots, dashes or quote marks is empty whether or not the file marks it `Empty="Yes"` — several programs mark a blank only with dots. Fields in table cells and inside paragraphs are found too.
+- **`RichText.fill_bidder(mark, text)` and `TextComplement.fill(text)` — a bid can answer them.** The X84 writer writes the answer as `<ComplBody><span>…</span></ComplBody>`, one span per line with `<br/>` between, plus `ComplBodyDec`/`ComplBodyInt` `Value` when the field takes a number and the answer is one; a field left open is written with `Empty="Yes"`. An issuer's field is not the bidder's to fill: `fill` raises and `fill_bidder` returns `0`. Answered fields of the official BVBS `ava/tender.X81` and `construction/bid.X83` validate against the 3.3 X84 schema and read back unchanged.
+- **`parse_richtext`, `TextComplement` and `ComplementKind` are exported**, so a stored long text's `raw_html` can be re-read — a record saved before 1.19 has its fields only in the markup.
+
+### Fixed
+
+- **Words no longer run together at line breaks.** Standard texts break every line with `<br/>` and keep each line's trailing space inside its `<span>`; `get_text(strip=True)` removed both, so the prose read `Hinterfüllenvon Arbeitsräumen` and `vorhandenenDrahtankern`. The long text is now read in one ordered walk: text verbatim, `<br/>` as `\n`, and adjacent spans *not* separated — a style run can split a word. Table cells had the same defect and the same fix.
+- **The fields read inline where they stand.** They sit between `<Text>` blocks, where the block-by-block reader never looked, so `paragraphs` and `plain_text` lost the issuer's named material or product and every bidder blank. A field mid-sentence now joins its sentence (`… Stoffen, Stoff 'Kies-Sand-Gemisch 0/32' oder gleichwertiger Art, Stoff '…', verdichten.`); one that opens or closes a sentence keeps its paragraph, and a colon introduces the field after it rather than ending the sentence. An open field reads `'…'`.
+- **Text outside a `<p>` is kept.** A loose `<span>` inside `<Text>` was dropped.
+- **An X84 no longer echoes the issuer's fields back.** The bid writer copied every `TextComplement` from the tender, `Kind="Owner"` included, together with the tender's own bodies; on the BVBS `katalogzuordnungen` file that was 20 issuer fields in the bid next to 7 of the bidder's. Only bidder fields are written now.
+
+### Changed
+
+- **`RichText.paragraphs` and `plain_text` read differently** for any text that has line breaks, fields, loose text or tables: `\n` where the file breaks a line, fields inline, and table rows in `plain_text` as `cell | cell`. Anything keyed on those strings changes once — including `StructuredExtractor`'s cache key, which hashes the first 300 characters of the plain text, so a cached extraction is recomputed the next time that item is extracted.
+
 ## [1.18.6] - 2026-09-25
 
 ### Fixed

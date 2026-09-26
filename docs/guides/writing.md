@@ -41,6 +41,31 @@ GAEBWriter.write(doc, "bid.X84", phase=ExchangePhase.X84)
 GAEBWriter.write(doc, "invoice.X86", phase=ExchangePhase.X86)
 ```
 
+### Answering the Bidder's Fields
+
+A bid carries, per position, the bidder's fields (`TextComplement Kind="Bidder"`)
+and nothing else of the long text. Answer them before writing:
+
+```python
+from pygaeb import GAEBParser, GAEBWriter, PhaseTransition
+from pygaeb.models.enums import ExchangePhase
+
+bid = PhaseTransition.tender_to_bid(GAEBParser.parse("tender.X83"))
+for item in bid.iter_items():
+    if item.long_text:
+        item.long_text.fill_bidder("32", "Beton C30/37")
+
+GAEBWriter.write(bid, "bid.X84", phase=ExchangePhase.X84)
+```
+
+An answered field is written as `<ComplBody><span>…</span></ComplBody>` — one
+span per line, `<br/>` between — with its number as `ComplBodyDec`/`ComplBodyInt`
+`Value` when the field takes one and the answer is one. A field left open is
+written with `Empty="Yes"`. The issuer's fields are not repeated: a bid answers
+the tender, it does not restate it. `fill_bidder` returns how many fields took the
+answer — `0` for an unknown mark or an issuer's field — and `TextComplement.fill`
+raises on an issuer's field.
+
 ### Writing Trade Documents
 
 Trade documents (X93–X97) are written the same way:
@@ -84,7 +109,7 @@ of the shared schema, so the writer applies a per-phase profile
 |-------|--------------------------------------|---------------------------------------|
 | X81/X82 | — | `BoQInfo/Name`, `LblBoQ`, `OutlCompl`, `LblTx` |
 | X83 (tender) | unit prices, item totals, `Totals`, contractor | `QU` on every item |
-| X84 (bid) | category labels, catalog assignments, position-type markers, outline text, owner | `CTR` (empty-address placeholder), `Totals` per category |
+| X84 (bid) | category labels, catalog assignments, position-type markers, outline text, owner, the tender's prose and the issuer's own fields | `CTR` (empty-address placeholder), `Totals` per category |
 | X86 (contract) | — | `OWN`, `CTR`, `Totals` per category |
 
 Everything left out is reported once per element kind in the returned warnings

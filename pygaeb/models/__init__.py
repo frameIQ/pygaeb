@@ -10,6 +10,7 @@ from pygaeb.models.document import (
 )
 from pygaeb.models.enums import (
     BkdnType,
+    ComplementKind,
     DocumentKind,
     ExchangePhase,
     ItemType,
@@ -26,6 +27,7 @@ from pygaeb.models.item import (
     Item,
     QtySplit,
     RichText,
+    TextComplement,
     ValidationResult,
 )
 from pygaeb.models.order import (
@@ -50,6 +52,7 @@ __all__ = [
     "BoQCtgy",
     "BoQInfo",
     "ClassificationResult",
+    "ComplementKind",
     "ConstructionSite",
     "CostEstimate",
     "CustomerInfo",
@@ -72,6 +75,7 @@ __all__ = [
     "RichText",
     "SourceVersion",
     "SupplierInfo",
+    "TextComplement",
     "TradeOrder",
     "ValidationMode",
     "ValidationResult",

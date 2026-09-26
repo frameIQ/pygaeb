@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal
-from typing import Any
+import re
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from pygaeb.models.catalog import CtlgAssign
-from pygaeb.models.enums import ClassificationFlag, ItemType, Provis, ValidationSeverity
+from pygaeb.models.enums import (
+    ClassificationFlag,
+    ComplementKind,
+    ItemType,
+    Provis,
+    ValidationSeverity,
+)
 
 
 class QtySplit(BaseModel):
@@ -19,6 +26,100 @@ class QtySplit(BaseModel):
     unit: str | None = None
 
 
+_QUOTES = "'\"‚‘’„“”"  # noqa: RUF001 — the German quote marks are the point
+_NUMBER_RE = re.compile(r"[+-]?\d+(?:[.,]\d+)?")
+_PUNCTUATION_AFTER = ",.;:!?)"
+
+
+def join_inline(left: str, right: str) -> str:
+    """Two pieces of one sentence, with the space a reader would expect between them.
+
+    No space when either side already brings its own, or when the right side opens
+    with punctuation that belongs to the left.
+    """
+    if not left or not right:
+        return left + right
+    if left[-1].isspace() or right[0].isspace() or right[0] in _PUNCTUATION_AFTER:
+        return left + right
+    return f"{left} {right}"
+
+
+class TextComplement(BaseModel):
+    """A field inside a long text — ``<TextComplement>``.
+
+    Standard texts leave gaps in the prose. The issuer fills its own
+    (``Stoff 'Beton C25/30'``) and the bidder answers in paired ones
+    (``Stoff '....'``), typically naming the product it offers in place of a lead
+    product. ``body`` is kept as written, quote marks included, because they are
+    part of the text; :attr:`value` is the entry without them.
+    """
+
+    kind: ComplementKind
+    mark: str = ""
+    """``MarkLbl`` — the field's number within its text, which is how a bid refers to it."""
+    caption: str = ""
+    body: str = ""
+    """As written, e.g. ``'Beton C25/30'``. Empty when nothing has been filled in."""
+    tail: str = ""
+    empty: bool = False
+    number: Decimal | None = None
+    """``ComplBodyDec``/``ComplBodyInt`` ``Value`` — for a field that takes a number."""
+    number_kind: Literal["dec", "int"] | None = None
+    id: str | None = None
+    art_chr_ident: str | None = None
+    context: str = ""
+    """The words just before the field — ``Angebotenes Fabrikat`` in
+    ``Angebotenes Fabrikat: '....'`` — which is what labels a field that has no
+    caption of its own. Read from the prose, not stored in the file."""
+
+    @property
+    def label(self) -> str:
+        """The caption, or the words before the field when it has none."""
+        return self.caption or self.context
+
+    @property
+    def value(self) -> str:
+        """The entry without its enclosing quote marks; empty for an empty field."""
+        if self.empty:
+            return ""
+        text = self.body.strip()
+        if len(text) >= 2 and text[0] in _QUOTES and text[-1] in _QUOTES:
+            text = text[1:-1].strip()
+        return text
+
+    @property
+    def inline(self) -> str:
+        """How the field reads inside the prose. An empty one reads ``'…'``."""
+        body = "'…'" if self.empty or not self.body else self.body
+        return join_inline(join_inline(self.caption, body), self.tail)
+
+    def fill(self, text: str) -> None:
+        """Answer a bidder field. An issuer's field is not the bidder's to fill."""
+        if self.kind != ComplementKind.BIDDER:
+            raise ValueError(f"Field {self.mark} is the issuer's, not the bidder's.")
+        entry = text.strip()
+        self.body = entry
+        self.empty = not entry
+        self.number = _as_number(entry, self.number_kind) if entry else None
+
+
+def _as_number(text: str, kind: str | None) -> Decimal | None:
+    """The entry as a number, when the field takes one and the entry is one.
+
+    Deliberately strict — ``80`` or ``0,5`` — because a grouping separator is
+    ambiguous between German and English and a wrong ``Value`` is worse than none.
+    """
+    if kind is None or not _NUMBER_RE.fullmatch(text):
+        return None
+    try:
+        number = Decimal(text.replace(",", "."))
+    except InvalidOperation:
+        return None
+    if kind == "int" and number != number.to_integral_value():
+        return None
+    return number
+
+
 class RichText(BaseModel):
     """Parsed long text with structural elements."""
 
@@ -27,10 +128,22 @@ class RichText(BaseModel):
     images: list[str] = Field(default_factory=list)
     raw_html: str | None = None
     plain_text: str = ""
+    complements: list[TextComplement] = Field(default_factory=list)
+    """The fields in the text, in document order. Rendered inline in ``paragraphs``
+    and ``plain_text`` too, so the prose reads as the issuer wrote it."""
 
     @classmethod
     def from_plain(cls, text: str) -> RichText:
         return cls(paragraphs=[text] if text else [], plain_text=text)
+
+    def fill_bidder(self, mark: str, text: str) -> int:
+        """Answer the bidder field numbered *mark*; returns how many fields took it."""
+        filled = 0
+        for complement in self.complements:
+            if complement.kind == ComplementKind.BIDDER and complement.mark == mark:
+                complement.fill(text)
+                filled += 1
+        return filled
 
 
 class Attachment(BaseModel):
