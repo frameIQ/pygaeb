@@ -52,20 +52,20 @@ Python 3.10+.
 from pygaeb import GAEBParser
 
 doc = GAEBParser.parse("tender.X83")    # DA XML 3.x
-doc = GAEBParser.parse("old.D83")       # DA XML 2.x — same call
+legacy_doc = GAEBParser.parse("old.D83")  # DA XML 2.x — same call
 
 print(doc.source_version)               # SourceVersion.DA_XML_33
 print(doc.exchange_phase)               # ExchangePhase.X83
-print(doc.grand_total)                  # Decimal("1234567.89")
+print(doc.grand_total)                  # Sum of item totals; 0 for an unpriced tender
 ```
 
 ### Iterate items
 
-Works for all document kinds — procurement, trade, cost, and quantity:
+For a procurement document, iterate its BoQ items (values below are illustrative; prices may be `None`):
 
 ```python
-for item in doc.iter_items():
-    print(item.oz)              # "01.02.0030"
+for item in doc.award.boq.iter_items():
+    print(item.full_oz)         # "01.02.0030"
     print(item.short_text)      # "Mauerwerk der Innenwand…"
     print(item.qty)             # Decimal("1170.000")
     print(item.unit)            # "m2"
@@ -73,6 +73,8 @@ for item in doc.iter_items():
     print(item.total_price)     # Decimal("53235.00")
     print(item.item_type)       # ItemType.NORMAL
 ```
+
+`item.oz` contains the item's local number (for example, `"0030"`); `item.full_oz` includes the category path. `doc.iter_items()` supports all document kinds, but yields different models with different fields. See [universal iteration](docs/guides/parsing.md#universal-iteration) for an example covering all four kinds.
 
 ### Validation
 
@@ -90,7 +92,7 @@ doc = GAEBParser.parse("tender.X83", validation=ValidationMode.STRICT)
 
 ### Custom Validators
 
-Register project-specific validation rules:
+Register project-specific validation rules. This rule checks procurement items and skips other document kinds:
 
 ```python
 from pygaeb import register_validator, clear_validators
@@ -98,13 +100,15 @@ from pygaeb.models.item import ValidationResult
 from pygaeb.models.enums import ValidationSeverity
 
 def require_unit(doc):
+    if not doc.is_procurement:
+        return []
     issues = []
     for item in doc.iter_items():
         if not item.unit:
             issues.append(
                 ValidationResult(
                     severity=ValidationSeverity.WARNING,
-                    message=f"{item.oz}: missing unit",
+                    message=f"{item.full_oz}: missing unit",
                 )
             )
     return issues
@@ -170,12 +174,15 @@ print(doc.order.supplier_info.address.name)
 
 ### Cost & Calculation Phases (X50–X52)
 
+X50/X51 use `CostElement`; X52 uses procurement BoQ items. For X50:
+
 ```python
 doc = GAEBParser.parse("costing.X50")
 print(doc.document_kind)    # DocumentKind.COST
 
 for elem in doc.elemental_costing.body.iter_cost_elements():
-    print(elem.ele_no, elem.short_text, elem.total_cost)
+    print(elem.ele_no, elem.short_text, elem.display_price)
+# display_price uses item_total, falling back to qty * unit_price (or None).
 ```
 
 ### Quantity Determination (X31)
@@ -185,7 +192,7 @@ doc = GAEBParser.parse("measurements.X31")
 print(doc.document_kind)    # DocumentKind.QUANTITY
 
 for item in doc.qty_determination.boq.iter_items():
-    print(item.oz, item.qty_determ_items)
+    print(item.oz, item.determ_items)
 ```
 
 ### Financial Summaries & Project Info
@@ -194,12 +201,14 @@ for item in doc.qty_determination.boq.iter_items():
 doc = GAEBParser.parse("tender.X86")
 
 # BoQ-level totals
-totals = doc.award.boq.info.totals
-print(totals.total_net, totals.total_gross, totals.vat_amount)
+info = doc.award.boq.boq_info
+totals = info.totals if info is not None else None
+if totals is not None:
+    print(totals.total_net, totals.total_gross, totals.vat_amount)
 
-# Per-VAT-rate breakdown
-for vp in totals.vat_parts:
-    print(f"{vp.vat_pcnt}%: net {vp.net_amount} → gross {vp.gross_amount}")
+    # Per-VAT-rate breakdown
+    for vp in totals.vat_parts:
+        print(f"{vp.vat_pcnt}%: net={vp.total_net_part}, VAT={vp.vat_amount}")
 
 # Project metadata
 print(doc.award.prj_id, doc.award.description, doc.award.currency_label)

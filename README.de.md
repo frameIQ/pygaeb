@@ -54,20 +54,20 @@ Python 3.10+.
 from pygaeb import GAEBParser
 
 doc = GAEBParser.parse("ausschreibung.X83")    # DA XML 3.x
-doc = GAEBParser.parse("altformat.D83")         # DA XML 2.x — gleicher Aufruf
+legacy_doc = GAEBParser.parse("altformat.D83")  # DA XML 2.x — gleicher Aufruf
 
 print(doc.source_version)                       # SourceVersion.DA_XML_33
 print(doc.exchange_phase)                       # ExchangePhase.X83
-print(doc.grand_total)                          # Decimal("1234567.89")
+print(doc.grand_total)                          # Summe der Positionsbeträge; 0 bei unbepreistem LV
 ```
 
 ### LV-Positionen durchlaufen
 
-Funktioniert für alle Dokumentarten — Vergabe, Handel, Kosten und Mengenermittlung:
+LV-Positionen eines Vergabedokuments durchlaufen (die Werte sind Beispiele; Preise können `None` sein):
 
 ```python
-for item in doc.iter_items():
-    print(item.oz)              # "01.02.0030"  (Ordnungszahl)
+for item in doc.award.boq.iter_items():
+    print(item.full_oz)         # "01.02.0030"  (vollständige Ordnungszahl)
     print(item.short_text)      # "Mauerwerk der Innenwand…"  (Kurztext)
     print(item.qty)             # Decimal("1170.000")  (Menge)
     print(item.unit)            # "m2"  (Einheit)
@@ -75,6 +75,8 @@ for item in doc.iter_items():
     print(item.total_price)     # Decimal("53235.00")  (Gesamtbetrag)
     print(item.item_type)       # ItemType.NORMAL
 ```
+
+`item.oz` enthält nur die lokale Positionsnummer (zum Beispiel `"0030"`); `item.full_oz` enthält auch den Gliederungspfad. `doc.iter_items()` unterstützt alle Dokumentarten, liefert aber unterschiedliche Modelle mit unterschiedlichen Feldern. Ein Beispiel für alle vier Arten steht unter [Universelle Iteration](docs/guides/parsing.md#universal-iteration).
 
 ### Validierung
 
@@ -92,7 +94,7 @@ doc = GAEBParser.parse("ausschreibung.X83", validation=ValidationMode.STRICT)
 
 ### Eigene Validierungsregeln
 
-Projektspezifische Prüfungen registrieren:
+Projektspezifische Prüfungen registrieren. Diese Regel prüft Vergabepositionen und überspringt andere Dokumentarten:
 
 ```python
 from pygaeb import register_validator, clear_validators
@@ -100,13 +102,15 @@ from pygaeb.models.item import ValidationResult
 from pygaeb.models.enums import ValidationSeverity
 
 def einheit_pflicht(doc):
+    if not doc.is_procurement:
+        return []
     fehler = []
     for item in doc.iter_items():
         if not item.unit:
             fehler.append(
                 ValidationResult(
                     severity=ValidationSeverity.WARNING,
-                    message=f"{item.oz}: Einheit fehlt",
+                    message=f"{item.full_oz}: Einheit fehlt",
                 )
             )
     return fehler
@@ -172,12 +176,15 @@ print(doc.order.supplier_info.address.name)  # Lieferant
 
 ### Kosten & Kalkulation (X50–X52)
 
+X50/X51 verwenden `CostElement`; X52 verwendet LV-Positionen des Vergabemodells. Beispiel für X50:
+
 ```python
 doc = GAEBParser.parse("kostenberechnung.X50")
 print(doc.document_kind)    # DocumentKind.COST
 
 for elem in doc.elemental_costing.body.iter_cost_elements():
-    print(elem.ele_no, elem.short_text, elem.total_cost)
+    print(elem.ele_no, elem.short_text, elem.display_price)
+# display_price nutzt item_total, sonst qty * unit_price (oder None).
 ```
 
 ### Mengenermittlung / Aufmaß (X31)
@@ -187,7 +194,7 @@ doc = GAEBParser.parse("aufmass.X31")
 print(doc.document_kind)    # DocumentKind.QUANTITY
 
 for item in doc.qty_determination.boq.iter_items():
-    print(item.oz, item.qty_determ_items)
+    print(item.oz, item.determ_items)
 ```
 
 ### Finanzzusammenfassung & Projektdaten
@@ -196,12 +203,14 @@ for item in doc.qty_determination.boq.iter_items():
 doc = GAEBParser.parse("abrechnung.X86")
 
 # LV-Gesamtsummen
-summen = doc.award.boq.info.totals
-print(summen.total_net, summen.total_gross, summen.vat_amount)
+info = doc.award.boq.boq_info
+summen = info.totals if info is not None else None
+if summen is not None:
+    print(summen.total_net, summen.total_gross, summen.vat_amount)
 
-# MwSt.-Aufschlüsselung je Steuersatz
-for teil in summen.vat_parts:
-    print(f"{teil.vat_pcnt}%: netto {teil.net_amount} → brutto {teil.gross_amount}")
+    # MwSt.-Aufschlüsselung je Steuersatz
+    for teil in summen.vat_parts:
+        print(f"{teil.vat_pcnt}%: netto={teil.total_net_part}, MwSt.={teil.vat_amount}")
 
 # Projektmetadaten
 print(doc.award.prj_id, doc.award.description, doc.award.currency_label)

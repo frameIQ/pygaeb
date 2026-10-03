@@ -10,11 +10,11 @@ pyGAEB auto-detects the version and format — one method handles everything:
 from pygaeb import GAEBParser
 
 doc = GAEBParser.parse("tender.X83")    # DA XML 3.x
-doc = GAEBParser.parse("old.D83")       # DA XML 2.x — same call
+legacy_doc = GAEBParser.parse("old.D83")  # DA XML 2.x — same call
 
 print(doc.source_version)               # SourceVersion.DA_XML_33
 print(doc.exchange_phase)               # ExchangePhase.X83
-print(doc.grand_total)                  # Decimal("1234567.89")
+print(doc.grand_total)                  # Sum of item totals; 0 for an unpriced tender
 ```
 
 You can also parse from bytes or strings (useful for web uploads, S3, etc.):
@@ -28,11 +28,11 @@ The `filename` hint is used for version/phase detection from the extension.
 
 ## Iterate Items
 
-Every parsed document exposes a unified structure — regardless of the source version:
+Procurement documents expose a BoQ structure across supported XML versions. These values are illustrative; prices may be `None` in an unpriced tender:
 
 ```python
 for item in doc.award.boq.iter_items():
-    print(item.oz)              # "01.02.0030"
+    print(item.full_oz)         # "01.02.0030"
     print(item.short_text)      # "Mauerwerk der Innenwand…"
     print(item.qty)             # Decimal("1170.000")
     print(item.unit)            # "m2"
@@ -41,12 +41,16 @@ for item in doc.award.boq.iter_items():
     print(item.item_type)       # ItemType.NORMAL
 ```
 
-For code that should work on **both** procurement and trade documents, use universal iteration:
+`item.oz` is the local item number (for example, `"0030"`); `item.full_oz` includes the category path.
+
+Procurement, trade, and cost items share text, quantity, and unit fields:
 
 ```python
 for item in doc.iter_items():
     print(item.short_text, item.qty, item.unit)
 ```
+
+Quantity documents yield `QtyItem` objects, which have no `short_text` or `unit`. See [universal iteration](../guides/parsing.md#universal-iteration) for an example covering all four document kinds.
 
 Look up a specific item by its OZ (ordinal number):
 
@@ -60,8 +64,9 @@ Procurement documents (X84 bids, X86 awards, X89 invoices) carry authoritative t
 
 ```python
 # BoQ-level totals (from the <Totals> element, not recomputed)
-totals = doc.award.boq.boq_info.totals
-if totals:
+info = doc.award.boq.boq_info
+totals = info.totals if info is not None else None
+if totals is not None:
     print(totals.total_net)      # Decimal("95000.00")
     print(totals.total_gross)    # Decimal("113050.00")
     print(totals.vat)            # Decimal("19.00")  — VAT rate %
@@ -81,7 +86,7 @@ for lot in doc.award.boq.lots:
 # Item-level VAT
 for item in doc.award.boq.iter_items():
     if item.vat is not None:
-        print(f"{item.oz}: VAT {item.vat}%")
+        print(f"{item.full_oz}: VAT {item.vat}%")
 ```
 
 Project metadata from `<PrjInfo>` is merged into `AwardInfo`:
@@ -102,7 +107,8 @@ print(doc.award.alter_bid_perm)   # True/False
 For advanced querying, use `DocumentAPI`:
 
 ```python
-from pygaeb import DocumentAPI
+from decimal import Decimal
+from pygaeb import DocumentAPI, ItemType
 
 api = DocumentAPI(doc)
 
@@ -243,13 +249,13 @@ for item in doc.order.items:
 print(doc.order.supplier_info.address.name)
 ```
 
-LLM classification, structured extraction, and all other features work on trade documents without any code changes — just use `doc.iter_items()`.
+LLM classification and structured extraction support trade items through their shared text fields. For identifiers and prices, use trade fields such as `item_id`, `art_no`, and `net_price`; procurement fields such as `oz` and `unit_price` are not available on `OrderItem`.
 
 See the [Trade Phases Guide](../guides/trade-phases.md) for full details.
 
 ## Custom Validation
 
-Register project-specific rules that run alongside the built-in validators:
+Register project-specific rules that run alongside the built-in validators. This rule checks procurement items and skips other document kinds:
 
 ```python
 from pygaeb import register_validator
@@ -257,13 +263,15 @@ from pygaeb.models.item import ValidationResult
 from pygaeb.models.enums import ValidationSeverity
 
 def require_unit(doc):
+    if not doc.is_procurement:
+        return []
     issues = []
     for item in doc.iter_items():
         if not item.unit:
             issues.append(
                 ValidationResult(
                     severity=ValidationSeverity.WARNING,
-                    message=f"{item.oz}: missing unit",
+                    message=f"{item.full_oz}: missing unit",
                 )
             )
     return issues

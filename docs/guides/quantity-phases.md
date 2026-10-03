@@ -172,4 +172,4 @@ print(s["attachments"])   # Number of attachments
 
 ## Note on LLM Classification
 
-X31 items have no text content (no `short_text`/`long_text`), so LLM classification and structured extraction are not applicable to `QtyItem`. The classifier and extractor will naturally skip them. Use the procurement document for classification and cross-reference via OZ.
+X31 items have no text content (no `short_text`/`long_text`), so LLM classification and structured extraction are not applicable to `QtyItem`. Do not pass X31 documents to these APIs. Use the procurement document for classification and cross-reference its `Item.full_oz` with `QtyItem.oz`.

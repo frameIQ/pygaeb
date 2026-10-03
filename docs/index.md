@@ -35,7 +35,7 @@ from pygaeb import GAEBParser
 # Procurement (X80-X89) — same as always
 doc = GAEBParser.parse("tender.X83")
 for item in doc.award.boq.iter_items():
-    print(item.oz, item.short_text, item.total_price)
+    print(item.full_oz, item.short_text, item.total_price)
 
 # Trade (X93-X97) — auto-detected, same entry point
 doc = GAEBParser.parse("order.X96")
