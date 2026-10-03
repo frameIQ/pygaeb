@@ -211,7 +211,7 @@ for ct in info.cost_types:
 
 ## Universal Iteration
 
-`doc.iter_items()` works across all document kinds:
+`doc.iter_items()` yields different models by document kind. Procurement, trade, and cost items share these fields:
 
 ```python
 for item in doc.iter_items():
@@ -219,7 +219,7 @@ for item in doc.iter_items():
     print(item.short_text, item.qty, item.unit)
 ```
 
-LLM classification and structured extraction also work universally — no code changes needed for cost documents.
+LLM classification and structured extraction support cost items through their shared text fields. Quantity items have no text or unit fields; see [universal iteration](parsing.md#universal-iteration) for handling all four kinds.
 
 ## Writing Cost Documents
 

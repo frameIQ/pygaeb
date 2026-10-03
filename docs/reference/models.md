@@ -2,6 +2,17 @@
 
 The unified domain model that all parser tracks produce. Documents are **procurement** (X80–X89, using `AwardInfo`/`BoQ`/`Item`), **trade** (X93–X97, using `TradeOrder`/`OrderItem`), **cost** (X50/X51, using `ElementalCosting`/`CostElement`), or **quantity** (X31, using `QtyDetermination`/`QtyItem`).
 
+`GAEBDocument.iter_items()` provides a common iterator, but the available fields depend on the document kind:
+
+| Document kind | Item model | Identifier fields | Example data fields |
+| --- | --- | --- | --- |
+| Procurement (including X52) | `Item` | `full_oz` (category path + local number), `oz` (local number) | `short_text`, `qty`, `unit`, `unit_price`, `total_price` |
+| Trade | `OrderItem` | `item_id`, `art_no` | `short_text`, `qty`, `unit`, `net_price` |
+| Cost | `CostElement` | `ele_no` | `short_text`, `qty`, `unit`, `item_total`, `display_price` |
+| Quantity | `QtyItem` | `oz` (assembled position number) | `qty`, `determ_items` |
+
+`CostElement.display_price` returns `item_total` when present, otherwise `qty * unit_price`, or `None` when the inputs are missing. `QtyItem` has no text, unit, or price fields. See [universal iteration](../guides/parsing.md#universal-iteration) for an example handling each kind.
+
 ## Document
 
 ::: pygaeb.models.document.GAEBDocument

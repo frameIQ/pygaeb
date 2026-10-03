@@ -47,7 +47,7 @@ for item in order.items:
 `doc.iter_items()` works for both procurement and trade documents, making LLM pipelines work unchanged:
 
 ```python
-# Works for ANY document kind
+# Shared fields on procurement and trade items
 for item in doc.iter_items():
     print(item.short_text, item.qty, item.unit)
 ```
@@ -62,7 +62,7 @@ if doc.is_trade:
         print(item.art_no, item.net_price)
 elif doc.is_procurement:
     for item in doc.award.boq.iter_items():
-        print(item.oz, item.unit_price)
+        print(item.full_oz, item.unit_price)
 ```
 
 ## OrderItem Fields

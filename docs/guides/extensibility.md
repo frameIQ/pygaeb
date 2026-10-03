@@ -4,7 +4,7 @@ pyGAEB v1.7.0 introduces five extension points that let you tailor parsing, vali
 
 ## Custom Validators
 
-Register project-specific validation rules that run after the built-in pipeline:
+Register project-specific validation rules that run after the built-in pipeline. This rule checks procurement items and skips other document kinds:
 
 ```python
 from pygaeb import GAEBParser, register_validator, clear_validators
@@ -12,14 +12,16 @@ from pygaeb.models.item import ValidationResult
 from pygaeb.models.enums import ValidationSeverity
 
 def require_unit(doc):
-    """Every item must specify a quantity unit."""
+    """Require a quantity unit on procurement items."""
+    if not doc.is_procurement:
+        return []
     issues = []
     for item in doc.iter_items():
         if not item.unit:
             issues.append(
                 ValidationResult(
                     severity=ValidationSeverity.WARNING,
-                    message=f"{item.oz}: missing unit",
+                    message=f"{item.full_oz}: missing unit",
                 )
             )
     return issues

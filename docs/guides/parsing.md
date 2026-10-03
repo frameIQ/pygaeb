@@ -186,8 +186,9 @@ doc.award.alter_bid_perm # bool — alternative bids permitted
 **Financial summaries** are parsed from `<Totals>` elements on BoQInfo, categories, and lots. These carry the authoritative net/gross totals, VAT rates, VAT breakdowns, and discount data — present in X84 (bid), X86 (award), and X89 (invoice) files:
 
 ```python
-totals = doc.award.boq.boq_info.totals
-if totals:
+info = doc.award.boq.boq_info
+totals = info.totals if info is not None else None
+if totals is not None:
     totals.total           # Decimal — sum before discounts
     totals.total_net       # Decimal — net after discounts
     totals.total_gross     # Decimal — gross (net + VAT)
@@ -202,7 +203,7 @@ if totals:
 ```python
 for item in doc.award.boq.iter_items():
     if item.vat is not None:
-        print(f"{item.oz}: {item.vat}%")
+        print(f"{item.full_oz}: {item.vat}%")
 ```
 
 ### Trade documents (X93–X97)
@@ -228,12 +229,21 @@ doc.qty_determination.boq.ref_boq_name  # referenced procurement BoQ
 
 ### Universal iteration
 
-Works for all document kinds:
+`doc.iter_items()` works for all document kinds, but each kind yields a different item model. Select fields for that model:
 
 ```python
 for item in doc.iter_items():
-    print(item.short_text, item.qty, item.unit)
+    if doc.is_procurement:
+        print(item.full_oz, item.short_text, item.qty, item.unit)
+    elif doc.is_trade:
+        print(item.item_id, item.art_no, item.short_text, item.qty, item.unit)
+    elif doc.is_cost:
+        print(item.ele_no, item.short_text, item.qty, item.unit)
+    elif doc.is_quantity:
+        print(item.oz, item.qty, item.determ_items)
 ```
+
+For procurement items, `oz` is the local item number and `full_oz` includes the category path. Quantity items already expose their assembled position number through `oz`; they have no `short_text`, `unit`, or price fields.
 
 See the [Models Reference](../reference/models.md) for full details on every field.
 
@@ -292,20 +302,22 @@ configure(max_file_size_mb=200)
 
 ### Per-call validators
 
-Pass extra validation rules to a single parse call without registering them globally:
+Pass extra validation rules to a single parse call without registering them globally. This rule checks procurement items and skips other document kinds:
 
 ```python
 from pygaeb.models.item import ValidationResult
 from pygaeb.models.enums import ValidationSeverity
 
 def require_unit(doc):
+    if not doc.is_procurement:
+        return []
     issues = []
     for item in doc.iter_items():
         if not item.unit:
             issues.append(
                 ValidationResult(
                     severity=ValidationSeverity.WARNING,
-                    message=f"{item.oz}: missing unit",
+                    message=f"{item.full_oz}: missing unit",
                 )
             )
     return issues
