@@ -2,7 +2,8 @@
 
 **Python parser for GAEB DA XML construction data exchange files, with LLM-powered item classification.**
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![PyPI version](https://img.shields.io/pypi/v/pyGAEB.svg)](https://pypi.org/project/pyGAEB/)
+[![Python versions](https://img.shields.io/pypi/pyversions/pyGAEB.svg)](https://pypi.org/project/pyGAEB/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Docs](https://readthedocs.org/projects/pygaeb/badge/?version=latest)](https://pygaeb.readthedocs.io)
 

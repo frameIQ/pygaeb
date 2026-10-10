@@ -49,8 +49,8 @@ Then open [http://localhost:8000](http://localhost:8000).
 
 ## Requirements
 
-- **Python 3.9+**
-- Core dependencies: `lxml`, `pydantic` v2, `beautifulsoup4`, `ftfy`, `charset-normalizer`
+- **Python 3.10+**
+- Core dependencies: `lxml`, `pydantic` v2, `pydantic-settings`, `beautifulsoup4`, `ftfy`, `charset-normalizer`
 - LLM extras: `litellm`, `instructor`
 
 ## LLM Provider Setup

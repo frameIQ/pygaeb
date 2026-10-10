@@ -62,7 +62,8 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - pymdownx.tabbed:
       alternate_style: true
-  - pymdownx.snippets
+  - pymdownx.snippets:
+      check_paths: true
   - toc:
       permalink: true
   - attr_list
