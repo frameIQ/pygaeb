@@ -405,6 +405,59 @@ class TestFormatting:
                     break
 
 
+# ── Total Column Placement ─────────────────────────────────────────────
+
+class TestTotalsLandInTotalColumn:
+    """Subtotal and total rows must use the document's own total column."""
+
+    @staticmethod
+    def _column_index(ws, header: str) -> int:
+        headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+        return headers.index(header) + 1
+
+    @staticmethod
+    def _row_labelled(ws, label: str) -> list:
+        for row in ws.iter_rows(values_only=True):
+            if any(str(v).strip() == label for v in row if v is not None):
+                return list(row)
+        raise AssertionError(f"no row labelled {label!r}")
+
+    def _assert_total_row(self, ws, label: str, total_header: str, expected: int) -> None:
+        total_col = self._column_index(ws, total_header)
+        qty_col = self._column_index(ws, "Qty")
+        row = self._row_labelled(ws, label)
+        assert row[total_col - 1] == expected
+        assert row[qty_col - 1] is None
+
+    def test_procurement_grand_total_uses_total_price_column(self, tmp_path: Path):
+        doc = _make_procurement_doc()
+        out = tmp_path / "test.xlsx"
+        to_excel(doc, out, mode="structured")
+        ws = _load_workbook(out)["BoQ"]
+        self._assert_total_row(ws, "GRAND TOTAL", "Total Price", 54800)
+
+    def test_procurement_lot_subtotal_uses_total_price_column(self, tmp_path: Path):
+        doc = _make_procurement_doc()
+        out = tmp_path / "test.xlsx"
+        to_excel(doc, out, mode="structured")
+        ws = _load_workbook(out)["BoQ"]
+        self._assert_total_row(ws, "Lot Subtotal", "Total Price", 54800)
+
+    def test_trade_total_uses_net_price_column(self, tmp_path: Path):
+        doc = _make_trade_doc()
+        out = tmp_path / "test.xlsx"
+        to_excel(doc, out, mode="structured")
+        ws = _load_workbook(out)["BoQ"]
+        self._assert_total_row(ws, "TOTAL", "Net Price", 4200)
+
+    def test_cost_total_uses_total_column(self, tmp_path: Path):
+        doc = _make_cost_doc()
+        out = tmp_path / "test.xlsx"
+        to_excel(doc, out, mode="structured")
+        ws = _load_workbook(out)["BoQ"]
+        self._assert_total_row(ws, "GRAND TOTAL", "Total", 21500)
+
+
 # ── Edge Cases ──────────────────────────────────────────────────────────
 
 class TestEdgeCases:

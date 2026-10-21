@@ -306,7 +306,7 @@ def _write_subtotal_row(
 
 def _find_total_column(columns: list[ColumnDef]) -> int:
     for i, c in enumerate(columns, 1):
-        if c.key in ("total_price", "net_price", "item_total", "qty"):
+        if c.key in ("total_price", "net_price", "item_total"):
             return i
     return len(columns)
 
