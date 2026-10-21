@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.19.0"
+__version__ = "1.19.1"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
