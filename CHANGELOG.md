@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`to_json` exports documents with images.**
+  - An embedded image made it fail with `UnicodeDecodeError`, with or without `include_attachments`, because attachment bytes went into JSON as UTF-8 text.
+  - 9 of the 16 BVBS Prüfdateien could not be exported, and `pygaeb export -f json` and the MCP `export_document` tool failed on them too.
+  - Attachment data is now written as standard base64 when `include_attachments=True`, as documented. It never was before.
+- **A JSON export loads back.**
+  - An export without attachment data could not be read with `GAEBDocument.model_validate_json`, because `Attachment.data` was required. It now defaults to empty, and the recorded `size_bytes` is kept.
+  - Base64 data is read whether the JSON comes through `model_validate_json` or through `json.load` and `model_validate`.
+
+### Added
+
+- **Derived values in the JSON export:** every item carries `full_oz`, `computed_total` and `affects_total`, trade lines carry `line_total`, and the document carries its `grand_total`. A reader gets pyGAEB's sums without re-implementing the GAEB rules, and loading the JSON back ignores these values.
+
 ## [1.20.0] - 2026-10-24
 
 ### Upgrade notes

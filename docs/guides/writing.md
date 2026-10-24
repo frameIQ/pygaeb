@@ -169,19 +169,18 @@ See [Validation](validation.md#xsd-validation) for the schema folder layout.
 Export the full nested BoQ tree as JSON:
 
 ```python
-from pygaeb.convert import to_json, to_json_string
+from pygaeb import to_json, to_json_string
 
-# Write to file
-to_json(doc, "boq.json")
-
-# Get as string
-json_str = to_json_string(doc)
-
-# Include binary attachments (base64)
-to_json(doc, "boq_full.json", include_attachments=True)
+to_json(doc, "boq.json")                                 # write to a file
+json_str = to_json_string(doc)                           # or get a string
+to_json(doc, "boq_full.json", include_attachments=True)  # with attachment data
 ```
 
-By default, binary attachment data is stripped (metadata like filename and MIME type is kept). Pass `include_attachments=True` to include base64-encoded data.
+Amounts are exact decimal strings (`"1755.00"`), so no precision is lost on the way. Next to what the document stores, every item carries the values pyGAEB derives (`full_oz`, `computed_total` and `affects_total`, and `line_total` for trade lines), and the document its `grand_total`. A program reading the JSON gets pyGAEB's sums without re-implementing the GAEB rules.
+
+By default, attachment data is left out; file name, MIME type and size are kept. With `include_attachments=True` it is written as standard base64, ready for a data URL.
+
+Read a file back with `GAEBDocument.model_validate_json(json_str)`. The derived values are ignored on the way in, and an export without attachment data loads with empty data and the original size.
 
 ## Export to CSV
 

@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from pygaeb.models._binary import BinaryData
 from pygaeb.models.catalog import CtlgAssign
 from pygaeb.models.enums import (
     ClassificationFlag,
@@ -153,7 +154,8 @@ class Attachment(BaseModel):
 
     filename: str
     mime_type: str
-    data: bytes
+    # Empty when an export left the data out; size_bytes still records the original.
+    data: BinaryData = b""
     size_bytes: int = 0
 
     def model_post_init(self, __context: Any) -> None:

@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from pygaeb.models._binary import BinaryData
 from pygaeb.models.boq import BoQBkdn
 from pygaeb.models.catalog import Catalog, CtlgAssign
 from pygaeb.models.order import Address
@@ -27,7 +28,7 @@ class QtyAttachment(BaseModel):
     text: str = ""
     description: str = ""
     file_type: str = ""
-    data: bytes = b""
+    data: BinaryData = b""
     size_bytes: int = 0
 
     def model_post_init(self, __context: Any) -> None:
