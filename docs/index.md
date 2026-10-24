@@ -1,9 +1,10 @@
 # pyGAEB
 
-**Python parser for GAEB DA XML construction data exchange files, with LLM-powered item classification.**
+**Python library to parse, validate, write and convert GAEB DA XML files (2.0–3.3): construction tenders, bids, orders, cost estimates and quantity take-offs. Exports to PDF, Excel, Word, HTML, Markdown, CSV and pandas; optional LLM item classification and extraction.**
 
 [![PyPI version](https://img.shields.io/pypi/v/pyGAEB.svg)](https://pypi.org/project/pyGAEB/)
 [![Python versions](https://img.shields.io/pypi/pyversions/pyGAEB.svg)](https://pypi.org/project/pyGAEB/)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/pygaeb?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/pygaeb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Docs](https://readthedocs.org/projects/pygaeb/badge/?version=latest)](https://pygaeb.readthedocs.io)
 
@@ -24,7 +25,7 @@ pyGAEB parses, validates, classifies, and writes GAEB DA XML files (versions 2.0
 - **Structured extraction** — pull typed attributes into your own Pydantic schemas using LLMs
 - **Custom & vendor tag access** — opt-in raw XML retention, XPath queries, vendor extension extraction
 - **Pluggable caching** — in-memory default, opt-in SQLite persistence, or bring your own backend
-- **Export** — JSON (nested BoQ tree) and CSV (flat item table)
+- **Export** — the LV as a PDF printout, Excel workbook, Word document, HTML page or Markdown, plus CSV, JSON and pandas DataFrames; also from the command line with `pygaeb export`
 - **Cross-phase validation** — compare tender vs. bid documents for compliance
 - **Fully typed** — PEP 561 compliant with `py.typed` marker
 

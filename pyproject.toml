@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "pyGAEB"
 dynamic = ["version"]
-description = "Python parser for GAEB DA XML construction data exchange files, with LLM-powered item classification"
+description = "Python library to parse, validate, write and convert GAEB DA XML files (2.0–3.3): construction tenders, bids, orders, cost estimates and quantity take-offs. Exports to PDF, Excel, Word, HTML, Markdown, CSV and pandas; optional LLM item classification and extraction."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
