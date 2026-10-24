@@ -1,7 +1,8 @@
-"""Pre-parse encoding repair via ftfy (XML tracks) + charset-normalizer (binary detection)."""
+"""Encoding repair before parsing: XML decoded as a parser would, GAEB 90 by detection."""
 
 from __future__ import annotations
 
+import codecs
 import logging
 import re
 
@@ -10,69 +11,104 @@ from charset_normalizer import from_bytes
 
 logger = logging.getLogger("pygaeb.detector")
 
-_BOM_UTF8 = b"\xef\xbb\xbf"
-_BOM_UTF16_LE = b"\xff\xfe"
-_BOM_UTF16_BE = b"\xfe\xff"
+# UTF-32 first: its little-endian mark begins with the UTF-16 one.
+_BOMS = (
+    (codecs.BOM_UTF32_LE, "utf-32-le"),
+    (codecs.BOM_UTF32_BE, "utf-32-be"),
+    (codecs.BOM_UTF8, "utf-8-sig"),
+    (codecs.BOM_UTF16_LE, "utf-16-le"),
+    (codecs.BOM_UTF16_BE, "utf-16-be"),
+)
 _XML_DECL_RE = re.compile(
-    rb'<\?xml[^>]*encoding=["\']([^"\']+)["\']', re.IGNORECASE
+    rb'\s*<\?xml[^>]*?\bencoding\s*=\s*["\']([^"\']*)["\']', re.IGNORECASE
+)
+_DECL_ENCODING_RE = re.compile(
+    r'﻿?\s*<\?xml[^>]*?\bencoding\s*=\s*["\']([^"\']*)["\']', re.IGNORECASE
 )
 
 
 def repair_encoding(raw: bytes, is_xml: bool = True) -> tuple[str, str]:
     """Repair encoding issues in raw file bytes.
 
-    Returns (repaired_text, detected_encoding).
+    Returns (repaired_text, detected_encoding). XML text comes back declared
+    as UTF-8 (see ``decode_xml``).
     """
-    detected_encoding = "utf-8"
+    if not is_xml:
+        _encoding, body = sniff_unicode(raw)
+        return _detect_and_decode_binary(body)
 
-    raw, detected_encoding = _strip_bom(raw, detected_encoding)
+    text, encoding = decode_xml(raw)
+    # Typography fixes off: they would rewrite quotes, ligatures and widths in contract text.
+    repaired = ftfy.fix_text(
+        text, uncurl_quotes=False, fix_latin_ligatures=False, fix_character_width=False,
+    )
+    if repaired != text:
+        logger.debug("ftfy repaired encoding issues")
+        encoding = "repaired-ftfy"
+    return repaired, encoding
 
-    if is_xml:
-        declared_enc = _extract_declared_encoding(raw)
+
+def decode_xml(raw: bytes) -> tuple[str, str]:
+    """Decode XML bytes as an XML parser would, surviving a wrong encoding label.
+
+    Returns ``(text, encoding)``. A byte-order mark outranks the declaration,
+    and the text's declaration is rewritten to name UTF-8, because callers
+    hand ``text.encode("utf-8")`` to lxml.
+    """
+    encoding, body = sniff_unicode(raw)
+    encoding = encoding or _declared_encoding(body) or "utf-8"
+    try:
+        text = body.decode(encoding)
+    except (UnicodeDecodeError, LookupError):
+        text, encoding = _decode_fallback(body), "repaired"
+    return declare_utf8(text), encoding
+
+
+def declare_utf8(text: str) -> str:
+    """Make the XML declaration name UTF-8, the encoding callers hand to lxml."""
+    match = _DECL_ENCODING_RE.match(text)
+    if match is None:
+        return text
+    return text[: match.start(1)] + "UTF-8" + text[match.end(1):]
+
+
+def sniff_unicode(raw: bytes) -> tuple[str | None, bytes]:
+    """Return the encoding a byte-order mark gives away, and the bytes after the mark.
+
+    Without a mark, UTF-16 is recognised by how it encodes ``<?`` (XML 1.0,
+    appendix F).
+    """
+    for bom, encoding in _BOMS:
+        if raw.startswith(bom):
+            return encoding, raw[len(bom):]
+    if raw.startswith(b"<\x00?\x00"):
+        return "utf-16-le", raw
+    if raw.startswith(b"\x00<\x00?"):
+        return "utf-16-be", raw
+    return None, raw
+
+
+def _declared_encoding(raw: bytes) -> str | None:
+    match = _XML_DECL_RE.match(raw[:200])
+    if match is None:
+        return None
+    try:
+        name = codecs.lookup(match.group(1).decode("ascii", errors="ignore")).name
+    except LookupError:
+        return None
+    # The label was readable as ASCII, so the bytes are not UTF-16/32 whatever
+    # it says (a common .NET export mistake).
+    return None if name.startswith(("utf-16", "utf-32")) else name
+
+
+def _decode_fallback(raw: bytes) -> str:
+    """Bytes their declared encoding rejects: UTF-8, else Windows-1252, else Latin-1."""
+    for encoding in ("utf-8", "cp1252"):
         try:
-            text = raw.decode(declared_enc or "utf-8")
-        except (UnicodeDecodeError, LookupError):
-            text = _detect_and_decode(raw)
-            detected_encoding = "repaired"
-
-        repaired = ftfy.fix_text(text)
-        if repaired != text:
-            logger.debug("ftfy repaired encoding issues")
-            detected_encoding = "repaired-ftfy"
-        return repaired, detected_encoding
-    else:
-        return _detect_and_decode_binary(raw)
-
-
-def _strip_bom(raw: bytes, default_enc: str) -> tuple[bytes, str]:
-    if raw.startswith(_BOM_UTF8):
-        return raw[3:], "utf-8-sig"
-    if raw.startswith(_BOM_UTF16_LE):
-        return raw[2:], "utf-16-le"
-    if raw.startswith(_BOM_UTF16_BE):
-        return raw[2:], "utf-16-be"
-    return raw, default_enc
-
-
-def _extract_declared_encoding(raw: bytes) -> str | None:
-    match = _XML_DECL_RE.search(raw[:200])
-    if match:
-        return match.group(1).decode("ascii", errors="ignore")
-    return None
-
-
-def _detect_and_decode(raw: bytes) -> str:
-    """Attempt decoding with charset-normalizer fallback."""
-    for enc in ("utf-8", "windows-1252", "iso-8859-1", "iso-8859-15"):
-        try:
-            return raw.decode(enc)
+            return raw.decode(encoding)
         except UnicodeDecodeError:
             continue
-    result = from_bytes(raw)
-    best = result.best()
-    if best is not None:
-        return str(best)
-    return raw.decode("utf-8", errors="replace")
+    return raw.decode("latin-1")
 
 
 def _detect_and_decode_binary(raw: bytes) -> tuple[str, str]:

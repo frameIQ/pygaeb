@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pygaeb.config import get_settings
-from pygaeb.detector.encoding_repair import repair_encoding
+from pygaeb.detector.encoding_repair import declare_utf8, repair_encoding
 from pygaeb.detector.format_detector import FormatFamily, ParserTrack
 from pygaeb.detector.version_detector import ParseRoute, detect_version
 from pygaeb.exceptions import GAEBParseError, GAEBValidationError
@@ -135,8 +135,9 @@ class GAEBParser:
 
         The filename hint is used for version/phase detection from the extension.
         """
+        # A str has no encoding: its declaration must name the UTF-8 it is sent as.
         return GAEBParser.parse_bytes(
-            xml_text.encode("utf-8"), filename, validation, xsd_dir, keep_xml,
+            declare_utf8(xml_text).encode("utf-8"), filename, validation, xsd_dir, keep_xml,
             max_file_size,
             post_parse_hook=post_parse_hook,
             collect_raw_data=collect_raw_data,

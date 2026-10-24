@@ -6,6 +6,8 @@ import logging
 from enum import Enum
 from pathlib import Path
 
+from pygaeb.detector.encoding_repair import sniff_unicode
+
 logger = logging.getLogger("pygaeb.detector")
 
 
@@ -31,7 +33,10 @@ def detect_format(path: str | Path) -> FormatFamily:
         logger.error("Cannot read file %s: %s", path, e)
         return FormatFamily.UNKNOWN
 
-    header_lower = header.lower()
+    # Checked as UTF-8, so a UTF-16 file's "<?xml" matches below.
+    encoding, body = sniff_unicode(header)
+    view = body.decode(encoding, errors="ignore").encode("utf-8") if encoding else header
+    header_lower = view.lower()
 
     # ÖNORM B 2063 (Austrian standard) — distinct from German GAEB
     if b"onorm" in header_lower or b"\xc3\x96norm" in header_lower or b"b 2063" in header_lower:

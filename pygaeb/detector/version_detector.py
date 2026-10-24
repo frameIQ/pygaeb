@@ -9,6 +9,7 @@ from pathlib import Path
 
 from lxml import etree
 
+from pygaeb.detector.encoding_repair import declare_utf8, decode_xml
 from pygaeb.detector.format_detector import FormatFamily, ParserTrack, detect_format
 from pygaeb.models.enums import ExchangePhase, SourceVersion
 from pygaeb.parser._xml_safety import safe_iterparse
@@ -131,7 +132,9 @@ def _detect_xml_version(path: Path, text: str | None = None) -> ParseRoute:
     phase = _phase_from_extension(path)
 
     try:
-        raw = text.encode("utf-8") if text is not None else path.read_bytes()
+        # Decoded as the parser does, so a wrong encoding label cannot derail detection.
+        xml = declare_utf8(text) if text is not None else decode_xml(path.read_bytes())[0]
+        raw = xml.encode("utf-8")
 
         # NOTE: no elem.clear() here. On "start" events the element still shares
         # nodes with libxml2's open stack; clearing it corrupts the heap (#44).

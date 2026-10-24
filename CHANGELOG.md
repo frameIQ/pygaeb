@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Files saved in ISO-8859-1, Windows-1252 or UTF-16 keep their umlauts.**
+  - pyGAEB decoded such a file correctly, then handed the text to lxml as UTF-8 under the file's original `encoding="…"` declaration, so lxml decoded it a second time. Every ä, ö, ü, ß and € came out garbled (`Größe` as `GrÃ¶ÃŸe`) without a warning, and a UTF-16 file lost € and every other character beyond Latin-1 behind a misleading "Recovered from malformed XML (0 errors)". Present since 1.0.0.
+  - A byte order mark now decides the encoding (UTF-8, UTF-16 or UTF-32), and UTF-16 without one is recognised too.
+  - `parse_string` had the same flaw for a string whose declaration names another encoding.
+- **A UTF-8 file labelled UTF-16 parses.** A declaration readable as plain ASCII cannot be in UTF-16, so the label is now ignored. Such files, a common .NET export mistake, failed with `XML recovery produced empty tree`. Version detection fell back to the file extension on them; it now decodes like the parser, and a UTF-16 file counts as XML whatever its extension.
+- **Parsed text keeps its typography.** Encoding repair ran every ftfy fix, so each file's „quotes“ and apostrophes (’) came out straight, ligatures (ﬁ) split and full-width letters narrowed. Those fixes are off; ftfy still repairs garbled text. Code that compared against the straightened text now sees the characters the file contains.
 - **`to_json` exports documents with images.**
   - An embedded image made it fail with `UnicodeDecodeError`, with or without `include_attachments`, because attachment bytes went into JSON as UTF-8 text.
   - 9 of the 16 BVBS Prüfdateien could not be exported, and `pygaeb export -f json` and the MCP `export_document` tool failed on them too.
