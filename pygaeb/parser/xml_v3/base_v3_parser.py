@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from collections.abc import Iterator
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -50,7 +51,6 @@ from pygaeb.models.item import (
 from pygaeb.models.order import Address
 from pygaeb.models.position_types import (
     ITEMTAG_TEXT_TO_TYPE,
-    KNOWN_POSITION_FLAGS,
     MARKER_ELEMENT_TO_TYPE,
 )
 from pygaeb.parser.recovery import parse_xml_safe
@@ -58,31 +58,21 @@ from pygaeb.parser.xml_v3.richtext_parser import parse_plaintext, parse_richtext
 
 logger = logging.getLogger("pygaeb.parser")
 
-KNOWN_ITEM_TAGS: frozenset[str] = frozenset({
-    "ShortText", "Qty", "QU", "UP", "IT",
-    "LongText", "Description", "CompleteText", "OutlineText",
-    "QtySplit", "ItemTag", "GUID", "BIMRef", "CONo",
-    "CostApproach", "UPBkdn", "UPComp1", "UPComp2", "UPComp3",
-    "UPComp4", "UPComp5", "UPComp6", "DiscountPcnt", "VAT",
-    "BidderUP", "BidderTender", "TenderingPty",
-    "CtlgAssign", "Attachment", "ATTImage", "ATTBinary",
-    "LumpSumItem", "GlobItem", "AlternativeItem", "AltItem",
-    "ContingencyItem", "EventualItem", "TextItem",
-    "SurchargeItem", "SupplementItem", "IndexItem",
-    "Itemlist", "Item",
-}) | KNOWN_POSITION_FLAGS
-
 
 class BaseV3Parser:
     """Shared parse logic for all DA XML 3.x versions."""
 
-    def __init__(self, route: ParseRoute, keep_xml: bool = False) -> None:
+    def __init__(
+        self, route: ParseRoute, keep_xml: bool = False, collect_raw_data: bool = False,
+    ) -> None:
         self.route = route
         self._ns: str | None = None
         self._ns_prefix: str = ""
         self._category_labels: dict[str, str] = {}
         self._bkdn: list[BoQBkdn] = []
         self._keep_xml = keep_xml
+        # Every element a parse step read, so raw_data can hold exactly the rest.
+        self._read: set[etree._Element] | None = set() if collect_raw_data else None
 
     def parse(self, path: Path, text: str) -> GAEBDocument:
         root, recovery_warnings = parse_xml_safe(text, str(path))
@@ -107,6 +97,32 @@ class BaseV3Parser:
 
         return doc
 
+    def fill_raw_data(self, doc: GAEBDocument) -> None:
+        """Put each item's child elements that no parse step read into ``raw_data``.
+
+        Needs a parser built with ``collect_raw_data=True`` and ``keep_xml=True``.
+        """
+        if self._read is None:
+            raise RuntimeError("fill_raw_data needs a parser built with collect_raw_data=True")
+        for item in doc.iter_items():
+            el = getattr(item, "source_element", None)
+            if el is None:
+                continue
+            extras: dict[str, Any] = {}
+            for child in _child_elements(el):
+                if child in self._read:
+                    continue
+                tag = self._local_tag(child.tag)
+                value = _raw_value(child)
+                if tag not in extras:
+                    extras[tag] = value
+                elif isinstance(extras[tag], list):
+                    extras[tag].append(value)
+                else:
+                    extras[tag] = [extras[tag], value]
+            if extras:
+                item.raw_data = extras
+
     def _tag(self, local: str) -> str:
         """Build a namespaced tag name."""
         return f"{self._ns_prefix}{local}" if self._ns_prefix else local
@@ -114,10 +130,11 @@ class BaseV3Parser:
     def _find(self, parent: etree._Element, *tags: str) -> etree._Element | None:
         for tag in tags:
             el = parent.find(self._tag(tag))
+            if el is None:
+                el = parent.find(tag)
             if el is not None:
-                return el
-            el = parent.find(tag)
-            if el is not None:
+                if self._read is not None:
+                    self._read.add(el)
                 return el
         return None
 
@@ -125,6 +142,8 @@ class BaseV3Parser:
         result = parent.findall(self._tag(tag))
         if not result:
             result = parent.findall(tag)
+        if self._read is not None:
+            self._read.update(result)
         return result
 
     def _find_detail_txt(self, desc_el: etree._Element) -> etree._Element | None:
@@ -140,8 +159,9 @@ class BaseV3Parser:
         el = self._find(parent, *tags)
         if el is None:
             return None
-        if el.text and str(el.text).strip():
-            return str(el.text).strip()
+        own = _own_text(el).strip()
+        if own:
+            return own
         full = "".join(str(t) for t in el.itertext()).strip()
         return full or None
 
@@ -340,7 +360,7 @@ class BaseV3Parser:
             label_el = self._find(info_el, f"LblUPComp{idx}")
             if label_el is None:
                 break
-            info.lbl_up_comps.append((label_el.text or "").strip())
+            info.lbl_up_comps.append(_own_text(label_el).strip())
             info.lbl_up_comp_types.append(label_el.get("Type", "Unknown"))
         info.lbl_time = self._text(info_el, "LblTime")
 
@@ -382,18 +402,14 @@ class BaseV3Parser:
 
     def _is_sibling_bkdn(self, bkdn_el: etree._Element) -> bool:
         """3.x spells a level as <Type>/<Length> children; 2.x as <BoQLevel Length=".."/>."""
-        for child in bkdn_el:
-            if callable(child.tag):
-                continue
+        for child in _child_elements(bkdn_el):
             if self._local_tag(child.tag) in ("Type", "Length"):
                 return True
         return False
 
     def _parse_bkdn_nested(self, bkdn_el: etree._Element, info: BoQInfo) -> None:
         """2.x shape: one <BoQBkdn> holding <BoQLevel Length="2" Num="Yes"/> children."""
-        for level_el in bkdn_el:
-            if callable(level_el.tag):  # skip comments / processing instructions
-                continue
+        for level_el in _child_elements(bkdn_el):
             tag = self._local_tag(level_el.tag)
             length_str = level_el.get("Length", "0")
             try:
@@ -484,14 +500,17 @@ class BaseV3Parser:
         items: list[Item] = []
 
         for item_el in self._findall(target, "Itemlist"):
-            for it_el in self._findall(item_el, "Item"):
-                items.append(self._parse_item(
-                    it_el, doc, current_path, lot_label, oz_path=current_oz
-                ))
-            for mu_el in self._findall(item_el, "MarkupItem"):
-                items.append(self._parse_markup_item(
-                    mu_el, doc, current_path, lot_label, oz_path=current_oz
-                ))
+            # One pass in document order: a markup sits where it applies, between items.
+            for child in _child_elements(item_el):
+                tag = self._local_tag(child.tag)
+                if tag == "Item":
+                    items.append(self._parse_item(
+                        child, doc, current_path, lot_label, oz_path=current_oz
+                    ))
+                elif tag == "MarkupItem":
+                    items.append(self._parse_markup_item(
+                        child, doc, current_path, lot_label, oz_path=current_oz
+                    ))
 
         for it_el in self._findall(target, "Item"):
             if it_el.getparent() is not None:
@@ -565,29 +584,30 @@ class BaseV3Parser:
 
         qty_el = self._find(item_el, "Qty")
         if qty_el is not None:
-            item.qty = _parse_decimal(qty_el.text)
+            item.qty = _parse_decimal(_own_text(qty_el))
 
         tbd_el = self._find(item_el, "QtyTBD")
         if tbd_el is not None:
-            item.qty_tbd = (tbd_el.text or "").strip().lower() in ("yes", "true", "1")
+            item.qty_tbd = _own_text(tbd_el).strip().lower() in ("yes", "true", "1")
 
         bkdn_el = self._find(item_el, "UPBkdn")
         if bkdn_el is not None:
             item.up_breakdown_required = (
-                (bkdn_el.text or "").strip().lower() in ("yes", "true", "1")
+                _own_text(bkdn_el).strip().lower() in ("yes", "true", "1")
             )
 
         qu_el = self._find(item_el, "QU")
         if qu_el is not None:
-            item.unit = qu_el.text.strip() if qu_el.text else None
+            unit = _own_text(qu_el)
+            item.unit = unit.strip() if unit else None
 
         up_el = self._find(item_el, "UP")
         if up_el is not None:
-            item.unit_price = _parse_decimal(up_el.text)
+            item.unit_price = _parse_decimal(_own_text(up_el))
 
         it_el = self._find(item_el, "IT")
         if it_el is not None:
-            item.total_price = _parse_decimal(it_el.text)
+            item.total_price = _parse_decimal(_own_text(it_el))
 
         item.item_type = self._detect_item_type(item_el)
         provis_text = self._text(item_el, "Provis")
@@ -602,11 +622,13 @@ class BaseV3Parser:
 
         bim_el = self._find(item_el, "GUID", "BIMRef")
         if bim_el is not None:
-            item.bim_guid = bim_el.text.strip() if bim_el.text else None
+            guid = _own_text(bim_el)
+            item.bim_guid = guid.strip() if guid else None
 
         co_el = self._find(item_el, "CONo")
         if co_el is not None:
-            item.change_order_number = co_el.text.strip() if co_el.text else None
+            co_no = _own_text(co_el)
+            item.change_order_number = co_no.strip() if co_no else None
             item.co_status = self._text(item_el, "COStatus")
 
         for ca_el in self._findall(item_el, "CostApproach"):
@@ -689,7 +711,11 @@ class BaseV3Parser:
         self._parse_description(el, item)
         item.markup_type = self._text(el, "MarkupType")
 
-        it_str = self._text(el, "ITMarkup")
+        base_str = self._text(el, "ITMarkup")
+        if base_str:
+            item.markup_base = _parse_decimal(base_str)
+
+        it_str = self._text(el, "IT")
         if it_str:
             item.total_price = _parse_decimal(it_str)
 
@@ -753,18 +779,18 @@ class BaseV3Parser:
 
         # Real GAEB child-element markers (<Provis>, <LumpSumItem>, …) plus the legacy
         # synthetic child elements — see MARKER_ELEMENT_TO_TYPE. First match wins.
-        for child in item_el:
-            if callable(child.tag):  # skip comments / processing instructions
-                continue
+        found: ItemType | None = None
+        for child in _child_elements(item_el):
             item_type = MARKER_ELEMENT_TO_TYPE.get(self._local_tag(child.tag))
             if item_type is None:
                 continue
+            if self._read is not None:
+                self._read.add(child)
             # LumpSumItem/GlobItem are tgYesNo flags; "No" is not a marker.
-            if (child.text or "").strip().lower() == "no":
-                continue
-            return item_type
+            if found is None and _own_text(child).strip().lower() != "no":
+                found = item_type
 
-        return ItemType.NORMAL
+        return found if found is not None else ItemType.NORMAL
 
     def _parse_qty_splits(self, item_el: etree._Element) -> list[QtySplit]:
         splits: list[QtySplit] = []
@@ -804,7 +830,7 @@ class BaseV3Parser:
         if direct:
             return direct
         results: list[Any] = []
-        for child in el:
+        for child in _child_elements(el):
             found = self._findall(child, target_tag)
             results.extend(found)
         return results
@@ -878,15 +904,15 @@ class BaseV3Parser:
             if callable(att_el.tag):  # skip comments / processing instructions
                 continue
             local = self._local_tag(att_el.tag)
-            if local == "attachment" and att_el.text and att_el.text.strip():
-                uri = att_el.text.strip()
+            if local == "attachment" and _own_text(att_el).strip():
+                uri = _own_text(att_el).strip()
                 attachments.append(Attachment(
                     filename=uri,
                     mime_type="application/octet-stream",
                     data=b"",
                 ))
             elif local == "image":
-                b64_text = att_el.text or ""
+                b64_text = _own_text(att_el)
                 if not b64_text.strip():
                     continue
                 mime = att_el.get("Type", "image/png")
@@ -955,12 +981,36 @@ def _inner_xml(el: etree._Element) -> str:
     if el.text:
         parts.append(el.text)
     for child in el:
-        if callable(child.tag):  # comments / processing instructions
-            continue
         # XML, not HTML, serialisation: keeps <br/> and <image/> well-formed so the
         # writer can re-embed the markup instead of falling back to plain text.
+        # Comments stay as in the source, with the text after them.
         parts.append(etree.tostring(child, encoding="unicode", method="xml"))
     return "".join(parts)
+
+
+def _child_elements(el: etree._Element) -> Iterator[etree._Element]:
+    """The child elements of *el*, without the comments and PIs between them."""
+    return (child for child in el if isinstance(child.tag, str))
+
+
+def _own_text(el: etree._Element) -> str:
+    """The text of *el* up to its first child element, read past comments and PIs.
+
+    A comment splits the text: whatever follows it sits in the comment's tail.
+    """
+    parts = [el.text or ""]
+    for child in el:
+        if isinstance(child.tag, str):
+            break
+        parts.append(child.tail or "")
+    return "".join(parts)
+
+
+def _raw_value(el: etree._Element) -> str | None:
+    """A plain element's text; an element with child elements, whole as XML."""
+    if next(_child_elements(el), None) is not None:
+        return str(etree.tostring(el, encoding="unicode", with_tail=False))
+    return _own_text(el) or None
 
 
 def _resolve_markup_refs(boq: BoQ) -> None:

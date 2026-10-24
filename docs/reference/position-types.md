@@ -35,19 +35,25 @@ Position type in GAEB DA XML is marked by the **presence of a child element** in
 
 ## Mapping to pyGAEB `ItemType`
 
-`pygaeb/models/enums.py::ItemType`. `affects_total` (whether the position's IT enters
-`computed_grand_total`) must follow the GAEB "Nur Einh.-Preis" rule.
+`pygaeb/models/enums.py::ItemType`. Whether a position's IT enters the sums follows the
+GAEB "Nur Einh.-Preis" rule. `Item.affects_total` is the single source of truth: it reads
+`Provis` for Bedarfspositionen and defers to `ItemType.affects_total` otherwise.
 
 | `ItemType` | Real serialization | `affects_total` | Status in current code |
 |---|---|---|---|
 | `NORMAL` | (no marker) | yes | ok |
 | `LUMP_SUM` | `<LumpSumItem/>` | yes | name already correct |
-| `EVENTUAL` | `<Provis>` (ohne GB) | **no** | **parser reads wrong name** (`ContingencyItem`); writer emits nothing |
+| `EVENTUAL` | `<Provis>WithTotal</Provis>` / `<Provis>WithoutTotal</Provis>` | **mit GB yes**, ohne GB or unset no | `Item.provis` |
 | `ALTERNATIVE` | Item attr Zuordnungszahl (variant 1–9) | **no** | **parser reads wrong name** (`AlternativeItem`); writer emits nothing; **model lacks the Zuordnungszahl field** |
 | `BASE_SURCHARGE` | Item attr Zuordnungszahl (variant 0) + `<MarkupIt>` when surcharged | context | parser reads wrong name (`SurchargeItem`) |
-| `MARKUP` | `<MarkupItem>` sibling | computed | already handled by `_add_markup_item` |
+| `MARKUP` | `<MarkupItem>` sibling | **yes, with its own `IT`** | `markup_base` = `ITMarkup`, `unit_price` = `Markup` (%), `total_price` = `IT` |
 | `TEXT_ONLY` | Item with no Qty/UP/IT (Hinweis) | no | approximate |
 | `INDEX`, `SUPPLEMENT` | non-standard / vendor | no | keep lenient read only |
+
+The BVBS Prüfdatei `ava/award.X86` bears this out: its declared category totals match
+only when Bedarfspositionen mit GB and markup amounts are both counted. Two categories
+still differ while the Zuordnungszahl is not read, because their alternatives count as
+normal positions.
 
 ## Decisions for the fix
 
@@ -59,8 +65,8 @@ Position type in GAEB DA XML is marked by the **presence of a child element** in
    existing synthetic forms (kept for back-compat with current fixtures/consumers).
 2. **One shared const**: encode this table once (`pygaeb/models/position_types.py`) and import it
    into both `_detect_item_type` and `_add_item` so read/write can never drift again.
-4. **`affects_total`** stays as the single source of truth for sum inclusion; `EVENTUAL`,
-   `ALTERNATIVE`, `NotAppl` are excluded, matching the "Nur Einh.-Preis" rule.
+4. **`Item.affects_total`** is the single source of truth for sum inclusion; `ALTERNATIVE`,
+   `NotAppl` and Bedarfspositionen *ohne GB* are excluded, matching the "Nur Einh.-Preis" rule.
 
 ## Still to confirm against a real file / full XSD (not blocking)
 
@@ -68,4 +74,5 @@ Position type in GAEB DA XML is marked by the **presence of a child element** in
   Grund-/Alternativposition"; likely `Alloc`). Confirm from a real vendor export before relying on
   it for cross-software round-trip; `<Provis>`/`<LumpSumItem>` (the sum-affecting markers, i.e. the
   €50k→€121k bug) are already fully confirmed.
-- `<Provis>` value domain for the *mit GB* vs *ohne GB* distinction.
+- ~~`<Provis>` value domain for the *mit GB* vs *ohne GB* distinction.~~ Confirmed:
+  `WithTotal` / `WithoutTotal`, as used in the BVBS `ava/award.X86`.

@@ -52,7 +52,7 @@
         <NoUPComps>2</NoUPComps>
         <LblUPComp1 Type="Wages">Lohn</LblUPComp1>
         <LblUPComp2 Type="Materials">Material</LblUPComp2>
-        <Totals><Total>1655.00</Total></Totals>
+        <Totals><Total>1755.00</Total></Totals>
       </BoQInfo>
       <BoQBody>
         <Remark ID="R1">
@@ -126,7 +126,7 @@
               </MarkupItem>
             </Itemlist>
           </BoQBody>
-          <Totals><Total>1655.00</Total></Totals>
+          <Totals><Total>1755.00</Total></Totals>
         </BoQCtgy>
       </BoQBody>
     </BoQ>

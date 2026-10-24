@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pygaeb.detector.version_detector import ParseRoute
 from pygaeb.models.document import GAEBDocument
-from pygaeb.models.enums import ExchangePhase, ValidationSeverity
+from pygaeb.models.enums import ExchangePhase, ItemType, ValidationSeverity
 from pygaeb.models.item import ValidationResult
 from pygaeb.validation._common import item_ref
 
@@ -33,8 +33,10 @@ def validate_phase(doc: GAEBDocument, route: ParseRoute) -> list[ValidationResul
     )
 
     for item in doc.award.boq.iter_items():
-        if item.item_type.affects_total:
-            if phase in _PHASES_REQUIRING_QTY and item.qty is None:
+        if item.affects_total:
+            # A markup has no quantity: its amount is its rate on its base.
+            needs_qty = item.item_type is not ItemType.MARKUP
+            if phase in _PHASES_REQUIRING_QTY and needs_qty and item.qty is None:
                 results.append(ValidationResult(
                     severity=ValidationSeverity.WARNING,
                     message=(
@@ -68,7 +70,7 @@ def validate_phase(doc: GAEBDocument, route: ParseRoute) -> list[ValidationResul
     # X88-specific: Nachtrag items should have change order numbers
     if phase == ExchangePhase.X88:
         for item in doc.award.boq.iter_items():
-            if item.item_type.affects_total and not item.change_order_number:
+            if item.affects_total and not item.change_order_number:
                 results.append(ValidationResult(
                     severity=ValidationSeverity.INFO,
                     message=(

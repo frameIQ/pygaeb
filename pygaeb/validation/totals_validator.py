@@ -84,7 +84,7 @@ def _check_alternative_total_exclusion(
         for item in boq.iter_items():
             if item.total_price is not None:
                 total_with_alt += item.total_price
-                if item.item_type.affects_total:
+                if item.affects_total:
                     total_without_alt += item.total_price
 
         has_alt_items = total_with_alt != total_without_alt

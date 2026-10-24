@@ -45,7 +45,7 @@ def _effective_price(item: Item) -> BidderPrice:
     return BidderPrice(
         unit_price=item.unit_price,
         total_price=total,
-        affects_total=item.item_type.affects_total,
+        affects_total=item.affects_total,
     )
 
 
@@ -131,7 +131,7 @@ class BidAnalysis:
                 prices = by_bidder.setdefault(bp.bidder_name, {})
                 # Defensive copy — never mutate models owned by the source doc
                 row = copy.copy(bp)
-                row.affects_total = item.item_type.affects_total
+                row.affects_total = item.affects_total
                 prices.setdefault(item.full_oz, row)
                 counts = seen.setdefault(bp.bidder_name, {})
                 counts[item.full_oz] = counts.get(item.full_oz, 0) + 1

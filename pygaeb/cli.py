@@ -7,6 +7,7 @@ Usage::
     pygaeb convert old.D83 new.X83 --version 3.3
     pygaeb diff v1.X83 v2.X83
     pygaeb export tender.X83 -f xlsx -o report.xlsx
+    pygaeb export tender.X83 -f pdf
 """
 
 from __future__ import annotations
@@ -181,33 +182,35 @@ def diff(file_a: str, file_b: str, fmt: str) -> None:
             click.echo(f"  ~ {modified.oz}: {len(modified.changes)} field(s) changed")
 
 
+# Format (also the file extension) -> export function in the pygaeb namespace.
+_EXPORTS = {
+    "json": "to_json",
+    "csv": "to_csv",
+    "xlsx": "to_excel",
+    "pdf": "to_pdf",
+    "docx": "to_docx",
+    "html": "to_html",
+    "md": "to_markdown",
+}
+
+
 @main.command()
 @click.argument("file", type=click.Path(exists=True))
 @click.option("-f", "--format", "fmt", default="json",
-              type=click.Choice(["json", "csv", "xlsx"]),
+              type=click.Choice(list(_EXPORTS)),
               help="Export format.")
 @click.option("-o", "--output", default=None, type=click.Path(),
               help="Output file path (default: derived from input).")
 def export(file: str, fmt: str, output: str | None) -> None:
-    """Export a GAEB file to JSON, CSV, or Excel."""
-    from pygaeb import GAEBParser
-    from pygaeb.convert import to_csv, to_json
+    """Export a GAEB file to JSON, CSV, Excel, PDF, Word, HTML or Markdown."""
+    import pygaeb
 
-    doc = GAEBParser.parse(file)
-    stem = Path(file).stem
-
-    if fmt == "json":
-        out = output or f"{stem}.json"
-        to_json(doc, out)
-    elif fmt == "csv":
-        out = output or f"{stem}.csv"
-        to_csv(doc, out)
-    elif fmt == "xlsx":
-        from pygaeb.convert import to_excel
-        out = output or f"{stem}.xlsx"
-        to_excel(doc, out)
-    else:
-        click.echo(f"Unknown format: {fmt}", err=True)
+    doc = pygaeb.GAEBParser.parse(file)
+    out = output or f"{Path(file).stem}.{fmt}"
+    try:
+        getattr(pygaeb, _EXPORTS[fmt])(doc, out)
+    except ImportError as e:  # an optional extra (pdf, docx, excel) is not installed
+        click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
     click.echo(f"Exported to {out}")

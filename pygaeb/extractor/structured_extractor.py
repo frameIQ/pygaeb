@@ -332,7 +332,8 @@ class StructuredExtractor:
                 "Structured extraction requires the 'llm' extra: pip install pyGAEB[llm]"
             ) from err
 
-        client = instructor.from_litellm(litellm.acompletion)
+        # acompletion makes an async client; litellm's decorator hides that from type checkers.
+        client = cast("instructor.AsyncInstructor", instructor.from_litellm(litellm.acompletion))
 
         element_context = ""
         if item.classification:

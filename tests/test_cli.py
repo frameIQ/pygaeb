@@ -6,12 +6,18 @@ Uses Click's CliRunner for isolated testing without real subprocess calls.
 
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 from textwrap import dedent
 
+import pytest
 from click.testing import CliRunner
 
+import pygaeb
 from pygaeb.cli import main
+
+# Formats whose export needs an optional extra.
+_NEEDS = {"pdf": "reportlab", "docx": "docx"}
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -232,6 +238,50 @@ class TestCLIExport:
         )
         assert result.exit_code == 0
         assert "tender.json" in result.output
+
+    @pytest.mark.parametrize(("fmt", "head"), [
+        ("pdf", b"%PDF"),
+        ("docx", b"PK"),  # a Word file is a zip archive
+        ("html", b"<!DOCTYPE html>"),
+        ("md", b"# "),
+    ])
+    def test_export_document_formats(self, tmp_path: Path, fmt: str, head: bytes) -> None:
+        if fmt in _NEEDS:
+            pytest.importorskip(_NEEDS[fmt])
+        f = _write_fixture(tmp_path, "test.X86", _SAMPLE_X86)
+        out = tmp_path / f"export.{fmt}"
+        result = CliRunner().invoke(
+            main, ["export", str(f), "-f", fmt, "-o", str(out)],
+        )
+        assert result.exit_code == 0, result.output
+        assert out.read_bytes().startswith(head)
+        if fmt == "docx":
+            assert "word/document.xml" in zipfile.ZipFile(out).namelist()
+
+    def test_export_names_the_file_after_the_input(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        f = _write_fixture(tmp_path, "tender.X86", _SAMPLE_X86)
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(main, ["export", str(f), "-f", "md"])
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "tender.md").exists()
+
+    def test_export_says_which_extra_to_install(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def without_python_docx(doc: object, path: object) -> None:
+            raise ImportError("Word export requires python-docx. "
+                              "Install with: pip install pyGAEB[docx]")
+
+        monkeypatch.setattr(pygaeb, "to_docx", without_python_docx, raising=False)
+        f = _write_fixture(tmp_path, "test.X86", _SAMPLE_X86)
+        result = CliRunner().invoke(
+            main, ["export", str(f), "-f", "docx", "-o", str(tmp_path / "x.docx")],
+        )
+        assert result.exit_code == 1
+        assert "pip install pyGAEB[docx]" in result.output
+        assert "Traceback" not in result.output
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -185,21 +185,50 @@ By default, binary attachment data is stripped (metadata like filename and MIME 
 
 ## Export to CSV
 
-Export a flat item table:
+Export one row per item:
 
 ```python
-from pygaeb.convert import to_csv
+from pygaeb import to_csv
 
 to_csv(doc, "items.csv")
 ```
 
-The CSV includes columns for:
+Each document kind gets its own columns:
 
-- Item identification: `oz`, `lot`, `hierarchy_path`
-- Item text: `short_text`, `long_text`
-- Quantities: `qty`, `unit`, `unit_price`, `total_price`, `computed_total`
-- Type: `item_type`
-- Classification (if available): `classification_trade`, `classification_element_type`, `classification_sub_type`, `classification_confidence`, `classification_flag`
+| Document | Columns |
+|---|---|
+| Tender, bid, award and other BoQ documents | `oz`, `full_oz`, `short_text`, `qty`, `unit`, `unit_price`, `total_price`, `computed_total`, `item_type`, `lot_label`, `hierarchy_path`, `has_attachments`, `bim_guid`, the classification columns, `affects_total`, `provis`, `markup_base` |
+| Trade orders (X93–X97) | `item_id`, `art_no`, `supplier_art_no`, `ean`, `short_text`, `qty`, `unit`, `offer_price`, `net_price`, `price_basis`, `line_total`, `is_service`, `delivery_date`, the classification columns |
+| Cost estimates (X50, X51) | `ele_no`, `parent_ele_no`, `hierarchy_path`, `short_text`, `qty`, `unit`, `unit_price`, `item_total`, `markup`, `up_from`, `up_avg`, `up_to`, `is_bill_element`, `remark`, the classification columns |
+| Quantity determinations (X31) | `oz`, `qty`, `takeoff_rows` (the number of measurement rows) |
+
+The classification columns are `trade`, `element_type`, `sub_type`, `classification_confidence` and `classification_flag`. They are filled after running `LLMClassifier.enrich()`.
+
+Text that a spreadsheet would run as a formula, because it starts with `=`, `+`, `-`, `@`, a tab or a carriage return, gets a leading `'`, so a short text like `=HYPERLINK(...)` from a GAEB file shows as text when the CSV is opened in Excel. Numbers are never changed. Pass `escape_formulas=False` to write the text exactly as the document has it, for instance when no spreadsheet will read the file.
+
+Amounts are written exactly, as their decimal text; an empty cell means the value is absent. To rebuild a BoQ's sums, add up `total_price` over the rows whose `affects_total` is `True`: that leaves out alternatives, optional items without total and the other positions that do not count. In a cost estimate, `parent_ele_no` names the cost element a row sits under and `hierarchy_path` its categories.
 
 !!! tip
-    CSV export is useful for spreadsheet analysis, pivot tables, and feeding data into BI tools. The classification columns are only populated after running `LLMClassifier.enrich()`.
+    CSV export is useful for spreadsheet analysis, pivot tables, and feeding data into BI tools.
+
+## Export to a pandas DataFrame
+
+`to_dataframe` gives the same table as the CSV, one row per item with the columns of the document's kind, as a pandas DataFrame:
+
+```python
+from pygaeb import to_dataframe
+
+df = to_dataframe(doc)
+counted = df[df["affects_total"]]
+counted["total_price"].sum()                            # the BoQ's sum
+counted.groupby("hierarchy_path")["total_price"].sum()  # per category
+```
+
+Amounts are floats, so sums, `describe()` and plots work as usual; a sum can show a binary remainder such as `1755.0000000000002` until it is rounded. Pass `exact=True` to keep pyGAEB's `Decimal` values when results must be right to the cent:
+
+```python
+df = to_dataframe(doc, exact=True)
+df.loc[df["affects_total"], "total_price"].sum()        # Decimal('1755.00')
+```
+
+Amount columns stay numeric and date columns stay dates even when no item has a value. pandas is optional: `pip install pyGAEB[pandas]`.

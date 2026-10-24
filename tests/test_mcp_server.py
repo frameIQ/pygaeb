@@ -1426,7 +1426,8 @@ class TestMarkupBlock:
         assert row["item_type"] == "Markup"
         assert row["unit_price"] is None and row["total_price"] is None
         assert row["markup"] == {
-            "type": "AllInCat", "rate_pct": "48.00", "amount": None, "base_positions": [],
+            "type": "AllInCat", "rate_pct": "48.00", "base": None, "amount": None,
+            "base_positions": [],
         }
         normal = _tools(ctx)["get_item"](handle="doc_test", oz="001.0020")  # type: ignore[operator]
         assert "markup" not in normal

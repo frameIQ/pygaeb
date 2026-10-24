@@ -138,6 +138,7 @@ class CostElement(BaseModel):
     classification: ClassificationResult | None = None
     extractions: dict[str, ExtractionResult] = Field(default_factory=dict)
     source_element: Any = Field(default=None, exclude=True, repr=False)
+    raw_data: dict[str, Any] | None = Field(default=None, exclude=True)
 
     ele_no: str = ""
     cat_id: str | None = None

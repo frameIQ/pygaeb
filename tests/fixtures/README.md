@@ -9,6 +9,7 @@ Record provenance and licence for every file added here.
 | file | format | provenance |
 |---|---|---|
 | `gaebxml.x83` | DA XML 3.2, X83 | Written for pyGAEB. Element structure mirrors the output of a third-party AVA tool; all names, texts, identifiers and dates are invented. |
+| `synthetic_33.X86` | DA XML 3.3, X86 | Written for pyGAEB: one of each sum-relevant position type (normal, Bedarfsposition mit GB, lump sum, a repeated OZ, a markup). Its declared totals (1755.00) count the Bedarfsposition mit GB and the markup's own IT, the rule the BVBS `ava/award.X86` totals follow; they read 1655.00 until 2026-10. |
 
 ## Why `gaebxml.x83` looks the way it does
 

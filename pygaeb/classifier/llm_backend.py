@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 from pygaeb.classifier.confidence import apply_confidence_flag
 from pygaeb.classifier.prompt_templates import get_prompt
@@ -39,7 +40,8 @@ async def classify_single_item(
             "LLM classification requires the 'llm' extra: pip install pyGAEB[llm]"
         ) from err
 
-    client = instructor.from_litellm(litellm.acompletion)
+    # acompletion makes an async client; litellm's decorator hides that from type checkers.
+    client = cast("instructor.AsyncInstructor", instructor.from_litellm(litellm.acompletion))
     prompt = prompt_template if prompt_template is not None else get_prompt(prompt_version)
 
     if taxonomy is not None:

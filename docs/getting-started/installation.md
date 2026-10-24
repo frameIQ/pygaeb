@@ -20,6 +20,23 @@ pip install pyGAEB[llm]
 
 This adds [LiteLLM](https://github.com/BerriAI/litellm) (100+ LLM providers) and [Instructor](https://github.com/jxnl/instructor) (structured LLM output).
 
+## Optional Exports
+
+Exports that need a third-party library have their own extra:
+
+| Extra | Installs | For |
+|---|---|---|
+| `excel` | openpyxl | `to_excel` |
+| `pdf` | reportlab | `to_pdf` |
+| `docx` | python-docx | `to_docx` |
+| `pandas` | pandas | `to_dataframe` |
+
+```bash
+pip install "pyGAEB[pdf,docx]"
+```
+
+JSON, CSV, HTML and Markdown need nothing extra.
+
 ## Development Setup
 
 For contributing or running the test suite:
@@ -52,6 +69,7 @@ Then open [http://localhost:8000](http://localhost:8000).
 - **Python 3.10+**
 - Core dependencies: `lxml`, `pydantic` v2, `pydantic-settings`, `beautifulsoup4`, `ftfy`, `charset-normalizer`
 - LLM extras: `litellm`, `instructor`
+- Export extras: `openpyxl`, `reportlab`, `python-docx`, `pandas`
 
 ## LLM Provider Setup
 

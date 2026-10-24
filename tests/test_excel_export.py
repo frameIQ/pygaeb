@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from pygaeb.convert.to_excel import to_excel
+from pygaeb import GAEBParser
+from pygaeb.convert.to_excel import ExcelCell, to_excel
 from pygaeb.models.boq import BoQ, BoQBody, BoQCtgy, BoQInfo, Lot, Totals
 from pygaeb.models.cost import (
     CostElement,
@@ -20,6 +21,7 @@ from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
 from pygaeb.models.enums import (
     ExchangePhase,
     ItemType,
+    Provis,
     SourceVersion,
 )
 from pygaeb.models.item import ClassificationResult, Item
@@ -401,7 +403,7 @@ class TestFormatting:
         for row in ws.iter_rows(min_row=2):
             for cell in row:
                 if isinstance(cell.value, (int, float)) and cell.value > 100:
-                    assert cell.number_format in ('#,##0.00', '#,##0.###', 'General')
+                    assert cell.number_format in ('#,##0.00', '#,##0.000', 'General')
                     break
 
 
@@ -443,12 +445,12 @@ class TestTotalsLandInTotalColumn:
         ws = _load_workbook(out)["BoQ"]
         self._assert_total_row(ws, "Lot Subtotal", "Total Price", 54800)
 
-    def test_trade_total_uses_net_price_column(self, tmp_path: Path):
+    def test_trade_total_uses_line_total_column(self, tmp_path: Path):
         doc = _make_trade_doc()
         out = tmp_path / "test.xlsx"
         to_excel(doc, out, mode="structured")
         ws = _load_workbook(out)["BoQ"]
-        self._assert_total_row(ws, "TOTAL", "Net Price", 4200)
+        self._assert_total_row(ws, "TOTAL", "Line Total", 4200)
 
     def test_cost_total_uses_total_column(self, tmp_path: Path):
         doc = _make_cost_doc()
@@ -545,3 +547,200 @@ class TestPathHandling:
         out = tmp_path / "test.xlsx"
         to_excel(doc, out)
         assert out.exists()
+
+
+# ── Trade line totals, live subtotals, faithful cells, cell callback ────
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _value(ws, coordinate: str) -> float:
+    """A cell's number, evaluating the SUM and ROUND formulas to_excel writes."""
+    value = ws[coordinate].value
+    if isinstance(value, str) and value.startswith("=ROUND("):
+        left, right = value[len("=ROUND("):-len(",2)")].split("*")
+        return round(_value(ws, left) * _value(ws, right), 2)
+    if isinstance(value, str) and value.startswith("=SUM("):
+        total = 0.0
+        for ref in value[len("=SUM("):-1].split(","):
+            first, _, last = ref.partition(":")
+            column = first.rstrip("0123456789")
+            start, end = int(first[len(column):]), int((last or first)[len(column):])
+            total += sum(_value(ws, f"{column}{row}") for row in range(start, end + 1))
+        return total
+    return float(value or 0)
+
+
+def _headers(ws) -> list:
+    return [cell.value for cell in ws[1]]
+
+
+class TestTradeLineTotals:
+    """Trade prices refer to PriceBasis units, and the sheet needs a per-line total."""
+
+    def test_line_total_divides_by_the_price_basis(self):
+        item = OrderItem(qty=Decimal("250"), net_price=Decimal("5.00"),
+                         price_basis=Decimal("100"))
+        assert item.line_total == Decimal("12.50")
+
+    def test_grand_total_sums_line_totals_and_skips_items_without_quantity(self):
+        order = TradeOrder(items=[
+            OrderItem(qty=Decimal("250"), net_price=Decimal("5.00"),
+                      price_basis=Decimal("100")),
+            OrderItem(qty=Decimal("3"), net_price=Decimal("10.00")),
+            OrderItem(net_price=Decimal("99.00")),
+        ])
+        assert order.grand_total == Decimal("42.50")
+
+    def test_sheet_shows_price_basis_line_total_and_their_total(self, tmp_path: Path):
+        order = TradeOrder(dp="X96", order_info=OrderInfo(order_no="ORD-1"), items=[
+            OrderItem(item_id="1", art_no="S-4", short_text="Screws", qty=Decimal("250"),
+                      unit="Stk", net_price=Decimal("5.00"), price_basis=Decimal("100")),
+        ])
+        doc = GAEBDocument(source_version=SourceVersion.DA_XML_33,
+                           exchange_phase=ExchangePhase.X96, gaeb_info=GAEBInfo(), order=order)
+        out = tmp_path / "trade.xlsx"
+        to_excel(doc, out)
+        ws = _load_workbook(out)["BoQ"]
+        headers = _headers(ws)
+        item_row = [cell.value for cell in ws[2]]
+        total_row = [cell.value for cell in ws[3]]
+
+        assert item_row[headers.index("Price Basis")] == 100
+        assert item_row[headers.index("Line Total")] == 12.5
+        assert total_row[headers.index("Line Total")] == 12.5
+
+
+class TestLiveSubtotals:
+    """With formulas=True every total is a formula over exactly the cells pyGAEB sums."""
+
+    @staticmethod
+    def _nested_doc() -> GAEBDocument:
+        concrete = BoQCtgy(rno="01", label="Concrete", items=[
+            Item(oz="01.0010", short_text="Foundation", qty=Decimal("120"), unit="m3",
+                 unit_price=Decimal("85"), total_price=Decimal("10200")),
+            Item(oz="01.0020", short_text="Extra excavation", qty=Decimal("10"), unit="m3",
+                 unit_price=Decimal("40"), total_price=Decimal("400"),
+                 item_type=ItemType.EVENTUAL, provis=Provis.WITHOUT_TOTAL),
+        ], subcategories=[BoQCtgy(rno="02", label="Columns", items=[
+            Item(oz="01.02.0010", short_text="Columns", qty=Decimal("40"), unit="m3",
+                 unit_price=Decimal("95"), total_price=Decimal("3800")),
+        ])])
+        masonry = BoQCtgy(rno="02", label="Masonry", items=[
+            Item(oz="02.0010", short_text="Walls", qty=Decimal("600"), unit="m2",
+                 unit_price=Decimal("68"), total_price=Decimal("40800")),
+        ])
+        lot = Lot(rno="1", label="Structural Work",
+                  body=BoQBody(categories=[concrete, masonry]))
+        return GAEBDocument(source_version=SourceVersion.DA_XML_33,
+                            exchange_phase=ExchangePhase.X84, gaeb_info=GAEBInfo(),
+                            award=AwardInfo(boq=BoQ(boq_info=BoQInfo(), lots=[lot])))
+
+    def test_every_total_is_a_formula_that_adds_up_to_pygaebs_sum(self, tmp_path: Path):
+        out = tmp_path / "live.xlsx"
+        to_excel(self._nested_doc(), out, formulas=True)
+        ws = _load_workbook(out)["BoQ"]
+        total = _headers(ws).index("Total Price") + 1
+        label = total - 1
+
+        found = {
+            ws.cell(row=row, column=label).value: ws.cell(row=row, column=total)
+            for row in range(2, ws.max_row + 1)
+            if str(ws.cell(row=row, column=label).value or "").strip().startswith(
+                ("Subtotal", "Lot Subtotal", "GRAND TOTAL"))
+        }
+
+        expected = {"    Subtotal 02": 3800, "  Subtotal 01": 14000, "  Subtotal 02": 40800,
+                    "Lot Subtotal": 54800, "GRAND TOTAL": 54800}
+        assert set(found) == set(expected)
+        for name, amount in expected.items():
+            assert str(found[name].value).startswith("=SUM("), name
+            assert _value(ws, found[name].coordinate) == amount, name
+
+    def test_item_totals_round_like_pygaeb(self, tmp_path: Path):
+        out = tmp_path / "live.xlsx"
+        to_excel(self._nested_doc(), out, formulas=True)
+        ws = _load_workbook(out)["BoQ"]
+        column = _headers(ws).index("Total Price") + 1
+
+        formulas = [ws.cell(row=row, column=column).value for row in range(2, ws.max_row + 1)]
+        assert "=ROUND(C4*E4,2)" in formulas
+
+    def test_without_formulas_every_total_is_a_number(self, tmp_path: Path):
+        out = tmp_path / "static.xlsx"
+        to_excel(self._nested_doc(), out)
+        ws = _load_workbook(out)["BoQ"]
+
+        assert not [cell for row in ws.iter_rows() for cell in row
+                    if isinstance(cell.value, str) and cell.value.startswith("=")]
+
+
+class TestFaithfulCells:
+    """Cells show what the document says, in a form that cannot be misread."""
+
+    def test_oz_column_shows_the_full_oz(self, tmp_path: Path):
+        doc = GAEBParser.parse(FIXTURES / "gaebxml.x83")
+        cells: list[ExcelCell] = []
+        to_excel(doc, tmp_path / "lv.xlsx", on_cell=cells.append)
+
+        shown = [cell.value for cell in cells if cell.key == "full_oz"]
+        assert shown == [item.full_oz for item in doc.iter_items()]
+        assert shown[0] == "01.01.001"
+
+    def test_markup_items_show_their_rate_and_their_own_amount(self, tmp_path: Path):
+        doc = GAEBParser.parse(FIXTURES / "synthetic_33.X86")
+        out = tmp_path / "lv.xlsx"
+        cells: list[ExcelCell] = []
+        to_excel(doc, out, on_cell=cells.append)
+
+        markup = {cell.key: cell for cell in cells
+                  if isinstance(cell.item, Item) and cell.item.item_type is ItemType.MARKUP}
+        assert markup["unit_price"].value == 10.0
+        assert markup["total_price"].value == 100.0  # IT, not the 1,000.00 base
+        ws = _load_workbook(out)["BoQ"]
+        assert ws[markup["unit_price"].coordinate].number_format == '0.00" %"'
+
+    def test_quantities_show_three_decimals(self, tmp_path: Path):
+        out = tmp_path / "lv.xlsx"
+        to_excel(_make_procurement_doc(), out)
+        ws = _load_workbook(out)["BoQ"]
+        column = _headers(ws).index("Qty") + 1
+
+        formats = {ws.cell(row=row, column=column).number_format
+                   for row in range(2, ws.max_row + 1)
+                   if isinstance(ws.cell(row=row, column=column).value, (int, float))}
+        assert formats == {"#,##0.000"}
+
+
+class TestCellCallback:
+    """on_cell reports every non-empty cell once, with the item it came from."""
+
+    def test_every_written_cell_is_reported_once(self, tmp_path: Path):
+        out = tmp_path / "full.xlsx"
+        cells: list[ExcelCell] = []
+        to_excel(_make_procurement_doc(), out, mode="full", formulas=True,
+                 on_cell=cells.append)
+        wb = _load_workbook(out)
+
+        written = {(ws.title, cell.coordinate, cell.value)
+                   for ws in wb for row in ws.iter_rows() for cell in row
+                   if cell.value not in (None, "")}
+        reported = [(cell.sheet, cell.coordinate, cell.value) for cell in cells]
+        assert len(reported) == len(set(reported))
+        assert set(reported) == written
+
+    def test_item_cells_name_their_item_field_category_and_lot(self, tmp_path: Path):
+        doc = _make_procurement_doc()
+        cells: list[ExcelCell] = []
+        to_excel(doc, tmp_path / "lv.xlsx", on_cell=cells.append)
+        lot = doc.award.boq.lots[0]
+        foundation = lot.body.categories[0].items[0]
+
+        mine = {cell.key: cell for cell in cells if cell.item is foundation}
+        assert mine["full_oz"].value == "01.0010"
+        assert mine["qty"].value == 120
+        assert mine["total_price"].value == 10200
+        assert mine["qty"].category is lot.body.categories[0]
+        assert mine["qty"].lot is lot
+        assert {cell.key for cell in cells if cell.item is None} >= {
+            "header", "lot", "category", "subtotal", "lot_subtotal", "grand_total"}

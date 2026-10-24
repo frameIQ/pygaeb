@@ -55,6 +55,7 @@ from pygaeb.models.quantity import (
     QtyDetermInfo,
     QtyItem,
 )
+from pygaeb.parser._xml_safety import SAFE_PARSER
 from pygaeb.writer.phase_profiles import PhaseProfile, profile_for
 from pygaeb.writer.version_registry import (
     VERSION_REGISTRY,
@@ -903,9 +904,20 @@ def _copy_stripped(src: etree._Element, parent: etree._Element) -> None:
     el.text = src.text
     el.tail = src.tail
     for child in src:
-        if callable(child.tag):  # comments / processing instructions
+        if callable(child.tag):  # a comment or PI is dropped, the text after it is not
+            _append_text(el, child.tail)
             continue
         _copy_stripped(child, el)
+
+
+def _append_text(parent: etree._Element, text: str | None) -> None:
+    """Add *text* after the last child of *parent*, or to its text when it has none."""
+    if not text:
+        return
+    if len(parent):
+        parent[-1].tail = (parent[-1].tail or "") + text
+    else:
+        parent.text = (parent.text or "") + text
 
 
 def _add_richtext(parent: etree._Element, text: RichText) -> bool:
@@ -913,7 +925,7 @@ def _add_richtext(parent: etree._Element, text: RichText) -> bool:
     inner = text.raw_html
     if inner and inner.strip():
         try:
-            frag = etree.fromstring(f"<w>{inner}</w>")
+            frag = etree.fromstring(f"<w>{inner}</w>", parser=SAFE_PARSER)
         except etree.XMLSyntaxError:
             frag = None
         # Bare text (a 2.x long text) has no markup to carry over — fall through
@@ -934,7 +946,10 @@ def _add_richtext(parent: etree._Element, text: RichText) -> bool:
                 target = parent
                 # Verbatim, whitespace included: keeps repeated round trips stable.
                 target.text = frag.text
-            for child in children:
+            for child in frag:
+                if callable(child.tag):
+                    _append_text(target, child.tail)
+                    continue
                 _copy_stripped(child, target)
             return True
 
@@ -1246,7 +1261,10 @@ def _add_item_v2(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
 
     marker = WRITER_MARKER.get(item.item_type)
     if marker is not None:
-        etree.SubElement(item_el, marker)
+        marker_el = etree.SubElement(item_el, marker)
+        if marker == "Provis":
+            # mit/ohne GB decides whether the position counts; an empty marker loses it.
+            marker_el.text = (item.provis or Provis.WITHOUT_TOTAL).value
         if item.item_type in NON_INTEROP_TYPES:
             warnings.append(
                 f"Item {item.full_oz}: {item.item_type.value} written as pyGAEB-internal "
@@ -1318,10 +1336,12 @@ def _add_markup_item(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
             _add_text_el(mu_el, "MarkupType", item.markup_type)
         if item.unit_price is not None:
             _add_text_el(mu_el, "Markup", _fmt_decimal(item.unit_price))
-        if item.total_price is not None:
-            _add_text_el(mu_el, "ITMarkup", _fmt_decimal(item.total_price))
+        if item.markup_base is not None:
+            _add_text_el(mu_el, "ITMarkup", _fmt_decimal(item.markup_base))
         if item.discount_pct is not None:
             _add_text_el(mu_el, "DiscountPcnt", _fmt_decimal(item.discount_pct))
+        if item.total_price is not None:
+            _add_text_el(mu_el, "IT", _fmt_decimal(item.total_price))
         for sub in item.markup_sub_qtys:
             sub_el = etree.SubElement(mu_el, "MarkupSubQty")
             if sub.ref_rno:
@@ -1363,7 +1383,7 @@ def _add_markup_item(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
     elif item.markup_sub_qtys:
         ctx.omit("MarkupSubQty", where)
 
-    for tag, value in (("ITMarkup", item.total_price), ("Markup", item.unit_price)):
+    for tag, value in (("ITMarkup", item.markup_base), ("Markup", item.unit_price)):
         if not slots.allows(tag):
             if value is not None:
                 ctx.omit(tag, where)
@@ -1381,6 +1401,12 @@ def _add_markup_item(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
             _add_text_el(mu_el, "DiscountPcnt", _fmt_decimal(item.discount_pct))
         else:
             ctx.omit("DiscountPcnt", where)
+
+    if item.total_price is not None:
+        if slots.allows("IT"):
+            _add_text_el(mu_el, "IT", _fmt_decimal(item.total_price))
+        else:
+            ctx.omit("IT", where)
 
     _add_item_text(mu_el, item, ctx, required=slots.requires("Description"))
 

@@ -388,20 +388,20 @@ class GAEBDocument(BaseModel):
 
 
 def _sum_prices(items: Iterator[Any]) -> Decimal:
-    """Sum total_price for items where item_type.affects_total."""
+    """Sum total_price for items that count toward totals (Item.affects_total)."""
     from pygaeb.models.item import Item
     total = Decimal("0")
     for i in items:
-        if isinstance(i, Item) and i.total_price is not None and i.item_type.affects_total:
+        if isinstance(i, Item) and i.total_price is not None and i.affects_total:
             total += i.total_price
     return total
 
 
 def _sum_computed(items: Iterator[Any]) -> Decimal:
-    """Sum computed_total for items where item_type.affects_total."""
+    """Sum computed_total for items that count toward totals (Item.affects_total)."""
     from pygaeb.models.item import Item
     total = Decimal("0")
     for i in items:
-        if isinstance(i, Item) and i.computed_total is not None and i.item_type.affects_total:
+        if isinstance(i, Item) and i.computed_total is not None and i.affects_total:
             total += i.computed_total
     return total

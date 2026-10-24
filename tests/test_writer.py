@@ -86,3 +86,12 @@ class TestExport:
         data = json.loads(output.read_text(encoding="utf-8"))
         assert "source_version" in data
         assert "award" in data
+
+    def test_csv_and_json_import_from_the_package_like_every_export(self):
+        import pygaeb
+        import pygaeb.convert as convert
+
+        assert pygaeb.to_csv is convert.to_csv
+        assert pygaeb.to_json is convert.to_json
+        assert pygaeb.to_json_string is convert.to_json_string
+        assert {"to_csv", "to_json", "to_json_string"} <= set(pygaeb.__all__)

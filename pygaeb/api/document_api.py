@@ -302,7 +302,7 @@ def _item_total(item: Any) -> Decimal | None:
     if isinstance(item, Item):
         return item.total_price
     if isinstance(item, OrderItem):
-        return item.display_price
+        return item.line_total
     if isinstance(item, CostElement):
         return item.display_price
     return None

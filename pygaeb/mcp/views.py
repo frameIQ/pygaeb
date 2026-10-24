@@ -315,9 +315,9 @@ def item_row(item: Any) -> dict[str, Any]:
         # qty x unit price; the stated total is often absent in bids.
         "computed_total": None if is_markup else _dec(_attr(item, "computed_total")),
         "item_type": item_type.value if item_type is not None else None,
-        # Whether the price counts toward the contract total (VOB/A) —
-        # False for alternative/eventual/text-only positions.
-        "affects_total": bool(item_type.affects_total) if item_type is not None else None,
+        # Whether the price counts toward the contract total (VOB/A) — False for
+        # alternative, text-only and Bedarfspositionen ohne GB.
+        "affects_total": bool(_attr(item, "affects_total")) if item_type is not None else None,
         "has_long_text": bool(long_plain),
         "long_text_chars": len(long_plain),
         "attachment_count": len(attachments),
@@ -338,6 +338,7 @@ def markup_info(item: Any) -> dict[str, Any]:
     return {
         "type": _attr(item, "markup_type"),
         "rate_pct": _dec(_attr(item, "unit_price")),
+        "base": _dec(_attr(item, "markup_base")),
         "amount": _dec(_attr(item, "total_price")),
         "base_positions": [
             {"oz": r.ref_rno, "id": r.ref_id, "sub_qty": _dec(r.sub_qty)}
@@ -444,8 +445,7 @@ def effective_grand_total(doc: Any) -> Decimal | None:
     seen = False
     for item in doc.iter_items():
         value = effective_total(item)
-        item_type = _attr(item, "item_type")
-        if value is None or (item_type is not None and not item_type.affects_total):
+        if value is None or not _attr(item, "affects_total", True):
             continue
         total += value
         seen = True

@@ -86,7 +86,7 @@ def _check_tender_bid(
 
     for oz in sorted(missing_in_response):
         source_item = source_items[oz]
-        if source_item.item_type.affects_total:
+        if source_item.affects_total:
             results.append(ValidationResult(
                 severity=ValidationSeverity.ERROR,
                 message=f"Item {oz} present in source but missing in response",
@@ -118,7 +118,7 @@ def _check_tender_bid(
                 xpath_location=f"Item[@RNoPart='{oz}']/Qty",
             ))
 
-        if response_item.item_type.affects_total and response_item.unit_price is None:
+        if response_item.affects_total and response_item.unit_price is None:
             results.append(ValidationResult(
                 severity=ValidationSeverity.WARNING,
                 message=f"Item {oz}: Priced item missing unit price in response",
@@ -152,7 +152,7 @@ def _check_contract_invoice(
     # Invoice items must reference existing contract items
     for oz in sorted(invoice_items.keys() - contract_items.keys()):
         inv_item = invoice_items[oz]
-        if inv_item.item_type.affects_total:
+        if inv_item.affects_total:
             results.append(ValidationResult(
                 severity=ValidationSeverity.ERROR,
                 message=(
@@ -167,7 +167,7 @@ def _check_contract_invoice(
         contract_item = contract_items[oz]
         inv_item = invoice_items[oz]
 
-        if not inv_item.item_type.affects_total:
+        if not inv_item.affects_total:
             continue
 
         # Unit price must match contract
@@ -221,7 +221,7 @@ def _check_contract_addendum(
     # New items in addendum should have change order numbers
     for oz in sorted(new_items):
         add_item = addendum_items[oz]
-        if add_item.item_type.affects_total and not add_item.change_order_number:
+        if add_item.affects_total and not add_item.change_order_number:
             results.append(ValidationResult(
                 severity=ValidationSeverity.WARNING,
                 message=(
@@ -236,7 +236,7 @@ def _check_contract_addendum(
         contract_item = contract_items[oz]
         add_item = addendum_items[oz]
 
-        if not add_item.item_type.affects_total:
+        if not add_item.affects_total:
             continue
 
         has_qty_change = (

@@ -315,6 +315,9 @@ class Item(BaseModel):
     vat: Decimal | None = None
     ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
     markup_type: str | None = None
+    #: A markup's base (``ITMarkup``): the total it applies its rate to. Its rate is
+    #: ``unit_price`` (``Markup``, in percent) and its own amount ``total_price`` (``IT``).
+    markup_base: Decimal | None = None
     markup_sub_qtys: list[MarkupSubQty] = Field(default_factory=list)
     bidder_prices: list[BidderPrice] = Field(default_factory=list)
     source_element: Any = Field(default=None, exclude=True, repr=False)
@@ -322,12 +325,28 @@ class Item(BaseModel):
 
     @property
     def computed_total(self) -> Decimal | None:
-        """qty x unit_price, rounded to 2 decimal places (ROUND_HALF_UP)."""
+        """qty x unit_price (a markup: base x rate %), rounded to cents (ROUND_HALF_UP)."""
+        if self.item_type is ItemType.MARKUP:
+            if self.markup_base is None or self.unit_price is None:
+                return None
+            amount = self.markup_base * self.unit_price / Decimal(100)
+            return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if self.qty is not None and self.unit_price is not None:
             return (self.qty * self.unit_price).quantize(
                 Decimal("0.01"), rounding=ROUND_HALF_UP
             )
         return None
+
+    @property
+    def affects_total(self) -> bool:
+        """Whether this position's total enters the sums.
+
+        A Bedarfsposition counts only when marked *mit GB* (``Provis.WITH_TOTAL``);
+        otherwise the item type decides (:attr:`ItemType.affects_total`).
+        """
+        if self.item_type is ItemType.EVENTUAL:
+            return self.provis is Provis.WITH_TOTAL
+        return self.item_type.affects_total
 
     @property
     def has_rounding_discrepancy(self) -> bool:

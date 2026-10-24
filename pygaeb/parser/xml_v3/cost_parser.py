@@ -36,7 +36,7 @@ from pygaeb.models.cost import (
 )
 from pygaeb.models.document import GAEBDocument
 from pygaeb.parser.recovery import parse_xml_safe
-from pygaeb.parser.xml_v3.base_v3_parser import BaseV3Parser
+from pygaeb.parser.xml_v3.base_v3_parser import BaseV3Parser, _own_text
 from pygaeb.parser.xml_v3.richtext_parser import parse_richtext
 
 logger = logging.getLogger("pygaeb.parser")
@@ -272,7 +272,7 @@ class CostParser(BaseV3Parser):
 
         bill_el = self._find(el, "BillElement")
         if bill_el is not None:
-            text = (bill_el.text or "").strip().lower()
+            text = _own_text(bill_el).strip().lower()
             ce.is_bill_element = text in ("yes", "true", "1")
 
         for prop_el in self._findall(el, "Property"):
