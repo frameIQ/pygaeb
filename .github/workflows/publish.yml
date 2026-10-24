@@ -41,6 +41,18 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The release notes are the tag's CHANGELOG.md section: stop before anything is
+      # published if that section is missing or the tag does not match __version__.
+      - name: Check the tag against the version and the changelog
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          grep -qxF "__version__ = \"$VERSION\"" pygaeb/__init__.py \
+            || { echo "::error::$TAG does not match __version__ in pygaeb/__init__.py"; exit 1; }
+          awk -v h="## [$VERSION]" 'index($0, h) == 1 { found = 1 } END { exit !found }' CHANGELOG.md \
+            || { echo "::error::CHANGELOG.md has no section for $VERSION"; exit 1; }
+
       # Exact, hash-checked tools; --no-isolation builds with them instead of
       # downloading a fresh, unpinned build backend.
       - name: Install build tools
@@ -110,6 +122,17 @@ jobs:
         run: |
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "Release $TAG already exists — skipping creation."
-          else
-            gh release create "$TAG" --generate-notes
+            exit 0
           fi
+          # The notes are this version's CHANGELOG.md section, without its heading.
+          awk -v h="## [${TAG#v}]" '
+            index($0, h) == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          PREVIOUS="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
+          if [ -n "$PREVIOUS" ]; then
+            printf '\n**Full diff:** https://github.com/%s/compare/%s...%s\n' \
+              "$GITHUB_REPOSITORY" "$PREVIOUS" "$TAG" >> release-notes.md
+          fi
+          gh release create "$TAG" --notes-file release-notes.md

@@ -1,11 +1,12 @@
 # pyGAEB
 
-**Python-Bibliothek zum Parsen, Validieren, Klassifizieren und Schreiben von GAEB DA XML Dateien — mit LLM-gestützter Positionsklassifizierung.**
+**Python-Bibliothek zum Parsen, Validieren, Schreiben und Konvertieren von GAEB DA XML Dateien (2.0–3.3): Ausschreibungen, Angebote, Bestellungen, Kostenermittlungen und Mengenermittlungen. Exporte nach PDF, Excel, Word, HTML, Markdown, CSV und pandas; optional LLM-gestützte Positionsklassifizierung und -extraktion.**
 
 [![CI](https://github.com/frameIQ/pygaeb/actions/workflows/test.yml/badge.svg)](https://github.com/frameIQ/pygaeb/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/frameIQ/pygaeb/branch/main/graph/badge.svg)](https://codecov.io/gh/frameIQ/pygaeb)
 [![PyPI version](https://img.shields.io/pypi/v/pyGAEB.svg)](https://pypi.org/project/pyGAEB/)
 [![Python versions](https://img.shields.io/pypi/pyversions/pyGAEB.svg)](https://pypi.org/project/pyGAEB/)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/pygaeb?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/pygaeb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 > **[English version](README.md)**
@@ -31,6 +32,8 @@ Eine optionale LLM-Klassifizierungsschicht ordnet jede LV-Position semantisch ei
 - **Versionskonvertierung** — Upgrade/Downgrade zwischen DA XML 2.0–3.3
 - **PDF-Ausdruck** — LV-Layout mit Gliederung, Langtexten, deutschem Zahlenformat, Summen und Überträgen
 - **Word, HTML, Markdown** — dasselbe LV als bearbeitbare .docx, als Webseite oder einbettbares Fragment, oder als Markdown zum Lesen oder für ein LLM
+- **Excel-Export** — strukturierte .xlsx-Arbeitsmappen mit Gliederung, phasenspezifischen Spalten und Mehrblatt-Modus
+- **CSV und pandas** — eine Zeile je Position für jede Dokumentart, als CSV-Datei oder DataFrame, Beträge als Floats oder exakte Decimals
 - **MCP-Server** — GAEB-Dokumente für KI-Agenten (ChatGPT, Gemini, Claude, Copilot, Cursor) über eine kontextschonende, abfrageorientierte Tool-Schnittstelle bereitstellen
 
 ## Installation
