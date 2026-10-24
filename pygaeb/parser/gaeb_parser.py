@@ -22,6 +22,8 @@ from pygaeb.models.item import ValidationResult
 if TYPE_CHECKING:
     from lxml import etree
 
+    from pygaeb.parser.xml_v3.base_v3_parser import BaseV3Parser
+
 logger = logging.getLogger("pygaeb.parser")
 
 
@@ -59,9 +61,9 @@ class GAEBParser:
         every parsed item — useful for extracting vendor-specific XML
         elements into ``item.raw_data``.
 
-        *collect_raw_data* when ``True`` automatically populates
-        ``item.raw_data`` with any XML child elements not consumed by
-        the built-in parser.
+        *collect_raw_data* when ``True`` fills ``raw_data`` on every item
+        (tender, trade, cost and quantity documents alike) with the XML
+        child elements the parser did not read.
 
         *extra_validators* are per-call validation functions appended
         after the built-in and globally-registered validators.
@@ -193,10 +195,9 @@ def _parse_core(
     text, encoding_info = repair_encoding(raw, is_xml=is_xml)
     route.encoding_info = encoding_info
 
-    doc = _dispatch_parser(route, source_path, text, effective_keep_xml)
-
-    if collect_raw_data:
-        _collect_raw_data(doc)
+    doc = _dispatch_parser(
+        route, source_path, text, effective_keep_xml, collect_raw_data=collect_raw_data,
+    )
 
     if post_parse_hook is not None:
         _run_post_parse_hook(doc, post_parse_hook)
@@ -269,25 +270,6 @@ def _run_post_parse_hook(
         hook(item, getattr(item, "source_element", None))
 
 
-def _collect_raw_data(doc: GAEBDocument) -> None:
-    """Populate ``item.raw_data`` with child XML elements not consumed by the parser."""
-    from pygaeb.parser.xml_v3.base_v3_parser import KNOWN_ITEM_TAGS
-
-    for item in doc.iter_items():
-        el = getattr(item, "source_element", None)
-        if el is None:
-            continue
-        extras: dict[str, Any] = {}
-        for child in el:
-            tag = child.tag
-            if "}" in tag:
-                tag = tag.split("}", 1)[1]
-            if tag not in KNOWN_ITEM_TAGS:
-                extras[tag] = child.text
-        if extras:
-            item.raw_data = extras
-
-
 _TRADE_PHASES = frozenset({
     ExchangePhase.X93,
     ExchangePhase.X94,
@@ -307,6 +289,7 @@ _QUANTITY_PHASES = frozenset({
 
 def _dispatch_parser(
     route: ParseRoute, path: Path, text: str, keep_xml: bool = False,
+    *, collect_raw_data: bool = False,
 ) -> GAEBDocument:
     """Route to the correct parser track based on detection result."""
     if route.format_family == FormatFamily.ONORM_B2063:
@@ -317,44 +300,42 @@ def _dispatch_parser(
         )
 
     if route.track == ParserTrack.TRACK_C:
+        # GAEB 90 is not XML: there are no unread elements to collect.
         from pygaeb.parser.track_c.gaeb90_parser import GAEB90Parser
         gaeb90_parser = GAEB90Parser(route)
         return gaeb90_parser.parse(path, text)
 
+    opts = {"keep_xml": keep_xml, "collect_raw_data": collect_raw_data}
+    parser: BaseV3Parser
     if route.exchange_phase in _TRADE_PHASES:
         from pygaeb.parser.xml_v3.trade_parser import TradeParser
-        trade_parser = TradeParser(route, keep_xml=keep_xml)
-        return trade_parser.parse(path, text)
-
-    if route.exchange_phase in _COST_PHASES:
+        parser = TradeParser(route, **opts)
+    elif route.exchange_phase in _COST_PHASES:
         from pygaeb.parser.xml_v3.cost_parser import CostParser
-        cost_parser = CostParser(route, keep_xml=keep_xml)
-        return cost_parser.parse(path, text)
-
-    if route.exchange_phase in _QUANTITY_PHASES:
+        parser = CostParser(route, **opts)
+    elif route.exchange_phase in _QUANTITY_PHASES:
         from pygaeb.parser.xml_v3.qty_parser import QtyParser
-        qty_parser = QtyParser(route, keep_xml=keep_xml)
-        return qty_parser.parse(path, text)
-
-    if route.track == ParserTrack.TRACK_A:
+        parser = QtyParser(route, **opts)
+    elif route.track == ParserTrack.TRACK_A:
         from pygaeb.parser.xml_v2.v2_parser import V2Parser
-        parser = V2Parser(route, keep_xml=keep_xml)
-        return parser.parse(path, text)
-
-    if route.version == SourceVersion.DA_XML_30:
+        parser = V2Parser(route, **opts)
+    elif route.version == SourceVersion.DA_XML_30:
         from pygaeb.parser.xml_v3.v30_compat import V30Compat
-        parser = V30Compat(route, keep_xml=keep_xml)  # type: ignore[assignment]
+        parser = V30Compat(route, **opts)
     elif route.version == SourceVersion.DA_XML_31:
         from pygaeb.parser.xml_v3.v31_compat import V31Compat
-        parser = V31Compat(route, keep_xml=keep_xml)  # type: ignore[assignment]
+        parser = V31Compat(route, **opts)
     elif route.version == SourceVersion.DA_XML_33:
         from pygaeb.parser.xml_v3.v33_compat import V33Compat
-        parser = V33Compat(route, keep_xml=keep_xml)  # type: ignore[assignment]
+        parser = V33Compat(route, **opts)
     else:
         from pygaeb.parser.xml_v3.v32_compat import V32Compat
-        parser = V32Compat(route, keep_xml=keep_xml)  # type: ignore[assignment]
+        parser = V32Compat(route, **opts)
 
-    return parser.parse(path, text)
+    doc = parser.parse(path, text)
+    if collect_raw_data:
+        parser.fill_raw_data(doc)
+    return doc
 
 
 @dataclass(frozen=True)

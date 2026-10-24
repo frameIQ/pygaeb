@@ -1,0 +1,12 @@
+# Keeps the SHA-pinned actions and the hash-pinned build tools current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: pip
+    directory: "/.github"
+    schedule:
+      interval: weekly

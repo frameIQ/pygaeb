@@ -25,6 +25,8 @@ An optional LLM classification layer enriches each item with a semantic construc
 - **Document diff** — Compare two BoQs with significance-classified field changes, structural diff, and financial impact
 - **BoQ Builder** — Programmatic document construction with auto OZ, Decimal convenience, phase rules, and version checks
 - **Excel export** — Structured .xlsx workbooks with hierarchy-aware layout, phase-specific columns, and multi-sheet mode
+- **PDF printout** — LV layout with hierarchy, long texts, German number format, subtotals, and carry-forward lines
+- **Word, HTML, Markdown** — the same LV as an editable .docx, a web page or embeddable fragment, or Markdown to read or hand to an LLM
 - **Round-trip** — Parse → modify → write back to any DA XML version
 - **Version conversion** — Upgrade/downgrade between DA XML 2.0–3.3
 - **MCP server** — Expose GAEB documents to LLM agents (ChatGPT, Gemini, Claude, Copilot, Cursor) over a bounded, query-oriented tool surface
@@ -318,6 +320,38 @@ to_excel(doc, "tender_full.xlsx", mode="full")
 # With optional columns
 to_excel(doc, "detailed.xlsx", include_long_text=True, include_classification=True)
 ```
+
+### PDF Printout
+
+```python
+from pygaeb.convert.to_pdf import PdfStyle, to_pdf
+
+to_pdf(doc, "tender.pdf")                                   # German labels and number format
+to_pdf(doc, "tender-en.pdf", style=PdfStyle(locale="en"))   # English
+```
+
+Requires `pip install pyGAEB[pdf]`.
+
+### Word, HTML and Markdown
+
+```python
+from pygaeb.convert import to_docx, to_html, to_markdown
+
+to_docx(doc, "tender.docx")                 # editable Word document (pip install pyGAEB[docx])
+to_html(doc, "tender.html")                 # complete page; standalone=False for a fragment
+text = to_markdown(doc)                     # Markdown, e.g. for an LLM prompt
+```
+
+### pandas DataFrame
+
+```python
+from pygaeb import to_dataframe
+
+df = to_dataframe(doc)                      # the CSV table: one row per item (pip install pyGAEB[pandas])
+df.loc[df["affects_total"], "total_price"].sum()
+```
+
+Amounts are floats; `to_dataframe(doc, exact=True)` keeps pyGAEB's exact `Decimal` values.
 
 ### LLM Classification
 

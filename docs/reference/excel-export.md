@@ -7,3 +7,7 @@
 ## ColumnDef
 
 ::: pygaeb.convert.to_excel.ColumnDef
+
+## ExcelCell
+
+::: pygaeb.convert.to_excel.ExcelCell

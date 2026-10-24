@@ -346,7 +346,7 @@ doc = GAEBParser.parse("file.X83", post_parse_hook=extract_vendor_codes)
 
 ### Collecting unknown XML elements
 
-Set `collect_raw_data=True` to automatically populate `item.raw_data` with child elements not consumed by the built-in parser:
+Set `collect_raw_data=True` to fill `item.raw_data` with the child elements the parser did not read, for every XML document kind (tender, trade, cost and quantity):
 
 ```python
 doc = GAEBParser.parse("file.X83", collect_raw_data=True)

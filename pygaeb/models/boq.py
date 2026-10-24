@@ -14,10 +14,10 @@ from pygaeb.models.item import Item
 
 
 def _items_subtotal(items: Iterator[Item]) -> Decimal:
-    """Sum total_price for items where item_type.affects_total."""
+    """Sum total_price for items that count toward totals (Item.affects_total)."""
     total = Decimal("0")
     for i in items:
-        if i.total_price is not None and i.item_type.affects_total:
+        if i.total_price is not None and i.affects_total:
             total += i.total_price
     return total
 

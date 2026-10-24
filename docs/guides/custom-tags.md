@@ -36,6 +36,15 @@ for item in doc.iter_items():
 
 This works for both procurement (`Item`) and trade (`OrderItem`) documents.
 
+XML comments in the file stay in the tree, so a vendor's notes can be read too:
+
+```python
+from lxml import etree
+
+notes = [c.text for c in item.source_element.iter(etree.Comment)]
+all_notes = doc.xpath("//comment()")
+```
+
 !!! tip "Namespace prefix"
     GAEB DA XML elements are namespaced. When using `el.find()`, you must include the full namespace URI in braces. Use `doc.raw_namespace` to get it dynamically:
 

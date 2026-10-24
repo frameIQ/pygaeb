@@ -32,9 +32,11 @@ classifiers = [
     "Typing :: Typed",
 ]
 
+# Floors sit past known advisories (lxml CVE-2026-41066, pydantic CVE-2024-3772)
+# even where pyGAEB's own use is not exposed, so installs never resolve to them.
 dependencies = [
-    "lxml>=5.0",
-    "pydantic>=2.0",
+    "lxml>=6.1",
+    "pydantic>=2.4",
     "pydantic-settings>=2.5",
     "beautifulsoup4>=4.12",
     "ftfy>=6.1",
@@ -43,9 +45,13 @@ dependencies = [
 
 [project.optional-dependencies]
 cli = ["click>=8.1"]
+docx = ["python-docx>=1.1"]
 excel = ["openpyxl>=3.1"]
-llm = ["litellm>=1.61", "instructor>=1.0"]
-mcp = ["mcp>=1.28,<2"]
+# litellm 1.107.0 was a compromised release (credential stealer, 2026-10-21).
+llm = ["litellm>=1.106.2,!=1.107.0", "instructor>=1.0"]
+mcp = ["mcp>=1.30,<2"]
+pandas = ["pandas>=2.2"]
+pdf = ["reportlab>=4.0"]
 dev = [
     "pytest",
     "pytest-cov",
@@ -56,11 +62,15 @@ dev = [
     "xmldiff>=2.6",
     "lxml-stubs",
     "openpyxl>=3.1",
+    "reportlab>=4.0",
+    "pypdf>=6.21.2",
+    "python-docx>=1.1",
+    "pandas>=2.2",
     "click>=8.1",
-    "mcp>=1.28,<2",
+    "mcp>=1.30,<2",
 ]
 docs = [
-    "mkdocs-material>=9.5",
+    "mkdocs-material>=9.7.7",
     "mkdocstrings[python]>=0.24",
     "mkdocs-section-index>=0.3",
 ]
@@ -109,9 +119,17 @@ ignore_missing_imports = true
 module = [
     "reportlab", "reportlab.*",
     "sqlalchemy", "sqlalchemy.*",
+    "pandas",
 ]
 ignore_missing_imports = true
 follow_imports = "skip"
+
+# numpy's stubs use Python 3.12 syntax, which a 3.10 target cannot parse; typed
+# packages (tiktoken via litellm) reach them once pandas installs numpy.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

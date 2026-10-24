@@ -8,8 +8,11 @@ Covers:
 
 from __future__ import annotations
 
+import time
 from decimal import Decimal
 from pathlib import Path
+
+import pytest
 
 from pygaeb import (
     ExchangePhase,
@@ -389,6 +392,17 @@ class TestREBParserEdgeCases:
         result = parse_reb_row("Aussenwand Sued 10,00 * 3,00 = 30,000 m2")
         assert "Aussenwand" in result.description
         assert result.computed_qty == Decimal("30.000")
+
+    @pytest.mark.parametrize("row", [
+        "= 1" + " " * 1_000_000 + "a b",
+        "=" + "1" * 200_000 + " a b",
+        "1 " + " " * 1_000_000 + "y",
+    ])
+    def test_hostile_rows_parse_in_linear_time(self, row: str) -> None:
+        # Rows come from the file; the old regexes took minutes on 100k spaces.
+        start = time.perf_counter()
+        parse_reb_row(row)
+        assert time.perf_counter() - start < 2.0
 
 
 class TestQTakeoffRowParse:

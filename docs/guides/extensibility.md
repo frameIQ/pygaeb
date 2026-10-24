@@ -60,7 +60,7 @@ If `keep_xml=False` (the default), pyGAEB auto-enables XML retention for the hoo
 
 ## Collect Unknown XML Elements
 
-Set `collect_raw_data=True` to automatically populate `item.raw_data` with any XML child elements the parser did not consume:
+Set `collect_raw_data=True` to put the XML child elements the parser did not read into each item's `raw_data`:
 
 ```python
 doc = GAEBParser.parse("file.X83", collect_raw_data=True)
@@ -69,7 +69,15 @@ for item in doc.iter_items():
         print(f"{item.oz}: extra fields = {item.raw_data}")
 ```
 
-This is useful for discovering vendor extensions or non-standard elements without writing a custom hook.
+This is useful for discovering vendor extensions, and standard elements pyGAEB does not model yet (such as `ALNGroupNo` or `HourIt`), without writing a custom hook.
+
+It works for every XML document kind: tender and award items (`Item`), trade order items (`OrderItem`), cost elements (`CostElement`) and quantity items (`QtyItem`). The parsers record every element they read, so `raw_data` holds exactly the rest. Each value is:
+
+- the element's text for a plain element (`None` when it is empty);
+- the whole element as an XML string when it has child elements;
+- a list when the element appears more than once.
+
+XML comments are never collected. GAEB 90 files are not XML, so there is nothing to collect from them. `raw_data` is left out of `model_dump()` and the JSON export.
 
 ## Custom Taxonomy and Prompt for LLM Classification
 

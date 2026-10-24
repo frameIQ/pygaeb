@@ -128,6 +128,7 @@ class QtyItem(BaseModel):
     determ_items: list[QDetermItem] = Field(default_factory=list)
     ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
     source_element: Any = Field(default=None, exclude=True, repr=False)
+    raw_data: dict[str, Any] | None = Field(default=None, exclude=True)
 
     def __repr__(self) -> str:
         parts = [f"oz={self.oz!r}"]

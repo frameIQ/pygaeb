@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -39,6 +39,7 @@ class OrderItem(BaseModel):
     classification: ClassificationResult | None = None
     extractions: dict[str, ExtractionResult] = Field(default_factory=dict)
     source_element: Any = Field(default=None, exclude=True, repr=False)
+    raw_data: dict[str, Any] | None = Field(default=None, exclude=True)
 
     # --- trade-specific identification ---
     item_id: str = ""
@@ -80,6 +81,19 @@ class OrderItem(BaseModel):
     def display_price(self) -> Decimal | None:
         """Return the most relevant price: net_price if available, else offer_price."""
         return self.net_price if self.net_price is not None else self.offer_price
+
+    @property
+    def line_total(self) -> Decimal | None:
+        """Price x quantity / price basis, rounded to cents (ROUND_HALF_UP).
+
+        The price refers to ``price_basis`` units (GAEB ``PriceBasis``), so 250 Stk
+        at 5.00 per 100 is 12.50. ``None`` without a price or a quantity.
+        """
+        price = self.display_price
+        if price is None or self.qty is None:
+            return None
+        basis = self.price_basis or Decimal("1")
+        return (price * self.qty / basis).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     def __repr__(self) -> str:
         parts: list[str] = []
@@ -190,16 +204,11 @@ class TradeOrder(BaseModel):
 
     @property
     def grand_total(self) -> Decimal:
-        """Sum of net_price (or offer_price) across all items."""
-        total = Decimal("0")
-        for item in self.items:
-            price = item.display_price
-            if price is not None:
-                if item.qty is not None:
-                    total += price * item.qty
-                else:
-                    total += price
-        return total
+        """Sum of the items' :attr:`OrderItem.line_total`; items without one add nothing."""
+        return sum(
+            (total for item in self.items if (total := item.line_total) is not None),
+            Decimal("0"),
+        )
 
     def __repr__(self) -> str:
         return f"TradeOrder(dp={self.dp!r}, items={self.item_count})"

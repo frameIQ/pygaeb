@@ -29,6 +29,8 @@ Eine optionale LLM-Klassifizierungsschicht ordnet jede LV-Position semantisch ei
 - **Phasenübergreifende Validierung** — X83→X84 Strukturidentität, X86→X89 EP-Abgleich, X86→X88 Nachtragsverfolgung
 - **Round-Trip** — Einlesen → Bearbeiten → Zurückschreiben in jede DA-XML-Version
 - **Versionskonvertierung** — Upgrade/Downgrade zwischen DA XML 2.0–3.3
+- **PDF-Ausdruck** — LV-Layout mit Gliederung, Langtexten, deutschem Zahlenformat, Summen und Überträgen
+- **Word, HTML, Markdown** — dasselbe LV als bearbeitbare .docx, als Webseite oder einbettbares Fragment, oder als Markdown zum Lesen oder für ein LLM
 - **MCP-Server** — GAEB-Dokumente für KI-Agenten (ChatGPT, Gemini, Claude, Copilot, Cursor) über eine kontextschonende, abfrageorientierte Tool-Schnittstelle bereitstellen
 
 ## Installation
@@ -160,6 +162,38 @@ from pygaeb.convert import to_json, to_csv
 to_json(doc, "lv.json")        # Vollständiger LV-Baum (verschachtelt)
 to_csv(doc, "positionen.csv")  # Flache Positionsliste mit Klassifizierungsspalten
 ```
+
+### PDF-Ausdruck
+
+```python
+from pygaeb.convert.to_pdf import PdfStyle, to_pdf
+
+to_pdf(doc, "lv.pdf")                                   # Deutsche Beschriftung und Zahlen
+to_pdf(doc, "lv-en.pdf", style=PdfStyle(locale="en"))   # Englisch
+```
+
+Benötigt `pip install pyGAEB[pdf]`.
+
+### Word, HTML und Markdown
+
+```python
+from pygaeb.convert import to_docx, to_html, to_markdown
+
+to_docx(doc, "lv.docx")                     # bearbeitbares Word-Dokument (pip install pyGAEB[docx])
+to_html(doc, "lv.html")                     # vollständige Seite; standalone=False für ein Fragment
+text = to_markdown(doc)                     # Markdown, z. B. für einen LLM-Prompt
+```
+
+### pandas-DataFrame
+
+```python
+from pygaeb import to_dataframe
+
+df = to_dataframe(doc)                      # die CSV-Tabelle: eine Zeile je Position (pip install pyGAEB[pandas])
+df.loc[df["affects_total"], "total_price"].sum()
+```
+
+Beträge sind Floats; `to_dataframe(doc, exact=True)` behält die exakten `Decimal`-Werte.
 
 ### Handelsphasen (X93–X97)
 

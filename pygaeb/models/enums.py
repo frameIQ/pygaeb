@@ -140,10 +140,16 @@ class ItemType(str, Enum):
 
     @property
     def affects_total(self) -> bool:
+        """Whether positions of this type enter the sums (the "Nur Einh.-Preis" rule).
+
+        A Bedarfsposition (``EVENTUAL``) counts only when marked *mit GB*, which the
+        type alone cannot tell: use :attr:`Item.affects_total`, which reads ``Provis``.
+        """
         return self in (
             ItemType.NORMAL,
             ItemType.LUMP_SUM,
             ItemType.SUPPLEMENT,
+            ItemType.MARKUP,
         )
 
 

@@ -148,14 +148,12 @@ def _priced_rows(items: list[Any]) -> list[tuple[Any, Decimal]]:
 def _affects_total(item: Any) -> bool:
     """Whether an item's price counts toward the document total (VOB/A).
 
-    Alternative and eventual positions carry prices but are not part of the
-    contract value — the library's own ``grand_total`` excludes them via
-    ``ItemType.affects_total``, and any sum this server reports must follow the
-    same convention. Item kinds without an ``item_type`` (trade/cost/quantity)
-    count as-is.
+    Alternative positions and Bedarfspositionen *ohne GB* carry prices but are not
+    part of the contract value — the library's own ``grand_total`` excludes them via
+    ``Item.affects_total``, and any sum this server reports must follow the same
+    convention. Item kinds without it (trade/cost/quantity) count as-is.
     """
-    item_type = getattr(item, "item_type", None)
-    return item_type is None or bool(item_type.affects_total)
+    return bool(getattr(item, "affects_total", True))
 
 
 def build_tools(ctx: ToolContext) -> list[ToolFn]:
@@ -281,8 +279,7 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         # get_if_present (not peek) so a repeatedly re-opened document counts as
         # recently used and is not the LRU eviction candidate.
         entry = ctx.cache.get_if_present(handle)
-        if entry is not None:
-            assert entry.summary is not None
+        if entry is not None and entry.summary is not None:
             return {**entry.summary, "cached": True}
 
         def _load() -> tuple[Any, dict[str, Any]]:
@@ -918,7 +915,8 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         ] = "json",
     ) -> dict[str, Any]:
         """Write a parsed document to a file. Returns the path, never the contents."""
-        assert ctx.output_dir is not None
+        if ctx.output_dir is None:  # an explicit check: asserts vanish under python -O
+            raise ValueError("Write tools need an output directory (--output-dir).")
         entry = ctx.cache.get(handle)
         dest = resolve_output_path(output_path, ctx.output_dir)
 
@@ -952,7 +950,8 @@ def build_tools(ctx: ToolContext) -> list[ToolFn]:
         from pygaeb.converter import GAEBConverter
         from pygaeb.models.enums import SourceVersion
 
-        assert ctx.output_dir is not None
+        if ctx.output_dir is None:
+            raise ValueError("Write tools need an output directory (--output-dir).")
         source = resolve_within_roots(
             path, ctx.roots, allow_any_extension=ctx.allow_any_extension
         )

@@ -167,6 +167,11 @@ def diff_to_excel(result: DiffResult, path: str | Path) -> None:
     struct_ws.column_dimensions["B"].width = 12
     struct_ws.column_dimensions["C"].width = 60
 
+    # Item texts come from the compared documents; none of them may run as a formula.
+    from pygaeb.convert.to_excel import store_text_as_text
+
+    for ws in wb.worksheets:
+        store_text_as_text(ws)
     wb.save(str(path))
 
 

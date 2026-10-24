@@ -340,7 +340,10 @@ class TestMarkupItem:
         assert mu.short_text == "Overhead"
         assert mu.markup_type == "ListInSubQty"
         assert mu.unit_price == Decimal("10.50")
-        assert mu.total_price == Decimal("125.00")
+        # ITMarkup is the base the rate applies to; the file states no IT (the amount).
+        assert mu.markup_base == Decimal("125.00")
+        assert mu.total_price is None
+        assert mu.computed_total == Decimal("13.13")
         assert mu.discount_pct == Decimal("2.00")
 
     def test_parse_markup_sub_qtys(self, tmp_path):
@@ -377,7 +380,7 @@ class TestMarkupItem:
         assert mu2.markup_type == "ListInSubQty"
         assert [s.ref_rno for s in mu2.markup_sub_qtys] == ["0010", "0020"]
         assert len(mu2.markup_sub_qtys) == 2
-        assert mu2.total_price == Decimal("125.00")
+        assert mu2.markup_base == Decimal("125.00")
 
     def test_markup_item_type_flag(self, tmp_path):
         f = tmp_path / "markup.X86"
@@ -386,7 +389,8 @@ class TestMarkupItem:
         items = list(doc.award.boq.iter_items())
         mu = next(i for i in items if i.item_type == ItemType.MARKUP)
         assert mu.item_type == ItemType.MARKUP
-        assert mu.item_type.affects_total is False
+        # A markup's own amount enters the sums, as in the BVBS award.X86 totals.
+        assert mu.affects_total is True
 
 
 # ===================================================================

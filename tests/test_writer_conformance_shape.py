@@ -319,7 +319,7 @@ class TestPhaseProfiles:
         root, warnings = _write(synthetic, ExchangePhase.X86)
         info = _find_all(root, "BoQInfo")[0]
         assert _children(info)[:4] == ["Name", "LblBoQ", "Date", "OutlCompl"]
-        assert _find_all(_find_all(root, "BoQCtgy")[0], "Totals")[0][0].text == "1655.00"
+        assert _find_all(_find_all(root, "BoQCtgy")[0], "Totals")[0][0].text == "1755.00"
         assert not any("required" in w for w in warnings)
 
     def test_invented_elements_are_gone(self, bare_doc):

@@ -128,5 +128,5 @@ def _is_complete(item: object, price_expected: bool = False, text_expected: bool
         return True
     if (text_expected and not short_text) or (qty is None and unit_price is None):
         return False
-    counts = getattr(item_type, "affects_total", True)
+    counts = getattr(item, "affects_total", True)
     return not (price_expected and counts and unit_price is None)

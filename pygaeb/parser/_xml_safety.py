@@ -11,6 +11,7 @@ SAFE_PARSER: etree.XMLParser = etree.XMLParser(
     no_network=True,
     huge_tree=False,
     dtd_validation=False,
+    # Kept for keep_xml users who read them; the parsers read past them.
     remove_comments=False,
 )
 

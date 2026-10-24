@@ -27,18 +27,9 @@ from pygaeb.models.quantity import ParsedTakeoff
 # and "5," (ambiguous) won't match.
 _NUMBER_RE = re.compile(r"-?\d+(?:[.,]\d+)?")
 
-# Matches "= <result>" at the end
-_RESULT_RE = re.compile(r"=\s*(-?\d+(?:[.,]\d+)?)\s*(\S*)\s*$")
-
-# Matches multiplication chain: "5,00 * 3,20 * 0,75"
-_FORMULA_RE = re.compile(
-    r"(-?\d+(?:[.,]\d+)?)"       # first dimension
-    r"(?:\s*[*xX\u00d7]\s*"      # multiplication operator (* x X U+00D7)
-    r"(-?\d+(?:[.,]\d+)?))*"     # subsequent dimensions
-)
-
-# Split on multiplication operators
-_MUL_SPLIT_RE = re.compile(r"\s*[*xX\u00d7]\s*")
+# Split on multiplication operators (* x X U+00D7). No surrounding \s*: the parts are
+# stripped anyway, and \s* before a required operator backtracks quadratically.
+_MUL_SPLIT_RE = re.compile(r"[*xX\u00d7]")
 
 # Known unit strings (checked longest-first to avoid partial matches)
 _KNOWN_UNITS = ("m3", "m2", "lfm", "Stk", "psch", "kg", "m")
@@ -51,6 +42,25 @@ def _to_decimal(s: str) -> Decimal | None:
         return Decimal(s)
     except InvalidOperation:
         return None
+
+
+def _split_result(text: str) -> tuple[str, str, str] | None:
+    """Split ``"<formula> = <result> [unit]"`` at its last ``=``: (formula, result, unit).
+
+    String operations, not a regex: a regex over the row's tail backtracked
+    quadratically on long runs of spaces, and the row comes from the file.
+    """
+    head, sep, tail = text.rpartition("=")
+    if not sep:
+        return None
+    tokens = tail.split()
+    if len(tokens) == 2 and _NUMBER_RE.fullmatch(tokens[0]):
+        return head.strip(), tokens[0], tokens[1]
+    if len(tokens) == 1:
+        number = _NUMBER_RE.match(tokens[0])
+        if number:
+            return head.strip(), number.group(0), tokens[0][number.end():]
+    return None
 
 
 def parse_reb_row(raw: str) -> ParsedTakeoff:
@@ -69,12 +79,10 @@ def parse_reb_row(raw: str) -> ParsedTakeoff:
     result = ParsedTakeoff()
 
     # Try to extract "= <result> [unit]" from the end
-    result_match = _RESULT_RE.search(text)
-    if result_match:
-        result.computed_qty = _to_decimal(result_match.group(1))
-        result.unit = result_match.group(2).strip()
-        # Remove the result part for further parsing
-        formula_part = text[:result_match.start()].strip()
+    stated = _split_result(text)
+    if stated is not None:
+        formula_part, stated_qty, result.unit = stated
+        result.computed_qty = _to_decimal(stated_qty)
     else:
         formula_part = text
 
@@ -107,8 +115,8 @@ def parse_reb_row(raw: str) -> ParsedTakeoff:
                 break
 
         result.formula = formula_str
-        if result_match:
-            result.formula += " = " + result_match.group(1)
+        if stated is not None:
+            result.formula += " = " + stated[1]
             if result.unit:
                 result.formula += " " + result.unit
 
