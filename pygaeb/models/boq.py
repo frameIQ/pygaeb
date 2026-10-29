@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from pygaeb.models.catalog import Catalog, CtlgAssign
 from pygaeb.models.enums import BkdnType
 from pygaeb.models.item import Item
+from pygaeb.models.source import SourceSpan
 
 
 def _items_subtotal(items: Iterator[Item]) -> Decimal:
@@ -119,6 +120,8 @@ class BoQCtgy(BaseModel):
     ctlg_assigns: list[CtlgAssign] = Field(default_factory=list)
     totals: Totals | None = None
     source_element: Any = Field(default=None, exclude=True, repr=False)
+    #: Where the element sits in the file; needs ``positions=True``.
+    source_span: SourceSpan | None = Field(default=None, exclude=True, repr=False)
 
     def iter_items(self) -> Iterator[Item]:
         """Iterate all items in this category and its subcategories."""
@@ -175,6 +178,8 @@ class Lot(BaseModel):
     boq_info: BoQInfo | None = None
     body: BoQBody = Field(default_factory=BoQBody)
     totals: Totals | None = None
+    #: Where the lot's element sits in the file; needs ``positions=True``. None for a synthetic lot.
+    source_span: SourceSpan | None = Field(default=None, exclude=True, repr=False)
 
     def __repr__(self) -> str:
         count = sum(1 for _ in self.iter_items())

@@ -14,8 +14,8 @@ This single call handles:
 
 1. **Format detection** — determines if the file is DA XML (2.x or 3.x) or GAEB 90
 2. **Version detection** — reads the XML namespace and `<Version>` element
-3. **Encoding repair** — fixes BOM, Windows-1252 masquerading as UTF-8, mojibake
-4. **XML recovery** — handles bare ampersands, unclosed tags, and other real-world damage
+3. **Encoding repair** — reads any encoding the file is saved in, survives a wrong declaration, repairs mojibake
+4. **XML recovery** — handles bare ampersands, control characters, unclosed tags, and other real-world damage
 5. **Structural parsing** — builds the full BoQ hierarchy
 6. **Validation** — runs numeric, item, and phase validation
 
@@ -56,25 +56,27 @@ All tracks produce the same `GAEBDocument` model.
 
 ## Encoding Repair
 
-Real-world GAEB files frequently have encoding issues. pyGAEB handles them transparently:
+Real-world GAEB files come in many encodings, and their labels are not always right. pyGAEB decodes the file itself, the way an XML parser would, before parsing it:
 
-- **BOM stripping** — removes UTF-8/UTF-16 byte order marks
-- **Charset detection** — uses `charset-normalizer` to detect Windows-1252, Latin-1, etc.
-- **Mojibake repair** — uses `ftfy` to fix double-encoded characters (common with German umlauts)
+- **Byte order mark** — a UTF-8, UTF-16 or UTF-32 mark decides the encoding; UTF-16 without one is recognised too
+- **Declared encoding** — `ISO-8859-1`, `ISO-8859-15`, `windows-1252` and every other encoding Python knows are honoured. A declaration that claims UTF-16 but is readable as plain ASCII is ignored (a common .NET export mistake)
+- **Wrong declaration** — bytes the declared encoding rejects are read as UTF-8, then Windows-1252, then Latin-1
+- **Mojibake repair** — `ftfy` repairs text that was garbled before it reached the file (`GrÃ¶ÃŸe` → `Größe`). Typography such as „quotes“, apostrophes and ligatures stays as written
 
-The encoding repair runs before XML parsing, so even files with corrupted encoding declarations are handled.
+GAEB 90 files carry no declaration; their encoding is detected with `charset-normalizer`.
 
 ## XML Recovery
 
 If standard `lxml` parsing fails, pyGAEB falls back to a recovery pipeline:
 
-1. **BeautifulSoup** tolerant parser — handles bare `&`, unclosed tags, and malformed attributes
-2. Warnings are added to `doc.validation_results` — nothing is silently lost
+1. **Byte-level sanitisation** — removes control characters XML forbids and escapes bare `&`, then parses again
+2. **lxml recover mode** — tolerates unclosed tags and other structural damage
+3. Warnings are added to `doc.validation_results` — nothing is silently lost
 
 ```python
 doc = GAEBParser.parse("damaged.X83")
 for issue in doc.validation_results:
-    if "recovery" in issue.message.lower():
+    if "malformed XML" in issue.message:
         print(f"Recovered: {issue.message}")
 ```
 
@@ -148,6 +150,26 @@ for item in doc.iter_items():
 ```
 
 See the [Custom & Vendor Tags Guide](custom-tags.md) for full details.
+
+## Source Positions
+
+Pass `positions=True` to learn where each lot, category and item sits in the file, for example to put a finding on the right line in an editor:
+
+```python
+doc = GAEBParser.parse("tender.X83", positions=True)
+
+for item in doc.iter_items():
+    if item.source_span:
+        print(item.full_oz, item.source_span.start_line, item.source_span.start_column)
+
+for finding in doc.validation_results:
+    if finding.item_id:  # the item the finding is about
+        print(finding.message, finding.source_span)
+```
+
+Spans count the way editors do: lines break at CR, LF and CRLF, and columns count characters, both from 1. A span starts at the `<` of the element's start tag and ends just past the `>` that closes it. Positions are measured on the file as written, so encoding repair does not move them, and they stay out of every export.
+
+Positions cover procurement documents, X52 cost BoQs included; cost (X50, X51), quantity (X31) and trade (X93–X97) documents don't carry them. A file that declares entities, needs repair before parsing, or is GAEB 90 gets no positions, and a finding says why. Prefer `source_span` to `source_element.sourceline`: lxml counts only LF as a line break, so its lines are wrong for files with CR line endings.
 
 ## Unified Document Model
 

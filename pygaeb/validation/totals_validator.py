@@ -13,6 +13,7 @@ from pygaeb.models.boq import BoQCtgy
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import ValidationSeverity
 from pygaeb.models.item import ValidationResult
+from pygaeb.validation._common import by_id
 
 _TOTALS_TOLERANCE = Decimal("0.02")
 
@@ -51,7 +52,8 @@ def validate_totals(doc: GAEBDocument) -> list[ValidationResult]:
                         f"Lot {lot.rno!r} total mismatch — declared={declared}, "
                         f"computed={computed} (diff={abs(declared - computed)})"
                     ),
-                    xpath_location=f"Lot[@RNoPart='{lot.rno}']/Totals/Total",
+                    xpath_location=by_id(lot.id, f"Lot[@RNoPart='{lot.rno}']", "Totals/Total"),
+                    source_span=lot.source_span,
                 ))
 
     # Category-level totals (recursive)
@@ -122,7 +124,8 @@ def _validate_ctgy_totals(ctgy: BoQCtgy, depth: int = 0) -> list[ValidationResul
                     f"Category {ctgy.rno!r} total mismatch — declared={declared}, "
                     f"computed={computed} (diff={abs(declared - computed)})"
                 ),
-                xpath_location=f"BoQCtgy[@RNoPart='{ctgy.rno}']/Totals/Total",
+                xpath_location=by_id(ctgy.id, f"BoQCtgy[@RNoPart='{ctgy.rno}']", "Totals/Total"),
+                source_span=ctgy.source_span,
             ))
 
     for sub in ctgy.subcategories:

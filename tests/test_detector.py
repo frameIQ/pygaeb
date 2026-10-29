@@ -56,8 +56,9 @@ class TestEncodingRepair:
 
     def test_windows_1252_repair(self):
         raw = "Mörtel für Mauerwerk".encode("windows-1252")
-        text, _enc = repair_encoding(raw)
-        assert "Mörtel" in text or "rtel" in text
+        text, enc = repair_encoding(raw)
+        assert text == "Mörtel für Mauerwerk"
+        assert enc == "repaired"
 
     def test_binary_detection(self):
         raw = "Simple ASCII text\n".encode("ascii")

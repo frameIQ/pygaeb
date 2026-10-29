@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.21.0] - 2026-10-29
+
+### Fixed
+
+- **Files saved in ISO-8859-1, Windows-1252 or UTF-16 keep their umlauts.**
+  - pyGAEB decoded such a file correctly, then handed the text to lxml as UTF-8 under the file's original `encoding="…"` declaration, so lxml decoded it a second time. Every ä, ö, ü, ß and € came out garbled (`Größe` as `GrÃ¶ÃŸe`) without a warning, and a UTF-16 file lost € and every other character beyond Latin-1 behind a misleading "Recovered from malformed XML (0 errors)". Present since 1.0.0.
+  - A byte order mark now decides the encoding (UTF-8, UTF-16 or UTF-32), and UTF-16 without one is recognised too.
+  - `parse_string` had the same flaw for a string whose declaration names another encoding.
+- **A UTF-8 file labelled UTF-16 parses.** A declaration readable as plain ASCII cannot be in UTF-16, so the label is now ignored. Such files, a common .NET export mistake, failed with `XML recovery produced empty tree`. Version detection fell back to the file extension on them; it now decodes like the parser, and a UTF-16 file counts as XML whatever its extension.
+- **Parsed text keeps its typography.** Encoding repair ran every ftfy fix, so each file's „quotes“ and apostrophes (’) came out straight, ligatures (ﬁ) split and full-width letters narrowed. Those fixes are off; ftfy still repairs garbled text. Code that compared against the straightened text now sees the characters the file contains.
+- **`to_json` exports documents with images.**
+  - An embedded image made it fail with `UnicodeDecodeError`, with or without `include_attachments`, because attachment bytes went into JSON as UTF-8 text.
+  - 9 of the 16 BVBS Prüfdateien could not be exported, and `pygaeb export -f json` and the MCP `export_document` tool failed on them too.
+  - Attachment data is now written as standard base64 when `include_attachments=True`, as documented. It never was before.
+- **A JSON export loads back.**
+  - An export without attachment data could not be read with `GAEBDocument.model_validate_json`, because `Attachment.data` was required. It now defaults to empty, and the recorded `size_bytes` is kept.
+  - Base64 data is read whether the JSON comes through `model_validate_json` or through `json.load` and `model_validate`.
+
+### Added
+
+- **Derived values in the JSON export:** every item carries `full_oz`, `computed_total` and `affects_total`, trade lines carry `line_total`, and the document carries its `grand_total`. A reader gets pyGAEB's sums without re-implementing the GAEB rules, and loading the JSON back ignores these values.
+- **Source positions.** `parse`, `parse_bytes` and `parse_string` take `positions=True`. Every lot, category and item then carries a `source_span`: where its element starts and ends in the file, counted the way editors count (lines break at CR, LF and CRLF; columns count characters; both from 1).
+  - A second, expat-based pass over the file as written finds them, so one-line files, files with CR line endings and non-UTF-8 files all get exact positions. lxml's `sourceline` (behind `keep_xml`) counts only LF as a line break.
+  - Procurement documents get them, X52 cost BoQs included; cost (X50, X51), quantity (X31) and trade (X93–X97) documents don't.
+  - A file that declares entities, needs repair or is GAEB 90 gets no positions, and a finding says why.
+  - Spans stay out of exports: JSON output does not change.
+- **Findings name their item.** A `ValidationResult` about one item carries that item's `item_id`, and with `positions=True` its `source_span`. Category and lot total findings carry their span.
+
+### Changed
+
+- **`xpath_location` uses the XML ID when there is one** (`*[@ID='I2']/Qty`). It used the item's own `RNoPart` (`Item[@RNoPart='0010']`), which recurs in every category, so it could match many items. Items without an ID keep the old form. Messages are unchanged.
+- **Parsing is about twice as fast.** Long texts went through BeautifulSoup, which ran lxml's HTML parser and then copied every text into Python objects; the reader now walks the parser's own tree, and child elements are looked up in C. A 40,000-position tender parses in 3.3 s instead of 7.1 s, and in 8.4 s instead of 16.4 s under Pyodide. Results do not change: the old and new readers agree on 41,000 real long texts and 2.7 million generated ones, and every export is identical.
+- **`beautifulsoup4` is no longer used.** It stays a dependency for this release, for code that relies on pyGAEB to install it, and will be removed in the next.
+
 ## [1.20.0] - 2026-10-24
 
 ### Upgrade notes

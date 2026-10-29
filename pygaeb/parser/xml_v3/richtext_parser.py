@@ -1,4 +1,4 @@
-"""Rich text parser for tgBoQText long texts using BeautifulSoup4 + lxml backend.
+"""Rich text parser for tgBoQText long texts, read with lxml's HTML parser.
 
 The prose is read in one ordered walk rather than block by block, for two reasons
 that both cost real text before:
@@ -18,11 +18,11 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Collection, Iterable, Iterator
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
-from bs4 import BeautifulSoup
-from bs4.element import Comment, Declaration, Doctype, NavigableString, ProcessingInstruction, Tag
+from lxml import etree
 
 from pygaeb.models.enums import ComplementKind
 from pygaeb.models.item import RichText, TextComplement, join_inline
@@ -42,7 +42,11 @@ _BLOCKS = frozenset(
     }
 )
 _FIELD_PARTS = frozenset({"complcaption", "complbody", "compltail", "complbodydec", "complbodyint"})
-_NOT_TEXT = (Comment, Declaration, Doctype, ProcessingInstruction)
+_IMAGES = frozenset({"image", "img"})
+#: Elements whose text BeautifulSoup kept out of an image's data.
+_NOT_IMAGE_DATA = frozenset({"script", "style", "template", "rt", "rp"})
+#: BeautifulSoup fed the parser in chunks of this size; the same input gives the same tree.
+_FEED_CHUNK = 512
 
 #: A field body with nothing in it but quote marks, dots, dashes or underscores is
 #: blank, whatever ``Empty`` says — several AVA programs mark blanks only with dots.
@@ -54,19 +58,18 @@ def parse_richtext(html: str | None) -> RichText | None:
     if not html or not html.strip():
         return None
 
-    soup = BeautifulSoup(html, "lxml")
+    nodes = _top_level(html)
 
-    # Images come out first and are then removed from the tree. GAEB carries a
+    # Images come out first and every later walk skips them. GAEB carries a
     # graphic as base64 *inside* the element, so a <p> wrapping one yields the whole
     # blob as its text — tens of kilobytes of base64 landing in the prose, where it
     # is unreadable and drowns the specification it was meant to illustrate.
-    images = _extract_images(soup)
-    _remove_images(soup)
+    images = _extract_images(nodes)
 
     complements: list[TextComplement] = []
-    plain_lines = _flow(soup, tables_inline=True, complements=complements)
-    paragraphs = _flow(soup, tables_inline=False, complements=[])
-    tables = _extract_tables(soup)
+    plain_lines = _flow(nodes, tables_inline=True, complements=complements)
+    paragraphs = _flow(nodes, tables_inline=False, complements=[])
+    tables = _extract_tables(nodes)
     plain = "\n".join(line for paragraph in plain_lines for line in paragraph.split("\n"))
 
     if not paragraphs and not tables and not images and not plain:
@@ -196,44 +199,51 @@ def _continues(left: str, right: str) -> bool:
 
 
 def _flow(
-    root: BeautifulSoup, *, tables_inline: bool, complements: list[TextComplement]
+    nodes: list[etree._Element], *, tables_inline: bool, complements: list[TextComplement]
 ) -> list[str]:
     flow = _Flow()
-    _walk(root, flow, complements, tables_inline=tables_inline)
+    for node in nodes:
+        _walk_child(node, flow, complements, tables_inline=tables_inline)
     return flow.finish()
 
 
 def _walk(
-    node: Tag, flow: _Flow, complements: list[TextComplement], *, tables_inline: bool
+    node: etree._Element, flow: _Flow, complements: list[TextComplement], *, tables_inline: bool
 ) -> None:
-    for child in node.children:
-        if isinstance(child, NavigableString):
-            if not isinstance(child, _NOT_TEXT):
-                flow.text(str(child))
-            continue
-        if not isinstance(child, Tag):
-            continue
+    if node.text:
+        flow.text(node.text)
+    for child in node:
+        _walk_child(child, flow, complements, tables_inline=tables_inline)
+        # The text after a child, a comment or an image belongs to the parent.
+        if child.tail:
+            flow.text(child.tail)
 
-        name = child.name
-        if name == "textcomplement":
-            complement = _complement(child)
-            complement.context = _context(flow.preceding())
-            complements.append(complement)
-            flow.field(complement.inline)
-        elif name == "br":
-            flow.line()
-        elif name == "table":
-            flow.block()
-            if tables_inline:
-                for row in _table_rows(child, complements):
-                    flow.text(" | ".join(row))
-                    flow.block()
-        elif name in _BLOCKS:
-            flow.block()
-            _walk(child, flow, complements, tables_inline=tables_inline)
-            flow.block()
-        else:
-            _walk(child, flow, complements, tables_inline=tables_inline)
+
+def _walk_child(
+    child: etree._Element, flow: _Flow, complements: list[TextComplement], *, tables_inline: bool
+) -> None:
+    name = child.tag
+    if not isinstance(name, str) or name in _IMAGES:
+        return  # a comment or processing instruction; images were read already
+    if name == "textcomplement":
+        complement = _complement(child)
+        complement.context = _context(flow.preceding())
+        complements.append(complement)
+        flow.field(complement.inline)
+    elif name == "br":
+        flow.line()
+    elif name == "table":
+        flow.block()
+        if tables_inline:
+            for row in _table_rows(child, complements):
+                flow.text(" | ".join(row))
+                flow.block()
+    elif name in _BLOCKS:
+        flow.block()
+        _walk(child, flow, complements, tables_inline=tables_inline)
+        flow.block()
+    else:
+        _walk(child, flow, complements, tables_inline=tables_inline)
 
 
 def _clean(text: str) -> str:
@@ -243,26 +253,24 @@ def _clean(text: str) -> str:
     return "\n".join(line for line in lines if line)
 
 
-def _inline(node: Tag | None) -> str:
+def _inline(node: etree._Element | None) -> str:
     """An element's text on one line: verbatim runs, ``<br/>`` as a space, fields inline."""
     if node is None:
         return ""
-    parts: list[str] = []
-    for child in node.children:
-        if isinstance(child, NavigableString):
-            if not isinstance(child, _NOT_TEXT):
-                parts.append(str(child))
-        elif isinstance(child, Tag):
-            if child.name == "br":
-                parts.append(" ")
-            elif child.name == "textcomplement":
-                parts.append(f" {_complement(child).inline} ")
-            elif child.name not in _FIELD_PARTS:
-                parts.append(_inline(child))
+    parts: list[str] = [node.text or ""]
+    for child in node:
+        name = child.tag
+        if name == "br":
+            parts.append(" ")
+        elif name == "textcomplement":
+            parts.append(f" {_complement(child).inline} ")
+        elif isinstance(name, str) and name not in _FIELD_PARTS and name not in _IMAGES:
+            parts.append(_inline(child))
+        parts.append(child.tail or "")
     return _WHITESPACE_RE.sub(" ", _TB_RE.sub("", _TA_RE.sub("", "".join(parts)))).strip()
 
 
-def _complement(tag: Tag) -> TextComplement:
+def _complement(tag: etree._Element) -> TextComplement:
     """One ``<TextComplement>``. Names arrive lowercased from the HTML parser."""
     kind = (
         ComplementKind.BIDDER
@@ -274,10 +282,13 @@ def _complement(tag: Tag) -> TextComplement:
         _PLACEHOLDER_RE.fullmatch(body)
     )
 
-    typed = _part(tag, "complbodydec") or _part(tag, "complbodyint")
+    # Not `or`: an lxml element without children is falsy.
+    typed = _part(tag, "complbodydec")
+    if typed is None:
+        typed = _part(tag, "complbodyint")
     number_kind: Literal["dec", "int"] | None = None
     if typed is not None:
-        number_kind = "dec" if typed.name == "complbodydec" else "int"
+        number_kind = "dec" if typed.tag == "complbodydec" else "int"
 
     return TextComplement(
         kind=kind,
@@ -293,12 +304,11 @@ def _complement(tag: Tag) -> TextComplement:
     )
 
 
-def _part(tag: Tag, name: str) -> Tag | None:
-    found = tag.find(name)
-    return found if isinstance(found, Tag) else None
+def _part(tag: etree._Element, name: str) -> etree._Element | None:
+    return next(_descendants(tag, (name,)), None)
 
 
-def _attr(tag: Tag, name: str) -> str | None:
+def _attr(tag: etree._Element, name: str) -> str | None:
     value = str(tag.get(name, "") or "").strip()
     return value or None
 
@@ -312,12 +322,12 @@ def _number(value: object) -> Decimal | None:
         return None
 
 
-def _table_rows(table: Tag, complements: list[TextComplement]) -> list[list[str]]:
+def _table_rows(table: etree._Element, complements: list[TextComplement]) -> list[list[str]]:
     rows: list[list[str]] = []
-    for tr in table.find_all("tr"):
+    for tr in _descendants(table, ("tr",)):
         cells = []
-        for cell in tr.find_all(["td", "th"]):
-            for tag in cell.find_all("textcomplement"):
+        for cell in _descendants(tr, ("td", "th")):
+            for tag in _descendants(cell, ("textcomplement",)):
                 complements.append(_complement(tag))
             cells.append(_inline(cell))
         if cells:
@@ -325,11 +335,11 @@ def _table_rows(table: Tag, complements: list[TextComplement]) -> list[list[str]
     return rows
 
 
-def _extract_tables(soup: BeautifulSoup) -> list[list[list[str]]]:
-    return [rows for table in soup.find_all("table") if (rows := _table_rows(table, []))]
+def _extract_tables(nodes: list[etree._Element]) -> list[list[list[str]]]:
+    return [rows for table in _descendants(nodes, ("table",)) if (rows := _table_rows(table, []))]
 
 
-def _extract_images(soup: BeautifulSoup) -> list[str]:
+def _extract_images(nodes: list[etree._Element]) -> list[str]:
     """Every graphic in the text, as a data URI ready to render.
 
     Two shapes appear in the wild. HTML-ish long texts use ``<img src="...">``,
@@ -339,23 +349,72 @@ def _extract_images(soup: BeautifulSoup) -> list[str]:
     """
     images: list[str] = []
 
-    for img in soup.find_all("img"):
+    elements = [node for node in nodes if isinstance(node.tag, str)]
+    for img in (img for node in elements for img in node.iter("img")):
         src = str(img.get("src", "")).strip()
         if src:
             images.append(src)
 
-    for element in soup.find_all("image"):
-        encoded = _WHITESPACE_RE.sub("", element.get_text() or "")
+    for element in (image for node in elements for image in node.iter("image")):
+        encoded = _WHITESPACE_RE.sub("", _image_data(element))
         if not encoded:
             continue
-        # The attribute is spelled Type in the schema; BeautifulSoup lowercases it.
+        # The attribute is spelled Type in the schema; the HTML parser lowercases it.
         mime = str(element.get("type") or element.get("Type") or "image/jpeg").strip()
         images.append(f"data:{mime};base64,{encoded}")
 
     return images
 
 
-def _remove_images(soup: BeautifulSoup) -> None:
-    """Take the graphics out of the tree so their base64 cannot reach the prose."""
-    for element in soup.find_all(["image", "img"]):
-        element.decompose()
+def _image_data(element: etree._Element) -> str:
+    """An image's text, leaving out what BeautifulSoup's get_text() left out.
+
+    BeautifulSoup gave text anywhere inside these elements another type, which
+    get_text() skipped — inside the image or around it.
+    """
+    if any(ancestor.tag in _NOT_IMAGE_DATA for ancestor in element.iterancestors()):
+        return ""
+    return _plain_data(element)
+
+
+def _plain_data(element: etree._Element) -> str:
+    parts = [element.text or ""]
+    for child in element:
+        if isinstance(child.tag, str) and child.tag not in _NOT_IMAGE_DATA:
+            parts.append(_plain_data(child))
+        parts.append(child.tail or "")
+    return "".join(parts)
+
+
+def _top_level(html: str) -> list[etree._Element]:
+    """The markup's top-level nodes as libxml2's HTML parser reads them.
+
+    That is the parser BeautifulSoup's "lxml" mode drove. Usually one <html>
+    element; text after a stray ``</html>`` lands in a second one.
+    """
+    if html.startswith("\N{BYTE ORDER MARK}"):  # BeautifulSoup dropped it too
+        html = html[1:]
+    # A parser per call: lxml parsers must not be shared between threads. huge_tree,
+    # because BeautifulSoup's event-driven parse had no limit on text size or depth: a
+    # long text with a 10 MB image must not end at the image.
+    parser = etree.HTMLParser(recover=True, huge_tree=True)
+    # At least one feed, as BeautifulSoup did: closing an unfed parser raises.
+    for start in range(0, max(len(html), 1), _FEED_CHUNK):
+        parser.feed(html[start:start + _FEED_CHUNK])
+    root = parser.close()
+    if root is None:  # only a comment or a processing instruction
+        return []
+    return [*reversed(list(root.itersiblings(preceding=True))), root, *root.itersiblings()]
+
+
+def _descendants(
+    node: Iterable[etree._Element], names: Collection[str]
+) -> Iterator[etree._Element]:
+    """Elements named *names* below *node*, in document order, never inside an image."""
+    for child in node:
+        name = child.tag
+        if not isinstance(name, str) or name in _IMAGES:
+            continue
+        if name in names:
+            yield child
+        yield from _descendants(child, names)

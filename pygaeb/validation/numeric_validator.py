@@ -7,7 +7,7 @@ from decimal import Decimal
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import ValidationSeverity
 from pygaeb.models.item import ValidationResult
-from pygaeb.validation._common import item_ref
+from pygaeb.validation._common import item_finding, item_ref
 
 _ROUNDING_TOLERANCE = Decimal("0.01")
 
@@ -22,85 +22,74 @@ _MAX_UP_COMPONENTS = 6     # Unit price parts (EPA)
 def validate_numerics(doc: GAEBDocument) -> list[ValidationResult]:
     """Check total_price vs computed_total and GAEB precision limits for all items."""
     results: list[ValidationResult] = []
+    warning = ValidationSeverity.WARNING
 
     for item in doc.award.boq.iter_items():
         # §5.2 rounding discrepancy check
         if item.total_price is not None and item.computed_total is not None:
             diff = abs(item.total_price - item.computed_total)
             if diff > _ROUNDING_TOLERANCE:
-                results.append(ValidationResult(
-                    severity=ValidationSeverity.WARNING,
-                    message=(
-                        f"{item_ref(item)}: Total price mismatch — "
-                        f"stored={item.total_price}, "
-                        f"computed={item.computed_total} "
-                        f"(diff={diff})"
-                    ),
-                    xpath_location=f"Item[@RNoPart='{item.oz}']/IT",
+                results.append(item_finding(
+                    item, warning,
+                    f"{item_ref(item)}: Total price mismatch — "
+                    f"stored={item.total_price}, "
+                    f"computed={item.computed_total} "
+                    f"(diff={diff})",
+                    "IT",
                 ))
 
         # GAEB precision limit: unit price max 10 pre-decimal digits
         if item.unit_price is not None:
             pre_decimal = _pre_decimal_digits(item.unit_price)
             if pre_decimal > _MAX_PRE_DECIMAL_EP:
-                results.append(ValidationResult(
-                    severity=ValidationSeverity.WARNING,
-                    message=(
-                        f"{item_ref(item)}: Unit price {item.unit_price} exceeds "
-                        f"GAEB limit of {_MAX_PRE_DECIMAL_EP} pre-decimal digits "
-                        f"(has {pre_decimal})"
-                    ),
-                    xpath_location=f"Item[@RNoPart='{item.oz}']/UP",
+                results.append(item_finding(
+                    item, warning,
+                    f"{item_ref(item)}: Unit price {item.unit_price} exceeds "
+                    f"GAEB limit of {_MAX_PRE_DECIMAL_EP} pre-decimal digits "
+                    f"(has {pre_decimal})",
+                    "UP",
                 ))
 
         # GAEB precision limit: total price max 11 pre-decimal digits
         if item.total_price is not None:
             pre_decimal = _pre_decimal_digits(item.total_price)
             if pre_decimal > _MAX_PRE_DECIMAL_GB:
-                results.append(ValidationResult(
-                    severity=ValidationSeverity.WARNING,
-                    message=(
-                        f"{item_ref(item)}: Total price {item.total_price} exceeds "
-                        f"GAEB limit of {_MAX_PRE_DECIMAL_GB} pre-decimal digits "
-                        f"(has {pre_decimal})"
-                    ),
-                    xpath_location=f"Item[@RNoPart='{item.oz}']/IT",
+                results.append(item_finding(
+                    item, warning,
+                    f"{item_ref(item)}: Total price {item.total_price} exceeds "
+                    f"GAEB limit of {_MAX_PRE_DECIMAL_GB} pre-decimal digits "
+                    f"(has {pre_decimal})",
+                    "IT",
                 ))
 
         # GAEB precision limit: quantity max 8 pre-decimal, max 3 decimal
         if item.qty is not None:
             pre_decimal = _pre_decimal_digits(item.qty)
             if pre_decimal > _MAX_PRE_DECIMAL_QTY:
-                results.append(ValidationResult(
-                    severity=ValidationSeverity.WARNING,
-                    message=(
-                        f"{item_ref(item)}: Quantity {item.qty} exceeds "
-                        f"GAEB limit of {_MAX_PRE_DECIMAL_QTY} pre-decimal digits "
-                        f"(has {pre_decimal})"
-                    ),
-                    xpath_location=f"Item[@RNoPart='{item.oz}']/Qty",
+                results.append(item_finding(
+                    item, warning,
+                    f"{item_ref(item)}: Quantity {item.qty} exceeds "
+                    f"GAEB limit of {_MAX_PRE_DECIMAL_QTY} pre-decimal digits "
+                    f"(has {pre_decimal})",
+                    "Qty",
                 ))
 
             dec_places = _decimal_places(item.qty)
             if dec_places > _MAX_DECIMAL_QTY:
-                results.append(ValidationResult(
-                    severity=ValidationSeverity.WARNING,
-                    message=(
-                        f"{item_ref(item)}: Quantity {item.qty} has {dec_places} "
-                        f"decimal places, GAEB limit is {_MAX_DECIMAL_QTY}"
-                    ),
-                    xpath_location=f"Item[@RNoPart='{item.oz}']/Qty",
+                results.append(item_finding(
+                    item, warning,
+                    f"{item_ref(item)}: Quantity {item.qty} has {dec_places} "
+                    f"decimal places, GAEB limit is {_MAX_DECIMAL_QTY}",
+                    "Qty",
                 ))
 
         # GAEB precision limit: max 6 unit price components
         if len(item.up_components) > _MAX_UP_COMPONENTS:
-            results.append(ValidationResult(
-                severity=ValidationSeverity.WARNING,
-                message=(
-                    f"{item_ref(item)}: {len(item.up_components)} unit price components, "
-                    f"GAEB limit is {_MAX_UP_COMPONENTS}"
-                ),
-                xpath_location=f"Item[@RNoPart='{item.oz}']/UPComp",
+            results.append(item_finding(
+                item, warning,
+                f"{item_ref(item)}: {len(item.up_components)} unit price components, "
+                f"GAEB limit is {_MAX_UP_COMPONENTS}",
+                "UPComp",
             ))
 
     return results

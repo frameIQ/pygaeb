@@ -12,7 +12,7 @@ Quick start:
 
 from __future__ import annotations
 
-__version__ = "1.20.0"
+__version__ = "1.21.0"
 
 from pygaeb.exceptions import (
     ClassificationBackendError,
@@ -80,6 +80,7 @@ def __getattr__(name: str) -> object:
         "ComplementKind": ("pygaeb.models.enums", "ComplementKind"),
         "parse_richtext": ("pygaeb.parser.xml_v3.richtext_parser", "parse_richtext"),
         "ValidationResult": ("pygaeb.models.item", "ValidationResult"),
+        "SourceSpan": ("pygaeb.models.source", "SourceSpan"),
         "BoQ": ("pygaeb.models.boq", "BoQ"),
         "BoQBkdn": ("pygaeb.models.boq", "BoQBkdn"),
         "BoQBody": ("pygaeb.models.boq", "BoQBody"),
@@ -323,6 +324,7 @@ __all__ = [
     "SectionChange",
     "SectionRenamed",
     "Significance",
+    "SourceSpan",
     "SourceVersion",
     "StructureDiffSummary",
     "StructuredExtractor",

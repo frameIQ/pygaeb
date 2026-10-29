@@ -23,6 +23,10 @@ class V2Parser(BaseV3Parser):
         doc = super().parse(path, translated)
         return doc
 
+    def _source_name(self, name: str) -> str:
+        # Positions are read from the untranslated file.
+        return GERMAN_TO_ENGLISH.get(name, name)
+
 
 def _translate_elements(xml_text: str) -> str:
     """Replace German element names with their English equivalents.
