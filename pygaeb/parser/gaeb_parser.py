@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pygaeb.config import get_settings
-from pygaeb.detector.encoding_repair import declare_utf8, repair_encoding
+from pygaeb.detector.encoding_repair import declare_utf8, decode_xml_as_written, repair_encoding
 from pygaeb.detector.format_detector import FormatFamily, ParserTrack
 from pygaeb.detector.version_detector import ParseRoute, detect_version
 from pygaeb.exceptions import GAEBParseError, GAEBValidationError
@@ -48,11 +48,16 @@ class GAEBParser:
         collect_raw_data: bool = False,
         extra_validators: list[Callable[[GAEBDocument], list[ValidationResult]]] | None = None,
         suppress: list[str] | None = None,
+        positions: bool = False,
     ) -> GAEBDocument:
         """Parse a GAEB file from disk and return a unified GAEBDocument.
 
         Set *keep_xml* to ``True`` to retain raw lxml elements on every
         model (``item.source_element``) and enable ``doc.xpath()``.
+
+        Set *positions* to ``True`` to record where each lot, category and
+        item sits in the file (``source_span``, counted as editors count);
+        findings about them carry the same span. DA XML only.
 
         *max_file_size* overrides the configured ``max_file_size_mb``
         limit (in bytes).  Pass ``0`` to disable the check.
@@ -82,6 +87,7 @@ class GAEBParser:
             collect_raw_data=collect_raw_data,
             extra_validators=extra_validators,
             suppress=suppress,
+            positions=positions,
         )
 
     @staticmethod
@@ -96,27 +102,20 @@ class GAEBParser:
         collect_raw_data: bool = False,
         extra_validators: list[Callable[[GAEBDocument], list[ValidationResult]]] | None = None,
         suppress: list[str] | None = None,
+        positions: bool = False,
     ) -> GAEBDocument:
         """Parse GAEB data from bytes (useful for web uploads, S3 streams, etc.).
 
         The filename hint is used for version/phase detection from the extension.
         """
-        _enforce_size_limit(len(data), max_file_size)
-        hint_path = Path(filename)
-        with tempfile.NamedTemporaryFile(suffix=hint_path.suffix, delete=False) as tmp:
-            tmp.write(data)
-            tmp_path = Path(tmp.name)
-        try:
-            route = detect_version(tmp_path)
-            return _parse_core(
-                data, route, hint_path, validation, xsd_dir, keep_xml,
-                post_parse_hook=post_parse_hook,
-                collect_raw_data=collect_raw_data,
-                extra_validators=extra_validators,
-                suppress=suppress,
-            )
-        finally:
-            tmp_path.unlink(missing_ok=True)
+        return _parse_bytes(
+            data, filename, validation, xsd_dir, keep_xml, max_file_size,
+            post_parse_hook=post_parse_hook,
+            collect_raw_data=collect_raw_data,
+            extra_validators=extra_validators,
+            suppress=suppress,
+            positions=positions,
+        )
 
     @staticmethod
     def parse_string(
@@ -130,20 +129,59 @@ class GAEBParser:
         collect_raw_data: bool = False,
         extra_validators: list[Callable[[GAEBDocument], list[ValidationResult]]] | None = None,
         suppress: list[str] | None = None,
+        positions: bool = False,
     ) -> GAEBDocument:
         """Parse GAEB data from an XML string.
 
         The filename hint is used for version/phase detection from the extension.
+        Source positions refer to *xml_text* as given.
         """
         # A str has no encoding: its declaration must name the UTF-8 it is sent as.
-        return GAEBParser.parse_bytes(
+        return _parse_bytes(
             declare_utf8(xml_text).encode("utf-8"), filename, validation, xsd_dir, keep_xml,
             max_file_size,
             post_parse_hook=post_parse_hook,
             collect_raw_data=collect_raw_data,
             extra_validators=extra_validators,
             suppress=suppress,
+            positions=positions,
+            positions_text=xml_text,
         )
+
+
+def _parse_bytes(
+    data: bytes,
+    filename: str,
+    validation: ValidationMode,
+    xsd_dir: str | None,
+    keep_xml: bool,
+    max_file_size: int | None,
+    *,
+    post_parse_hook: Callable[[Any, Any], None] | None,
+    collect_raw_data: bool,
+    extra_validators: list[Callable[[GAEBDocument], list[ValidationResult]]] | None,
+    suppress: list[str] | None,
+    positions: bool,
+    positions_text: str | None = None,
+) -> GAEBDocument:
+    _enforce_size_limit(len(data), max_file_size)
+    hint_path = Path(filename)
+    with tempfile.NamedTemporaryFile(suffix=hint_path.suffix, delete=False) as tmp:
+        tmp.write(data)
+        tmp_path = Path(tmp.name)
+    try:
+        route = detect_version(tmp_path)
+        return _parse_core(
+            data, route, hint_path, validation, xsd_dir, keep_xml,
+            post_parse_hook=post_parse_hook,
+            collect_raw_data=collect_raw_data,
+            extra_validators=extra_validators,
+            suppress=suppress,
+            positions=positions,
+            positions_text=positions_text,
+        )
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def _enforce_size_limit(size_bytes: int, explicit_limit: int | None) -> None:
@@ -178,6 +216,8 @@ def _parse_core(
     collect_raw_data: bool = False,
     extra_validators: list[Callable[[GAEBDocument], list[ValidationResult]]] | None = None,
     suppress: list[str] | None = None,
+    positions: bool = False,
+    positions_text: str | None = None,
 ) -> GAEBDocument:
     """Shared parsing pipeline for all entry points."""
     logger.debug(
@@ -196,9 +236,17 @@ def _parse_core(
     text, encoding_info = repair_encoding(raw, is_xml=is_xml)
     route.encoding_info = encoding_info
 
+    # Positions are counted on the file as written: repair and the UTF-8 declaration
+    # rewrite would shift them.
+    if positions and is_xml and positions_text is None:
+        positions_text = decode_xml_as_written(raw)[0]
+
     doc = _dispatch_parser(
         route, source_path, text, effective_keep_xml, collect_raw_data=collect_raw_data,
+        positions_text=positions_text if positions else None,
     )
+    if positions and not is_xml:
+        doc.add_info("Source positions unavailable: GAEB 90 files are not XML")
 
     if post_parse_hook is not None:
         _run_post_parse_hook(doc, post_parse_hook)
@@ -290,7 +338,7 @@ _QUANTITY_PHASES = frozenset({
 
 def _dispatch_parser(
     route: ParseRoute, path: Path, text: str, keep_xml: bool = False,
-    *, collect_raw_data: bool = False,
+    *, collect_raw_data: bool = False, positions_text: str | None = None,
 ) -> GAEBDocument:
     """Route to the correct parser track based on detection result."""
     if route.format_family == FormatFamily.ONORM_B2063:
@@ -306,33 +354,35 @@ def _dispatch_parser(
         gaeb90_parser = GAEB90Parser(route)
         return gaeb90_parser.parse(path, text)
 
-    opts = {"keep_xml": keep_xml, "collect_raw_data": collect_raw_data}
-    parser: BaseV3Parser
+    parser_class: type[BaseV3Parser]
     if route.exchange_phase in _TRADE_PHASES:
         from pygaeb.parser.xml_v3.trade_parser import TradeParser
-        parser = TradeParser(route, **opts)
+        parser_class = TradeParser
     elif route.exchange_phase in _COST_PHASES:
         from pygaeb.parser.xml_v3.cost_parser import CostParser
-        parser = CostParser(route, **opts)
+        parser_class = CostParser
     elif route.exchange_phase in _QUANTITY_PHASES:
         from pygaeb.parser.xml_v3.qty_parser import QtyParser
-        parser = QtyParser(route, **opts)
+        parser_class = QtyParser
     elif route.track == ParserTrack.TRACK_A:
         from pygaeb.parser.xml_v2.v2_parser import V2Parser
-        parser = V2Parser(route, **opts)
+        parser_class = V2Parser
     elif route.version == SourceVersion.DA_XML_30:
         from pygaeb.parser.xml_v3.v30_compat import V30Compat
-        parser = V30Compat(route, **opts)
+        parser_class = V30Compat
     elif route.version == SourceVersion.DA_XML_31:
         from pygaeb.parser.xml_v3.v31_compat import V31Compat
-        parser = V31Compat(route, **opts)
+        parser_class = V31Compat
     elif route.version == SourceVersion.DA_XML_33:
         from pygaeb.parser.xml_v3.v33_compat import V33Compat
-        parser = V33Compat(route, **opts)
+        parser_class = V33Compat
     else:
         from pygaeb.parser.xml_v3.v32_compat import V32Compat
-        parser = V32Compat(route, **opts)
+        parser_class = V32Compat
 
+    parser = parser_class(
+        route, keep_xml=keep_xml, collect_raw_data=collect_raw_data, positions_text=positions_text,
+    )
     doc = parser.parse(path, text)
     if collect_raw_data:
         parser.fill_raw_data(doc)

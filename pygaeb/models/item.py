@@ -17,6 +17,7 @@ from pygaeb.models.enums import (
     Provis,
     ValidationSeverity,
 )
+from pygaeb.models.source import SourceSpan
 
 
 class QtySplit(BaseModel):
@@ -203,6 +204,10 @@ class ValidationResult(BaseModel):
     message: str
     xpath_location: str | None = None
     version_specific: bool = False
+    #: ``id`` of the item the finding is about, when it concerns one item that has an ID.
+    item_id: str | None = None
+    #: Where that item or category sits in the file; needs ``positions=True``.
+    source_span: SourceSpan | None = Field(default=None, exclude=True, repr=False)
 
 
 class ExtractionResult(BaseModel):
@@ -323,6 +328,8 @@ class Item(BaseModel):
     markup_sub_qtys: list[MarkupSubQty] = Field(default_factory=list)
     bidder_prices: list[BidderPrice] = Field(default_factory=list)
     source_element: Any = Field(default=None, exclude=True, repr=False)
+    #: Where the element sits in the file; needs ``positions=True``.
+    source_span: SourceSpan | None = Field(default=None, exclude=True, repr=False)
     raw_data: dict[str, Any] | None = Field(default=None, exclude=True)
 
     @property

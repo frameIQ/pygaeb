@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Derived values in the JSON export:** every item carries `full_oz`, `computed_total` and `affects_total`, trade lines carry `line_total`, and the document carries its `grand_total`. A reader gets pyGAEB's sums without re-implementing the GAEB rules, and loading the JSON back ignores these values.
+- **Source positions.** `parse`, `parse_bytes` and `parse_string` take `positions=True`. Every lot, category and item then carries a `source_span`: where its element starts and ends in the file, counted the way editors count (lines break at CR, LF and CRLF; columns count characters; both from 1).
+  - A second, expat-based pass over the file as written finds them, so one-line files, files with CR line endings and non-UTF-8 files all get exact positions. lxml's `sourceline` (behind `keep_xml`) counts only LF as a line break.
+  - Procurement documents get them, X52 cost BoQs included; cost (X50, X51), quantity (X31) and trade (X93–X97) documents don't.
+  - A file that declares entities, needs repair or is GAEB 90 gets no positions, and a finding says why.
+  - Spans stay out of exports: JSON output does not change.
+- **Findings name their item.** A `ValidationResult` about one item carries that item's `item_id`, and with `positions=True` its `source_span`. Category and lot total findings carry their span.
+
+### Changed
+
+- **`xpath_location` uses the XML ID when there is one** (`*[@ID='I2']/Qty`). It used the item's own `RNoPart` (`Item[@RNoPart='0010']`), which recurs in every category, so it could match many items. Items without an ID keep the old form. Messages are unchanged.
 
 ## [1.20.0] - 2026-10-24
 

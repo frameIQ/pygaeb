@@ -5,6 +5,7 @@ from __future__ import annotations
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import ExchangePhase, ItemType, ValidationSeverity
 from pygaeb.models.item import ValidationResult
+from pygaeb.validation._common import item_finding
 
 
 class CrossPhaseValidator:
@@ -84,13 +85,14 @@ def _check_tender_bid(
     missing_in_response = source_ozs - response_ozs
     extra_in_response = response_ozs - source_ozs
 
+    # Each finding links to the item it names: the source's when the response lacks it.
     for oz in sorted(missing_in_response):
         source_item = source_items[oz]
         if source_item.affects_total:
-            results.append(ValidationResult(
-                severity=ValidationSeverity.ERROR,
-                message=f"Item {oz} present in source but missing in response",
-                xpath_location=f"Item[@RNoPart='{oz}']",
+            results.append(item_finding(
+                source_item, ValidationSeverity.ERROR,
+                f"Item {oz} present in source but missing in response",
+                rno_part=oz,
             ))
 
     for oz in sorted(extra_in_response):
@@ -98,10 +100,10 @@ def _check_tender_bid(
         if response_item.item_type not in (
             ItemType.ALTERNATIVE, ItemType.SUPPLEMENT
         ):
-            results.append(ValidationResult(
-                severity=ValidationSeverity.WARNING,
-                message=f"Item {oz} present in response but not in source",
-                xpath_location=f"Item[@RNoPart='{oz}']",
+            results.append(item_finding(
+                response_item, ValidationSeverity.WARNING,
+                f"Item {oz} present in response but not in source",
+                rno_part=oz,
             ))
 
     for oz in sorted(source_ozs & response_ozs):
@@ -109,20 +111,18 @@ def _check_tender_bid(
         response_item = response_items[oz]
         if (source_item.qty is not None and response_item.qty is not None
                 and source_item.qty != response_item.qty):
-            results.append(ValidationResult(
-                severity=ValidationSeverity.WARNING,
-                message=(
-                    f"Item {oz}: Quantity modified in response "
-                    f"(source={source_item.qty}, response={response_item.qty})"
-                ),
-                xpath_location=f"Item[@RNoPart='{oz}']/Qty",
+            results.append(item_finding(
+                response_item, ValidationSeverity.WARNING,
+                f"Item {oz}: Quantity modified in response "
+                f"(source={source_item.qty}, response={response_item.qty})",
+                "Qty", rno_part=oz,
             ))
 
         if response_item.affects_total and response_item.unit_price is None:
-            results.append(ValidationResult(
-                severity=ValidationSeverity.WARNING,
-                message=f"Item {oz}: Priced item missing unit price in response",
-                xpath_location=f"Item[@RNoPart='{oz}']/UP",
+            results.append(item_finding(
+                response_item, ValidationSeverity.WARNING,
+                f"Item {oz}: Priced item missing unit price in response",
+                "UP", rno_part=oz,
             ))
 
     return results
@@ -153,13 +153,11 @@ def _check_contract_invoice(
     for oz in sorted(invoice_items.keys() - contract_items.keys()):
         inv_item = invoice_items[oz]
         if inv_item.affects_total:
-            results.append(ValidationResult(
-                severity=ValidationSeverity.ERROR,
-                message=(
-                    f"Item {oz}: Invoice item not found in contract — "
-                    f"invoiced items must reference existing contract OZ numbers"
-                ),
-                xpath_location=f"Item[@RNoPart='{oz}']",
+            results.append(item_finding(
+                inv_item, ValidationSeverity.ERROR,
+                f"Item {oz}: Invoice item not found in contract — "
+                f"invoiced items must reference existing contract OZ numbers",
+                rno_part=oz,
             ))
 
     # Check matching items: unit prices must be identical
@@ -174,21 +172,19 @@ def _check_contract_invoice(
         if (contract_item.unit_price is not None
                 and inv_item.unit_price is not None
                 and contract_item.unit_price != inv_item.unit_price):
-            results.append(ValidationResult(
-                severity=ValidationSeverity.ERROR,
-                message=(
-                    f"Item {oz}: Invoice unit price ({inv_item.unit_price}) "
-                    f"does not match contract unit price ({contract_item.unit_price})"
-                ),
-                xpath_location=f"Item[@RNoPart='{oz}']/UP",
+            results.append(item_finding(
+                inv_item, ValidationSeverity.ERROR,
+                f"Item {oz}: Invoice unit price ({inv_item.unit_price}) "
+                f"does not match contract unit price ({contract_item.unit_price})",
+                "UP", rno_part=oz,
             ))
 
         # Invoice must have executed quantity
         if inv_item.qty is None:
-            results.append(ValidationResult(
-                severity=ValidationSeverity.WARNING,
-                message=f"Item {oz}: Invoice item missing executed quantity",
-                xpath_location=f"Item[@RNoPart='{oz}']/Qty",
+            results.append(item_finding(
+                inv_item, ValidationSeverity.WARNING,
+                f"Item {oz}: Invoice item missing executed quantity",
+                "Qty", rno_part=oz,
             ))
 
     return results
@@ -222,13 +218,11 @@ def _check_contract_addendum(
     for oz in sorted(new_items):
         add_item = addendum_items[oz]
         if add_item.affects_total and not add_item.change_order_number:
-            results.append(ValidationResult(
-                severity=ValidationSeverity.WARNING,
-                message=(
-                    f"Item {oz}: New Nachtrag item missing change order number "
-                    f"(CONo) — required for traceability to parent contract"
-                ),
-                xpath_location=f"Item[@RNoPart='{oz}']/CONo",
+            results.append(item_finding(
+                add_item, ValidationSeverity.WARNING,
+                f"Item {oz}: New Nachtrag item missing change order number "
+                f"(CONo) — required for traceability to parent contract",
+                "CONo", rno_part=oz,
             ))
 
     # Modified items: check for quantity or price changes without CONo
@@ -251,13 +245,11 @@ def _check_contract_addendum(
         )
 
         if (has_qty_change or has_price_change) and not add_item.change_order_number:
-            results.append(ValidationResult(
-                severity=ValidationSeverity.WARNING,
-                message=(
-                    f"Item {oz}: Contract item modified in Nachtrag "
-                    f"without change order number (CONo)"
-                ),
-                xpath_location=f"Item[@RNoPart='{oz}']/CONo",
+            results.append(item_finding(
+                add_item, ValidationSeverity.WARNING,
+                f"Item {oz}: Contract item modified in Nachtrag "
+                f"without change order number (CONo)",
+                "CONo", rno_part=oz,
             ))
 
     return results

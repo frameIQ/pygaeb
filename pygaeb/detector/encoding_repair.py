@@ -55,13 +55,22 @@ def decode_xml(raw: bytes) -> tuple[str, str]:
     and the text's declaration is rewritten to name UTF-8, because callers
     hand ``text.encode("utf-8")`` to lxml.
     """
+    text, encoding = decode_xml_as_written(raw)
+    return declare_utf8(text), encoding
+
+
+def decode_xml_as_written(raw: bytes) -> tuple[str, str]:
+    """Like ``decode_xml`` but with the declaration left as the file wrote it.
+
+    Source positions are counted on this text: it is what an editor shows.
+    """
     encoding, body = sniff_unicode(raw)
     encoding = encoding or _declared_encoding(body) or "utf-8"
     try:
         text = body.decode(encoding)
     except (UnicodeDecodeError, LookupError):
         text, encoding = _decode_fallback(body), "repaired"
-    return declare_utf8(text), encoding
+    return text, encoding
 
 
 def declare_utf8(text: str) -> str:

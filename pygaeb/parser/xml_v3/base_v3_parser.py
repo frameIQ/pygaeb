@@ -53,17 +53,26 @@ from pygaeb.models.position_types import (
     ITEMTAG_TEXT_TO_TYPE,
     MARKER_ELEMENT_TO_TYPE,
 )
+from pygaeb.models.source import SourceSpan
+from pygaeb.parser.positions import element_spans
 from pygaeb.parser.recovery import parse_xml_safe
 from pygaeb.parser.xml_v3.richtext_parser import parse_plaintext, parse_richtext
 
 logger = logging.getLogger("pygaeb.parser")
+
+# Elements that get a source span: lots and categories (BoQCtgy), items and markup items.
+_SPANNED_TAGS = frozenset({"BoQCtgy", "Item", "MarkupItem"})
 
 
 class BaseV3Parser:
     """Shared parse logic for all DA XML 3.x versions."""
 
     def __init__(
-        self, route: ParseRoute, keep_xml: bool = False, collect_raw_data: bool = False,
+        self,
+        route: ParseRoute,
+        keep_xml: bool = False,
+        collect_raw_data: bool = False,
+        positions_text: str | None = None,
     ) -> None:
         self.route = route
         self._ns: str | None = None
@@ -73,6 +82,9 @@ class BaseV3Parser:
         self._keep_xml = keep_xml
         # Every element a parse step read, so raw_data can hold exactly the rest.
         self._read: set[etree._Element] | None = set() if collect_raw_data else None
+        # The file as written, when the caller asked for source positions.
+        self._positions_text = positions_text
+        self._spans: dict[etree._Element, SourceSpan] = {}
 
     def parse(self, path: Path, text: str) -> GAEBDocument:
         root, recovery_warnings = parse_xml_safe(text, str(path))
@@ -88,6 +100,8 @@ class BaseV3Parser:
             raw_namespace=self._ns,
         )
         doc.validation_results.extend(recovery_warnings)
+        if self._positions_text is not None:
+            self._find_spans(root, doc, self._positions_text, repaired=bool(recovery_warnings))
 
         doc.gaeb_info = self._parse_gaeb_info(root)
         doc.award = self._parse_award(root, doc)
@@ -96,6 +110,21 @@ class BaseV3Parser:
             doc.xml_root = root
 
         return doc
+
+    def _find_spans(
+        self, root: etree._Element, doc: GAEBDocument, text: str, *, repaired: bool,
+    ) -> None:
+        if repaired:
+            # The repaired tree no longer matches the file, so its positions would not either.
+            doc.add_warning("Source positions unavailable: the XML needed repair before parsing")
+            return
+        self._spans, reason = element_spans(text, root, _SPANNED_TAGS, self._source_name)
+        if reason:
+            doc.add_warning(f"Source positions unavailable: {reason}")
+
+    def _source_name(self, name: str) -> str:
+        """The tag name lxml saw for *name* as the file writes it."""
+        return name
 
     def fill_raw_data(self, doc: GAEBDocument) -> None:
         """Put each item's child elements that no parse step read into ``raw_data``.
@@ -336,6 +365,7 @@ class BaseV3Parser:
                     label = self._text(lot_el, "LblTx") or f"Lot {i + 1}"
                     lot = Lot(
                         id=lot_el.get("ID"), rno=rno, label=label, boq_info=boq.boq_info,
+                        source_span=self._spans.get(lot_el),
                     )
                     lot.body = self._parse_ctgy_as_body(
                         lot_el, doc, lot_label=label, oz_path=[rno] if rno else []
@@ -534,7 +564,10 @@ class BaseV3Parser:
         oz_path = oz_path or []
         rno = ctgy_el.get("RNoPart", "")
         label = self._text(ctgy_el, "LblTx") or ""
-        ctgy = BoQCtgy(id=ctgy_el.get("ID"), rno=rno, label=label, lbl_tx=label)
+        ctgy = BoQCtgy(
+            id=ctgy_el.get("ID"), rno=rno, label=label, lbl_tx=label,
+            source_span=self._spans.get(ctgy_el),
+        )
 
         current_path = parent_path + ([label] if label else [rno] if rno else [])
         # OZ chain carries only the numeric RNoParts (skip unnumbered groups).
@@ -580,6 +613,7 @@ class BaseV3Parser:
             oz_path=oz_path or [],
             hierarchy_path=hierarchy_path,
             lot_label=lot_label or None,
+            source_span=self._spans.get(item_el),
         )
 
         qty_el = self._find(item_el, "Qty")
@@ -706,6 +740,7 @@ class BaseV3Parser:
             hierarchy_path=hierarchy_path,
             lot_label=lot_label or None,
             item_type=ItemType.MARKUP,
+            source_span=self._spans.get(el),
         )
 
         self._parse_description(el, item)

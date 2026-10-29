@@ -151,6 +151,26 @@ for item in doc.iter_items():
 
 See the [Custom & Vendor Tags Guide](custom-tags.md) for full details.
 
+## Source Positions
+
+Pass `positions=True` to learn where each lot, category and item sits in the file, for example to put a finding on the right line in an editor:
+
+```python
+doc = GAEBParser.parse("tender.X83", positions=True)
+
+for item in doc.iter_items():
+    if item.source_span:
+        print(item.full_oz, item.source_span.start_line, item.source_span.start_column)
+
+for finding in doc.validation_results:
+    if finding.item_id:  # the item the finding is about
+        print(finding.message, finding.source_span)
+```
+
+Spans count the way editors do: lines break at CR, LF and CRLF, and columns count characters, both from 1. A span starts at the `<` of the element's start tag and ends just past the `>` that closes it. Positions are measured on the file as written, so encoding repair does not move them, and they stay out of every export.
+
+Positions cover procurement documents, X52 cost BoQs included; cost (X50, X51), quantity (X31) and trade (X93–X97) documents don't carry them. A file that declares entities, needs repair before parsing, or is GAEB 90 gets no positions, and a finding says why. Prefer `source_span` to `source_element.sourceline`: lxml counts only LF as a line break, so its lines are wrong for files with CR line endings.
+
 ## Unified Document Model
 
 Regardless of input version, you always get the same `GAEBDocument`. The document discriminates between **procurement**, **trade**, **cost**, and **quantity** workflows:

@@ -6,7 +6,8 @@ from typing import Any
 
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import BkdnType, ValidationSeverity
-from pygaeb.models.item import ValidationResult
+from pygaeb.models.item import Item, ValidationResult
+from pygaeb.validation._common import item_finding
 
 
 def validate_structure(doc: GAEBDocument) -> list[ValidationResult]:
@@ -36,17 +37,21 @@ def validate_structure(doc: GAEBDocument) -> list[ValidationResult]:
 def _validate_unique_oz(lot: Any) -> list[ValidationResult]:
     """An OZ (with its index, for Indexpositionen) must be unique within a lot."""
     seen: dict[tuple[str, str], int] = {}
+    # The first repeat of an OZ: the place a reader has to look.
+    repeats: dict[tuple[str, str], Item] = {}
     for item in lot.iter_items():
         key = (item.full_oz, item.rno_index or "")
         seen[key] = seen.get(key, 0) + 1
+        if seen[key] == 2:
+            repeats[key] = item
     results: list[ValidationResult] = []
     for (oz, index), count in seen.items():
         if count > 1:
             shown = f"{oz}[{index}]" if index else oz
-            results.append(ValidationResult(
-                severity=ValidationSeverity.ERROR,
-                message=f"Duplicate OZ {shown} ({count}x) in lot {lot.rno!r}",
-                xpath_location=f"Item[@RNoPart='{oz.rsplit('.', 1)[-1]}']",
+            results.append(item_finding(
+                repeats[(oz, index)], ValidationSeverity.ERROR,
+                f"Duplicate OZ {shown} ({count}x) in lot {lot.rno!r}",
+                rno_part=oz.rsplit(".", 1)[-1],
             ))
     return results
 
