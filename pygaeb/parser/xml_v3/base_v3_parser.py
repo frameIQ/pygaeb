@@ -157,10 +157,11 @@ class BaseV3Parser:
         return f"{self._ns_prefix}{local}" if self._ns_prefix else local
 
     def _find(self, parent: etree._Element, *tags: str) -> etree._Element | None:
+        # iterchildren matches in C; find() goes through lxml's Python ElementPath.
         for tag in tags:
-            el = parent.find(self._tag(tag))
+            el = next(parent.iterchildren(self._tag(tag)), None)
             if el is None:
-                el = parent.find(tag)
+                el = next(parent.iterchildren(tag), None)
             if el is not None:
                 if self._read is not None:
                     self._read.add(el)
@@ -168,9 +169,9 @@ class BaseV3Parser:
         return None
 
     def _findall(self, parent: etree._Element, tag: str) -> list[Any]:
-        result = parent.findall(self._tag(tag))
+        result = list(parent.iterchildren(self._tag(tag)))
         if not result:
-            result = parent.findall(tag)
+            result = list(parent.iterchildren(tag))
         if self._read is not None:
             self._read.update(result)
         return result

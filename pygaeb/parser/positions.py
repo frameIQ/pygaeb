@@ -36,23 +36,42 @@ def element_spans(
     spans and ``None``, or no spans and the reason.
     """
     data = text.encode("utf-8")
+    # Every element's name as written, in document order; expat interns the strings.
     names: list[str] = []
-    # Per element: start line, start column, end line, end column, end byte index, parent.
+    # Name as written -> local name as lxml sees it.
+    local_names: dict[str, str] = {}
+    # Per wanted element only: start line, start column, end line, end column, end byte
+    # index, and 1 when its parent's end tag follows it directly.
     marks: list[list[int]] = []
-    open_elements: list[int] = []
+    open_marks: list[list[int] | None] = []
+    last_ended: list[list[int] | None] = [None]
     # The encoding argument overrides the declaration: the bytes are UTF-8 whatever it says.
     # With "}" as separator a name reads "namespace}local", sliced like lxml's "{namespace}local".
     parser = xml.parsers.expat.ParserCreate(encoding="UTF-8", namespace_separator="}")
 
     def start(name: str, _attributes: object) -> None:
-        parent = open_elements[-1] if open_elements else -1
-        open_elements.append(len(marks))
         names.append(name)
-        marks.append([parser.CurrentLineNumber, parser.CurrentColumnNumber, 0, 0, 0, parent])
+        local = local_names.get(name)
+        if local is None:
+            written = name[name.rfind("}") + 1:]
+            local = local_names[name] = source_name(written) if source_name else written
+        mark = None
+        if local in wanted:
+            mark = [parser.CurrentLineNumber, parser.CurrentColumnNumber, 0, 0, 0, 0]
+            marks.append(mark)
+        open_marks.append(mark)
 
     def end(_name: str) -> None:
-        mark = marks[open_elements.pop()]
-        mark[2:5] = [parser.CurrentLineNumber, parser.CurrentColumnNumber, parser.CurrentByteIndex]
+        byte = parser.CurrentByteIndex
+        # An empty-element tag ends just past its "/>": when the next end tag starts right
+        # there, it is the parent's.
+        previous = last_ended[0]
+        if previous is not None and previous[4] == byte:
+            previous[5] = 1
+        mark = open_marks.pop()
+        if mark is not None:
+            mark[2:5] = [parser.CurrentLineNumber, parser.CurrentColumnNumber, byte]
+        last_ended[0] = mark
 
     def refuse_entity(*_args: object) -> None:
         raise _EntityDeclared
@@ -68,26 +87,34 @@ def element_spans(
     except xml.parsers.expat.ExpatError as exc:
         return {}, f"the file is not well-formed XML ({exc})"
 
-    elements = [el for el in root.iter() if isinstance(el.tag, str)]
-    if len(elements) != len(names):
-        return {}, _MISALIGNED
+    # Walked lazily: a list of half a million element proxies cost about 50 MB.
     spans: dict[etree._Element, SourceSpan] = {}
-    for element, name, mark in zip(elements, names, marks, strict=True):
-        tag = str(element.tag)
-        # "{namespace}Item" -> "Item"; slicing beats etree.QName on half a million elements.
-        local = tag[tag.rfind("}") + 1:]
-        written = name[name.rfind("}") + 1:]
-        if (source_name(written) if source_name else written) != local:
+    pending = iter(marks)
+    tag_locals: dict[str, str] = {}
+    count = 0
+    for element in root.iter():
+        tag = element.tag
+        if not isinstance(tag, str):
+            continue  # comments and processing instructions; expat reports no element
+        if count == len(names):
             return {}, _MISALIGNED
+        local = tag_locals.get(tag)
+        if local is None:
+            # "{namespace}Item" -> "Item"
+            local = tag_locals[tag] = tag[tag.rfind("}") + 1:]
+        if local_names[names[count]] != local:
+            return {}, _MISALIGNED
+        count += 1
         if local in wanted:
-            line, column, end_line, end_column, end_byte, parent = mark
-            # An empty-element tag right before its parent's end tag ends where the parent's does.
-            if parent < 0 or marks[parent][4] != end_byte:
+            line, column, end_line, end_column, end_byte, parent_follows = next(pending)
+            if not parent_follows:
                 end_line, end_column = _past_closing_tag(data, end_line, end_column, end_byte)
             spans[element] = SourceSpan(
                 start_line=line, start_column=column + 1,
                 end_line=end_line, end_column=end_column + 1,
             )
+    if count != len(names):
+        return {}, _MISALIGNED
     return spans, None
 
 

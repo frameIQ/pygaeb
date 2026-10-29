@@ -38,6 +38,8 @@ dependencies = [
     "lxml>=6.1",
     "pydantic>=2.4",
     "pydantic-settings>=2.5",
+    # Unused since long texts are read with lxml directly; kept one release for code
+    # that relies on pyGAEB installing it. Remove in the next release.
     "beautifulsoup4>=4.12",
     "ftfy>=6.1",
     "charset-normalizer>=3.0",

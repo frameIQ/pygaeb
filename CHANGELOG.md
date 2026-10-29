@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **`xpath_location` uses the XML ID when there is one** (`*[@ID='I2']/Qty`). It used the item's own `RNoPart` (`Item[@RNoPart='0010']`), which recurs in every category, so it could match many items. Items without an ID keep the old form. Messages are unchanged.
+- **Parsing is about twice as fast.** Long texts went through BeautifulSoup, which ran lxml's HTML parser and then copied every text into Python objects; the reader now walks the parser's own tree, and child elements are looked up in C. A 40,000-position tender parses in 3.3 s instead of 7.1 s, and in 8.4 s instead of 16.4 s under Pyodide. Results do not change: the old and new readers agree on 41,000 real long texts and 2.7 million generated ones, and every export is identical.
+- **`beautifulsoup4` is no longer used.** It stays a dependency for this release, for code that relies on pyGAEB to install it, and will be removed in the next.
 
 ## [1.20.0] - 2026-10-24
 
