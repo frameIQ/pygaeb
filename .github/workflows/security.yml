@@ -29,11 +29,23 @@ jobs:
       - name: Install pip-audit
         run: pip install "pip-audit==2.10.1"
 
-      # filelock's fix (4.2.1) is out of reach: litellm 1.106 requires filelock<4, and
-      # pyGAEB does not use filelock. Remove these ignores once litellm lifts the cap.
+      # filelock's fixes (4.x) are out of reach: every litellm up to 1.106.6 requires
+      # filelock<4, and filelock 4 needs Python 3.11. pyGAEB never imports filelock, and all
+      # of these need a local user who can write to the lock's directory (checked 2026-10-29).
+      # Remove these ignores once litellm lifts the cap.
       - name: Audit the installed packages
         run: >-
           pip-audit --skip-editable --progress-spinner off
           --ignore-vuln CVE-2026-112940
           --ignore-vuln CVE-2026-112913
           --ignore-vuln CVE-2026-112907
+          --ignore-vuln CVE-2026-112908
+          --ignore-vuln CVE-2026-112909
+          --ignore-vuln CVE-2026-112910
+          --ignore-vuln CVE-2026-112911
+          --ignore-vuln CVE-2026-112912
+          --ignore-vuln CVE-2026-112915
+          --ignore-vuln CVE-2026-112935
+          --ignore-vuln CVE-2026-112936
+          --ignore-vuln CVE-2026-112938
+          --ignore-vuln CVE-2026-112939
