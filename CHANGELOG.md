@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-10-29
+
 ### Fixed
 
 - **Files saved in ISO-8859-1, Windows-1252 or UTF-16 keep their umlauts.**
