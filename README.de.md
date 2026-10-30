@@ -434,6 +434,16 @@ Die vollständige Dokumentation ist auf [Read the Docs](https://pygaeb.readthedo
 - [Versionskonvertierung](https://pygaeb.readthedocs.io/guides/conversion/)
 - [API-Referenz](https://pygaeb.readthedocs.io/reference/)
 
+## Nutzen Sie pyGAEB?
+
+Wir sind gespannt, was Sie damit entwickeln!
+
+Ob in einer kommerziellen Anwendung, einem internen Tool, einem Forschungsprojekt oder einfach zum Ausprobieren — Ihr Feedback gestaltet die Zukunft des Projekts mit.
+
+**Erzählen Sie uns in den [GitHub Discussions](https://github.com/frameIQ/pygaeb/discussions), wie Sie pyGAEB einsetzen.**
+
+Sie müssen dabei weder Ihren Firmennamen noch vertrauliche Informationen angeben.
+
 ## Lizenz
 
 MIT — siehe [LICENSE](LICENSE).

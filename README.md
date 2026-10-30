@@ -588,6 +588,16 @@ Full documentation is available at [Read the Docs](https://pygaeb.readthedocs.io
 - [Version Conversion](https://pygaeb.readthedocs.io/guides/conversion/)
 - [API Reference](https://pygaeb.readthedocs.io/reference/)
 
+## Are you using pyGAEB?
+
+We'd love to learn what you're building!
+
+Whether you're using pyGAEB in a commercial application, internal tool, research project, or just experimenting, your feedback helps shape the project's future.
+
+**Tell us how you're using pyGAEB in [GitHub Discussions](https://github.com/frameIQ/pygaeb/discussions).**
+
+You don't need to disclose your company name or any confidential information.
+
 ## License
 
 MIT — see [LICENSE](LICENSE) for details.
