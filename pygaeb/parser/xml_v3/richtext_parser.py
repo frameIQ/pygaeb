@@ -19,13 +19,14 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Collection, Iterable, Iterator
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Literal
 
 from lxml import etree
 
 from pygaeb.models.enums import ComplementKind
 from pygaeb.models.item import RichText, TextComplement, join_inline
+from pygaeb.parser._decimal import parse_decimal
 
 logger = logging.getLogger("pygaeb.parser")
 
@@ -314,12 +315,8 @@ def _attr(tag: etree._Element, name: str) -> str | None:
 
 
 def _number(value: object) -> Decimal | None:
-    if value is None or not str(value).strip():
-        return None
-    try:
-        return Decimal(str(value).strip())
-    except InvalidOperation:
-        return None
+    """A ComplBodyDec/ComplBodyInt Value: an xs:decimal, like every GAEB number."""
+    return parse_decimal(None if value is None else str(value))
 
 
 def _table_rows(table: etree._Element, complements: list[TextComplement]) -> list[list[str]]:

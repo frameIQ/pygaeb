@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from lxml import etree
 
 from pygaeb.events import EventType, emit
+from pygaeb.models._money import WIDE, product_in_cents
 from pygaeb.models.boq import BoQ, BoQBkdn, BoQCtgy, BoQInfo, Totals
 from pygaeb.models.catalog import Catalog, CtlgAssign
 from pygaeb.models.cost import (
@@ -198,15 +199,16 @@ class _Ctx:
         self.dropped[what].append(where)
 
     def flush(self) -> None:
-        # One summary line per element kind rather than one per item: these
-        # omissions are inherent to the phase, not data loss the caller can fix.
+        # One summary line per element kind rather than one per item. The
+        # target phase has no place for these (a tender has no prices); a
+        # conversion counts them as lost, by the words "not written".
         for what, places in self.omitted.items():
             sample = ", ".join(places[:3]) + (", …" if len(places) > 3 else "")
             self.warnings.append(
                 f"{what} not written for {len(places)} element(s): not part of "
                 f"{self.phase_name} in DA XML 3.x ({sample})"
             )
-        # These are data loss: "dropped" is what ConversionReport counts.
+        # No schema has a place for these: "dropped".
         for what, places in self.dropped.items():
             sample = ", ".join(places[:3]) + (", …" if len(places) > 3 else "")
             self.warnings.append(
@@ -228,7 +230,7 @@ class GAEBWriter:
     Usage::
 
         GAEBWriter.write(doc, "output.X84", phase=ExchangePhase.X84)
-        GAEBWriter.write(doc, "legacy.D83", target_version=SourceVersion.DA_XML_20)
+        GAEBWriter.write(doc, "legacy.X83", target_version=SourceVersion.DA_XML_20)
     """
 
     @staticmethod
@@ -248,7 +250,8 @@ class GAEBWriter:
         Args:
             doc: The document to serialize.
             path: Output file path.
-            phase: Override exchange phase (default: keep original).
+            phase: Override exchange phase (default: keep original). A GAEB 90
+                phase (``D83``) is written as its DA XML phase (``X83``).
             target_version: Target DA XML version (default: 3.3).
             encoding: XML encoding declaration (default: utf-8).
             prog_system: ``<ProgSystem>`` — name and version of the generating
@@ -264,6 +267,10 @@ class GAEBWriter:
         Returns:
             List of warnings about fields dropped or not written for the target
             version and phase.
+
+        Raises:
+            ValueError: If *target_version* is not writable, or *phase* belongs
+                to another kind of document (a trade phase for a BoQ, …).
         """
         if target_version not in WRITABLE_VERSIONS:
             supported = ", ".join(
@@ -274,7 +281,7 @@ class GAEBWriter:
             )
 
         path = Path(path)
-        target_phase = phase or doc.exchange_phase
+        target_phase = target_phase_for(doc, phase)
         meta = VERSION_REGISTRY[target_version]
 
         _announce_write(EventType.WRITE_STARTED, str(path), doc, target_phase, target_version)
@@ -330,7 +337,7 @@ class GAEBWriter:
         if target_version not in WRITABLE_VERSIONS:
             raise ValueError(f"Cannot write to {target_version.value}.")
 
-        target_phase = phase or doc.exchange_phase
+        target_phase = target_phase_for(doc, phase)
         _announce_write(EventType.WRITE_STARTED, None, doc, target_phase, target_version)
         xml_bytes, warnings = _serialize(
             doc, target_phase, target_version, encoding,
@@ -373,14 +380,32 @@ class GAEBWriter:
         if target_version not in WRITABLE_VERSIONS:
             raise ValueError(f"Cannot write to {target_version.value}.")
         # Serialized without write events: checking a document is not writing it.
+        target_phase = target_phase_for(doc, phase)
         xml_bytes, _ = _serialize(
-            doc, phase or doc.exchange_phase, target_version, "utf-8",
+            doc, target_phase, target_version, "utf-8",
             prog_system=prog_system, prog_name=prog_name,
             keep_bidder_prices=keep_bidder_prices,
         )
-        return validate_xml(
-            xml_bytes, target_version, phase or doc.exchange_phase, xsd_dir,
+        return validate_xml(xml_bytes, target_version, target_phase, xsd_dir)
+
+
+def target_phase_for(doc: GAEBDocument, phase: ExchangePhase | None) -> ExchangePhase:
+    """The phase *doc* is written as: *phase*, else its own, in DA XML form.
+
+    A GAEB 90 phase becomes its DA XML phase (``D83`` → ``X83``): written as
+    it is, it named a namespace and a ``<DP>`` no schema has.
+
+    Raises:
+        ValueError: If the phase belongs to another kind of document, whose
+            elements the document does not have.
+    """
+    target = (phase or doc.exchange_phase).normalized()
+    if target.document_kind is not doc.document_kind:
+        raise ValueError(
+            f"A {doc.document_kind.value} document cannot be written as {target.value}, "
+            f"a {target.document_kind.value} phase"
         )
+    return target
 
 
 def _serialize(
@@ -432,7 +457,47 @@ def _announce_write(
     emit(event, **payload)
 
 
+#: Elements whose children run inline, like text: whitespace between them is content.
+#: A long text flows through its blocks: ``<Text>`` runs, then a TextComplement's
+#: caption, body and tail, then the next ``<Text>``, all in one sentence.
+_INLINE_CONTAINERS = frozenset({
+    "DetailTxt", "OutlTxt", "Text", "TextOutlTxt", "LblTx", "p", "span",
+    "TextComplement", "ComplCaption", "ComplBody", "ComplTail", "td", "th",
+})
+
+
 def _build_xml(
+    doc: GAEBDocument, phase: ExchangePhase, meta: VersionMeta,
+    prog_system: str | None = None, prog_name: str | None = None,
+    *, keep_bidder_prices: bool = False,
+) -> tuple[etree._Element, list[str]]:
+    """The document's XML tree, ready to pretty-print, plus the writer's warnings."""
+    root, warnings = _build_tree(
+        doc, phase, meta, prog_system, prog_name, keep_bidder_prices=keep_bidder_prices,
+    )
+    _keep_inline_text(root)
+    return root, warnings
+
+
+def _keep_inline_text(root: etree._Element) -> None:
+    """Stop pretty-printing from indenting inside text, where whitespace is content.
+
+    libxml2 leaves an element's children as they are once the element holds a
+    text node of its own; an empty one is enough and adds nothing to the file.
+    Without it, each run of a paragraph lands on a line of its own, and a
+    re-read finds spaces that were never in the text ("!" becomes " ! ").
+    """
+    for el in root.iter():
+        if (
+            isinstance(el.tag, str)
+            and el.text is None
+            and len(el)
+            and el.tag.rpartition("}")[2] in _INLINE_CONTAINERS
+        ):
+            el.text = ""
+
+
+def _build_tree(
     doc: GAEBDocument, phase: ExchangePhase, meta: VersionMeta,
     prog_system: str | None = None, prog_name: str | None = None,
     *, keep_bidder_prices: bool = False,
@@ -1887,9 +1952,11 @@ def _discounted_total(totals: Totals) -> Decimal | None:
     if totals.total is None:
         return None
     if totals.discount_pcnt is not None:
-        factor = (Decimal(100) - totals.discount_pcnt) / Decimal(100)
-        return (totals.total * factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return totals.total - (totals.discount_amt or Decimal(0))
+        return product_in_cents(
+            totals.total, WIDE.subtract(Decimal(100), totals.discount_pcnt),
+            divisor=Decimal(100),
+        )
+    return WIDE.subtract(totals.total, totals.discount_amt or Decimal(0))
 
 
 # ------------------------------------------------------------------
@@ -2411,7 +2478,7 @@ def _fmt_decimal(value: Decimal, decimal_places: int | None = None) -> str:
     """
     if decimal_places is not None:
         quantizer = Decimal(10) ** -decimal_places
-        return str(value.quantize(quantizer, rounding=ROUND_HALF_UP))
+        return str(value.quantize(quantizer, rounding=ROUND_HALF_UP, context=WIDE))
     return str(value)
 
 

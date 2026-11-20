@@ -10,7 +10,6 @@ import base64
 import contextlib
 import logging
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from lxml import etree
@@ -31,6 +30,7 @@ from pygaeb.models.quantity import (
     QtyDetermInfo,
     QtyItem,
 )
+from pygaeb.parser._decimal import parse_decimal as _parse_decimal
 from pygaeb.parser.recovery import parse_xml_safe
 from pygaeb.parser.xml_v3.base_v3_parser import BaseV3Parser
 
@@ -381,18 +381,6 @@ class QtyParser(BaseV3Parser):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
-
-def _parse_decimal(text: str | None) -> Decimal | None:
-    if text is None:
-        return None
-    text = text.strip().replace(",", ".")
-    if not text:
-        return None
-    try:
-        return Decimal(text)
-    except InvalidOperation:
-        return None
-
 
 def _parse_date(text: str) -> datetime | None:
     for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%d.%m.%Y"):

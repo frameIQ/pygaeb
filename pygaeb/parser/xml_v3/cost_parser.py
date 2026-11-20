@@ -9,7 +9,6 @@ from __future__ import annotations
 import contextlib
 import logging
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +34,7 @@ from pygaeb.models.cost import (
     RefGroup,
 )
 from pygaeb.models.document import GAEBDocument
+from pygaeb.parser._decimal import parse_decimal as _parse_decimal
 from pygaeb.parser.recovery import parse_xml_safe
 from pygaeb.parser.xml_v3.base_v3_parser import BaseV3Parser, _own_text
 from pygaeb.parser.xml_v3.richtext_parser import parse_richtext
@@ -409,18 +409,6 @@ class CostParser(BaseV3Parser):
             cat.source_element = el
 
         return cat
-
-
-def _parse_decimal(text: str | None) -> Decimal | None:
-    if text is None:
-        return None
-    text = text.strip().replace(",", ".")
-    if not text:
-        return None
-    try:
-        return Decimal(text)
-    except InvalidOperation:
-        return None
 
 
 def _parse_date(text: str) -> datetime | None:

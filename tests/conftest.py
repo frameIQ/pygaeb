@@ -190,7 +190,9 @@ MALFORMED_XML = """\
 
 @pytest.fixture
 def sample_v33_file(tmp_path: Path) -> Path:
-    f = tmp_path / "tender.X83"
+    # Named for what it holds: an award (DA86 namespace). The file's own
+    # declarations decide the phase; a wrong name only adds a warning.
+    f = tmp_path / "award.X86"
     f.write_text(SAMPLE_V33_XML, encoding="utf-8")
     return f
 

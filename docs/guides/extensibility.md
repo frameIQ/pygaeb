@@ -134,7 +134,7 @@ on_event(EventType.WRITE_COMPLETED, audit)
 | `WRITE_COMPLETED` | After the file or bytes are produced | as `WRITE_STARTED`, plus `warning_count`, `data_loss`, and `size` for `to_bytes` |
 | `CLASSIFICATION_COMPLETED` | When `LLMClassifier.enrich` finishes | `model`, `item_count`, `unique_texts`, `cache_hits`, `llm_calls`, `errors` |
 
-`file` for `parse_bytes` and `parse_string` is the filename hint. A strict parse that fails validation emits `VALIDATION_FAILED`, then `PARSE_FAILED`. `cache_hits` and `llm_calls` count unique texts, not items. `validate_against_xsd` emits no write events.
+`file` for `parse_bytes` and `parse_string` is the `filename` given, or `<bytes>` without one. A strict parse that fails validation emits `VALIDATION_FAILED`, then `PARSE_FAILED`. `cache_hits` and `llm_calls` count unique texts, not items. `validate_against_xsd` emits no write events.
 
 Subscribers are process-wide: in a multi-tenant application, a callback hears every tenant's parses and writes. Remove them with `off_event` or `clear_subscribers`.
 

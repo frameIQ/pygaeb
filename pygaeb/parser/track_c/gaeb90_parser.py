@@ -21,7 +21,7 @@ abort parsing — the parser is intentionally tolerant.
 from __future__ import annotations
 
 import logging
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 
 from pygaeb.detector.version_detector import ParseRoute
@@ -29,6 +29,7 @@ from pygaeb.models.boq import BoQ, BoQBody, BoQCtgy, Lot
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
 from pygaeb.models.enums import ItemType, ValidationSeverity
 from pygaeb.models.item import Item, ValidationResult
+from pygaeb.parser._decimal import parse_decimal
 
 logger = logging.getLogger("pygaeb.parser.gaeb90")
 
@@ -160,11 +161,9 @@ class GAEB90Parser:
 
 
 def _parse_decimal(s: str) -> Decimal | None:
-    """Parse a fixed-width decimal field, handling German comma notation."""
-    if not s:
-        return None
-    cleaned = s.strip().replace(",", ".")
-    try:
-        return Decimal(cleaned)
-    except (InvalidOperation, ValueError):
-        return None
+    """Parse a fixed-width decimal field, handling German comma notation.
+
+    Not reported when it fails: this reader does not know the real GAEB 90 record
+    layout yet, so a field it misreads is its own error, not the file's.
+    """
+    return parse_decimal(s, report=False)

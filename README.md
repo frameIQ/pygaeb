@@ -56,7 +56,7 @@ Python 3.10+.
 from pygaeb import GAEBParser
 
 doc = GAEBParser.parse("tender.X83")    # DA XML 3.x
-legacy_doc = GAEBParser.parse("old.D83")  # DA XML 2.x — same call
+legacy_doc = GAEBParser.parse("tender_2005.X83")  # DA XML 2.x — same call
 
 print(doc.source_version)               # SourceVersion.DA_XML_33
 print(doc.exchange_phase)               # ExchangePhase.X83
@@ -143,8 +143,8 @@ GAEBWriter.write(doc, "bid.X84", phase=ExchangePhase.X84)
 ```python
 from pygaeb import GAEBConverter, SourceVersion
 
-# Upgrade 2.x → 3.3
-report = GAEBConverter.convert("old.D83", "modern.X83")
+# Upgrade 2.x → 3.3 (the version is read from the file)
+report = GAEBConverter.convert("tender_2005.X83", "tender_33.X83")
 
 # Downgrade 3.3 → 3.2 for compatibility
 report = GAEBConverter.convert(

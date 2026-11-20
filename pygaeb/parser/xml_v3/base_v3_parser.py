@@ -10,7 +10,7 @@ import contextlib
 import logging
 from collections.abc import Iterator
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
@@ -57,6 +57,7 @@ from pygaeb.models.position_types import (
     MARKER_ELEMENT_TO_TYPE,
 )
 from pygaeb.models.source import SourceSpan
+from pygaeb.parser._decimal import parse_decimal as _parse_decimal
 from pygaeb.parser.positions import element_spans
 from pygaeb.parser.recovery import parse_xml_safe
 from pygaeb.parser.xml_v3.richtext_parser import parse_plaintext, parse_richtext
@@ -327,10 +328,15 @@ class BaseV3Parser:
             if abp and abp.lower() in ("yes", "true", "1"):
                 award.alter_bid_perm = True
 
+            # The writer rounds every unit price to these places, so only the
+            # schema's values are taken: a file's -5 would round prices to 100,000s.
             upfd = self._text(prj_info_el, "UPFracDig")
-            if upfd:
-                with contextlib.suppress(ValueError):
-                    award.up_frac_dig = int(upfd)
+            if upfd in ("2", "3"):
+                award.up_frac_dig = int(upfd)
+            elif upfd:
+                doc.add_warning(
+                    f"UPFracDig {upfd[:24]!r} ignored: unit prices have 2 or 3 decimal places"
+                )
 
             award.ctlg_assigns = self._parse_ctlg_assigns(prj_info_el)
 
@@ -1110,18 +1116,6 @@ def _parse_yes_no(text: str | None) -> bool | None:
     if text is None:
         return None
     return text.strip().lower() in ("yes", "true", "1")
-
-
-def _parse_decimal(text: str | None) -> Decimal | None:
-    if text is None:
-        return None
-    text = text.strip().replace(",", ".")
-    if not text:
-        return None
-    try:
-        return Decimal(text)
-    except InvalidOperation:
-        return None
 
 
 def _parse_date(text: str) -> datetime | None:

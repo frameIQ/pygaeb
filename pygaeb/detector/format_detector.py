@@ -29,14 +29,31 @@ class ParserTrack(str, Enum):
     TRACK_C = "TrackC"  # GAEB 90 fixed-width
 
 
+#: How much of a file the format is read from.
+HEADER_BYTES = 512
+
+
 def detect_format(path: str | Path) -> FormatFamily:
     """Sniff the first 512 bytes of a file to determine the format family."""
     path = Path(path)
     try:
-        header = path.read_bytes()[:512]
+        with path.open("rb") as file:
+            header = file.read(HEADER_BYTES)
     except OSError as e:
         logger.error("Cannot read file %s: %s", path, e)
         return FormatFamily.UNKNOWN
+    return format_of(header, path.name)
+
+
+def format_of(header: bytes, name: str = "") -> FormatFamily:
+    """The format family of a file that starts with *header* and is called *name*.
+
+    The content decides; *name*'s extension only settles what the first bytes
+    leave open. An empty *name* (bytes without a file name) has no extension.
+    """
+    header = header[:HEADER_BYTES]
+    path = Path(name)
+    label = name or "<bytes>"
 
     # Checked as UTF-8, so a UTF-16 file's "<?xml" matches below.
     encoding, body = sniff_unicode(header)
@@ -46,23 +63,23 @@ def detect_format(path: str | Path) -> FormatFamily:
     # The GAEB root decides first: AVA tools that export both standards name
     # ÖNORM in ProgSystem or project texts, inside these 512 bytes.
     if b"<gaeb" in header_lower:
-        logger.debug("Detected DA XML family for %s", path.name)
+        logger.debug("Detected DA XML family for %s", label)
         return FormatFamily.DA_XML
 
     # ÖNORM B 2063 (Austrian standard) — distinct from German GAEB
     if b"onorm" in header_lower or b"\xc3\x96norm" in header_lower or b"b 2063" in header_lower:
-        logger.debug("Detected ÖNORM B 2063 for %s", path.name)
+        logger.debug("Detected ÖNORM B 2063 for %s", label)
         return FormatFamily.ONORM_B2063
     if path.suffix.lower() in (".onlv", ".onlb"):
-        logger.debug("Detected ÖNORM B 2063 from extension for %s", path.name)
+        logger.debug("Detected ÖNORM B 2063 from extension for %s", label)
         return FormatFamily.ONORM_B2063
 
     if b"<?xml" in header_lower:
-        logger.debug("Detected DA XML family for %s", path.name)
+        logger.debug("Detected DA XML family for %s", label)
         return FormatFamily.DA_XML
 
     if _looks_like_gaeb90(header):
-        logger.debug("Detected GAEB 90 family for %s", path.name)
+        logger.debug("Detected GAEB 90 family for %s", label)
         return FormatFamily.GAEB_90
 
     ext = path.suffix.upper()
@@ -77,7 +94,7 @@ def detect_format(path: str | Path) -> FormatFamily:
         logger.debug("Detected DA XML from extension %s", ext)
         return FormatFamily.DA_XML
 
-    logger.warning("Unknown format for %s", path.name)
+    logger.warning("Unknown format for %s", label)
     return FormatFamily.UNKNOWN
 
 

@@ -89,6 +89,18 @@ class ExchangePhase(str, Enum):
         """True for quantity determination phases (X31)."""
         return self in _QUANTITY_PHASES
 
+    @property
+    def document_kind(self) -> DocumentKind:
+        """The kind of document this phase exchanges (X52 is a priced BoQ: procurement)."""
+        phase = self.normalized()
+        if phase.is_trade:
+            return DocumentKind.TRADE
+        if phase.is_cost:
+            return DocumentKind.COST
+        if phase.is_quantity:
+            return DocumentKind.QUANTITY
+        return DocumentKind.PROCUREMENT
+
 
 _D_TO_X_PHASE: dict[ExchangePhase, ExchangePhase] = {}
 

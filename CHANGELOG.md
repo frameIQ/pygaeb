@@ -9,8 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade notes
 
-No public function, class or argument was removed or changed in an incompatible way. Six corrections change behaviour that existing code may rely on:
+No public function, class or argument was removed or changed in an incompatible way. Ten corrections change behaviour that existing code may rely on:
 
+- **The file decides its phase and version, not its name.** A file is read as its namespace, `<DP>` and `<Version>` declare; the name only fills in what they leave out, and a name that disagrees gives a warning. `parse_bytes` and `parse_string` no longer assume `input.X83`, and without a `filename` `doc.source_file` is `None`. DA XML 3.1 files in the 2.0 namespace (BVBS's test files) report `source_version` 3.1 instead of 2.0. Detection warnings now appear in `validation_results`.
+- **Converting to a phase with less content reports data loss.** `has_data_loss` is true when the target phase leaves something out, such as the prices when an award is converted to X83.
+- **A phase of another kind of document raises `ValueError`** in the writer, the converter and `BoQBuilder`: a trade phase for a BoQ, a procurement phase for a trade order. Such files were written, and no schema accepted them.
+- **Numbers that are not plain decimals read as empty, with an error.** `NaN`, `Infinity`, exponents (`1E5`), Unicode digits and `1_000` were taken as numbers, while `1.000,50` and other text read as empty without a word. All of them now read as empty, and the parse adds one ERROR that names them, so `ValidationMode.STRICT` raises `GAEBValidationError` on such a file. Plain decimals, with a point or a comma, read as before.
 - **A priced X83 now warns in the builder, and raises with `strict=True`.** A tender is written without prices: the X83 schema has no `UP` or `IT`, so the writer always left them out. The builder warned when prices were *missing*, so `BoQBuilder(phase="X83", strict=True)` with prices now raises `ValueError`. Build priced documents as X84 (a bid) or X86 (a contract).
 - **Bidder prices are no longer written by default.** No GAEB schema defines the `<BidderUP>` element pyGAEB wrote for them, so the output failed schema validation. They are now reported as dropped; pass `keep_bidder_prices=True` to keep the old round trip within pyGAEB.
 - **More conversions report data loss.** GUIDs, bidder prices, trade and cost fields the writers cannot write yet, and attachment bytes the schema cannot embed are now reported as dropped, so `ConversionReport.has_data_loss` is true where the loss used to be silent.
@@ -29,6 +33,8 @@ No public function, class or argument was removed or changed in an incompatible 
 - **`ClassificationCache.get_override()`** looks up a saved manual override; see Fixed.
 - **`InvoiceParty` and `PaymentDetails`** carry what an XRechnung needs beyond the GAEB file; see Fixed.
 - **`Item.alternative_group`** (`AlternativeGroup`, `AlternativeDecision`): the Zuordnungszahl that ties base and alternative positions together; see Fixed.
+- **`ExchangePhase.document_kind`**: the kind of document a phase exchanges (X52, a priced BoQ, is procurement).
+- **`GAEBConverter.convert(..., source_filename=...)`**, also on `convert_bytes`: the name of a bytes source, whose extension gives a GAEB 90 file its phase; see Fixed.
 
 ### Changed
 
@@ -38,6 +44,26 @@ No public function, class or argument was removed or changed in an incompatible 
 
 ### Fixed
 
+- **A number in a file can no longer crash or stall pyGAEB.** The parsers passed every number to Python's `Decimal()`, which also reads `NaN`, `Infinity`, exponents, Unicode digits and `1_000`. `NaN` and `Infinity` crashed parsing, sums and exports with exceptions that are not a `PyGAEBError`. An exponent kept validation busy: `<UP>1E+999999</UP>`, 20 bytes, took minutes and `1E+9999999` hours. And `1E-50000000` made `to_html` write 50 MB.
+  - All parsers now share one reader that takes what `xs:decimal` allows: digits with an optional sign and one decimal separator, a comma included as before, up to 15 integer and 10 fraction digits. The 3.3 schema allows at most 13 and 6.
+  - Anything else reads as empty, and the parse reports one ERROR that counts the values and quotes the first five; see Upgrade notes.
+  - A text complement whose `Value` is `NaN` aborted the parse with a pydantic `ValidationError`; the value now reads as empty.
+  - The numeric validator counted integer digits by dividing by ten in a loop; it now reads them from the exponent.
+  - Quantity takeoff rows (REB) and the GAEB 90 reader use the same reader but report nothing, because their fields may hold text that is not a number.
+  - `UPFracDig` is taken only as 2 or 3, the schema's values, and anything else is ignored with a warning. The writer rounds every unit price to that many places, so a file's `-5` rounded them to the nearest 100,000.
+  - A `ProgSystemVersion` with digits such as `²` no longer crashes a parse with XSD validation.
+- **Amounts no longer depend on the caller's decimal context.** `Item.computed_total`, `OrderItem.line_total`, the builder's totals and the writer's derived discounted total multiplied in the caller's context, 28 digits by default, before rounding to the cent. A lower precision rounded twice and gave the wrong cent, and large values raised `InvalidOperation`. They now compute with 60 digits and round once, half-up. A non-finite operand gives no amount instead of an exception, and the builder refuses an infinite quantity with `ValueError`.
+- **A file's own declarations decide its version and exchange phase.** The phase came only from the file name, and the version only from the namespace.
+  - `parse_bytes`, `parse_string` and `aparse_bytes` assumed the name `input.X83`. Bytes of an award read as a tender, and trade, cost and quantity files as empty BoQs ("No Award element found"). Converting such bytes wrote an award without its prices, and the report claimed no loss.
+  - The phase now comes from the namespace (`…/DA86/3.3`), else the payload's `<DP>`, else the file name. A `<DP>` that refines the namespace's phase (`83Z` in a DA83 file) is kept.
+  - The version comes from the namespace, else `<GAEBInfo><Version>`. Files before 3.2 share dated namespaces: BVBS's 3.1 files carry 2.0's and read as 2.0, and the 2.1 and 3.0 files pyGAEB writes read back as 2.0. All six versions now read back as written.
+  - Each guess and contradiction is a warning in `validation_results`: a name that disagrees with the content, a namespace contradicting `<DP>` or `<Version>`, a missing `<Version>`, an unknown `<DP>`, a DA XML 3.4 namespace (read as 3.3, silently until now). Detection warnings were only logged.
+  - Phase 87 (Auftragsbestätigung) has no model yet and is read as the X86 it confirms, with a warning; it was read as a tender.
+  - `parse_bytes` no longer writes the data to a temporary file, which a failed parse or a killed process left behind.
+- **GAEB 90 phases are written as DA XML phases.** A document read from a `.D83` file keeps the phase `D83`. The writer turned it into the DA86 namespace and `<DP>D83</DP>`, which no schema accepts, so the documented `convert("old.D83", "new.X83")` wrote an invalid file. The writer, the converter and the builder now use the DA XML phase (`X83`), and an XML quantity file named `.D31` goes to the quantity parser instead of the procurement one.
+- **Conversions report what the target phase leaves out.** `has_data_loss` counted only writer warnings that say "dropped", not the ones that say "not written": converting an award to X83 removed every price and reported no loss. Both now count. When the output's name names another phase than it holds, the report says so.
+- **A phase of another kind of document is refused.** The writer wrote an award under a trade namespace, or a trade order under DA86, when asked; it now raises `ValueError`, as do the converter and `BoQBuilder`.
+- **Documentation calls `.D8x` files GAEB 90.** The READMEs, the quickstart and the conversion guide showed `.D83` as DA XML 2.x and called upgrades lossless. The parsing guide described the namespace as one signal among several and the file name as the phase.
 - **A GAEB file that names ÖNORM is read as GAEB.** The format detector looked for "ÖNORM" and "B 2063" in the first 512 bytes before it looked for the GAEB root, so a German file whose program name or project text mentioned ÖNORM, as a tool that exports both standards may write, was rejected as Austrian. The GAEB root now decides first.
 - **GAEB 2000 files get a clear error.** A `.P8x` file that is neither XML nor fixed-width went to the XML parser and failed as malformed XML. It is now recognised (`FormatFamily.GAEB_2000`) and refused with "GAEB 2000 (.P8x) files are not supported", which says to export DA XML instead. Comments and docstrings that called `.D8x` DA XML 2.x and `.P8x` GAEB 90 are corrected: `.D8x` is GAEB 90, and the 3.3 specification (section 11.2.1) gives DA XML the `.Xnn` extensions.
 - **Flags in 2.x files are read.** The German-to-English tag rename missed self-closing tags without attributes, so `<Pauschalposition/>` stayed German and a 2.x lump-sum position read as normal.
@@ -53,6 +79,7 @@ No public function, class or argument was removed or changed in an incompatible 
   - Only DA XML 3.3 is written this way, because only its schemas were checked. For 3.0 to 3.2 and 2.x the Zuordnungszahl is reported as dropped and the old markers stay.
   - Validation warns when a group counts twice (an accepted alternative next to a base not rejected, or two accepted alternatives), counts nothing (a rejected base with nothing accepted), has no base, or carries a decision on the wrong position.
   - Whole categories as base or alternative areas (`ALNBGroupNo`) are not supported yet; the parser warns.
+- **Long texts keep their spacing.** The writer pretty-prints its output, and inside a long text that put each run of text on a line of its own, so a re-read found spaces that were never there: `"!"` became `" ! "`, and `cm.` after a text complement became `cm .`. Long texts, labels and text complements are now written as they are, and the rest of the file is still indented. The new opt-in corpus run (`tests/test_corpus.py`, set `PYGAEB_CORPUS_DIR`) found it on the BVBS test files.
 - **Attachments added in code reach the file.** For DA XML 3.1 to 3.3 the writer relied on the long text's own markup, which carries a parsed file's attachments, and wrote nothing from `Item.attachments`. An attachment added with the builder's `add_attachment`, or by an application, was dropped without a warning.
   - JPEG, GIF and PNG are written as `<image>` inside a paragraph of the long text, and any other file as an `<attachment>` reference by name. The schema embeds only those three image types, so other bytes are reported as dropped.
   - Attachments already in the markup are not written twice, and a bid (X84) still carries none. Checked against the 3.3 schemas.

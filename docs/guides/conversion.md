@@ -8,8 +8,8 @@ pyGAEB can convert GAEB files between any DA XML version — from 2.0 through 3.
 from pygaeb import GAEBConverter, SourceVersion
 
 report = GAEBConverter.convert(
-    "old_tender.D83",
-    "modern_tender.X83",
+    "tender_2005.X83",
+    "tender_33.X83",
     target_version=SourceVersion.DA_XML_33,
 )
 
@@ -39,15 +39,20 @@ Combined with the parser (which reads all versions), this gives full N-to-N conv
 
 ## Upgrade (2.x to 3.3)
 
-Upgrading from DA XML 2.x to 3.x is **lossless** — all data is preserved:
+Upgrading from DA XML 2.x to 3.x keeps everything pyGAEB reads from the file. The version comes from the file itself, not its name:
 
 ```python
 report = GAEBConverter.convert(
-    "legacy.D83", "modern.X83",
+    "tender_2005.X83", "tender_33.X83",
     target_version=SourceVersion.DA_XML_33,
 )
-assert not report.has_data_loss
+print(report.source_version)   # SourceVersion.DA_XML_20, from <GAEBInfo><Version>
+print(report.has_data_loss)    # False, unless the file holds what its phase cannot
 ```
+
+Elements pyGAEB does not model are not carried over, and `has_data_loss` does not see them yet.
+
+GAEB 90 files (`.D81` to `.D86`) convert the same way; their `D` phase becomes the DA XML phase (`D83` → `X83`).
 
 German element names (`<Leistungsverzeichnis>`, `<Position>`, `<Menge>`) are automatically translated to English (`<BoQ>`, `<Item>`, `<Qty>`), and the namespace is updated.
 
@@ -82,7 +87,7 @@ Converting from 3.x to 2.x translates all element names to German:
 
 ```python
 report = GAEBConverter.convert(
-    "tender.X83", "tender.D83",
+    "tender.X83", "tender_v20.X83",
     target_version=SourceVersion.DA_XML_20,
 )
 
@@ -107,7 +112,7 @@ warnings = GAEBWriter.write(
 
 # Write to DA XML 2.x (German output)
 warnings = GAEBWriter.write(
-    doc, "output_v20.D83",
+    doc, "output_v20.X83",
     target_version=SourceVersion.DA_XML_20,
 )
 
@@ -135,7 +140,7 @@ xml_bytes, warnings = GAEBWriter.to_bytes(
 
 ## Phase Override
 
-Combine version conversion with phase override to change both version and exchange phase in one step:
+The output keeps the source's phase, which pyGAEB reads from the file. The output's name does not change it: converting an award to `out.X83` writes an X86 and adds a warning that the name says otherwise. To change the phase, say so:
 
 ```python
 from pygaeb import GAEBConverter, SourceVersion, ExchangePhase
@@ -147,6 +152,10 @@ report = GAEBConverter.convert(
 )
 ```
 
+A phase holds only its own content: a tender (X83) has no prices. Converting an award to X83 leaves them out, and the report counts that as data loss. A phase of another kind of document (a trade phase for a BoQ) raises `ValueError`.
+
+For bytes, `convert_bytes(data, source_filename="old.D86")` passes the name whose extension gives a GAEB 90 file its phase.
+
 ## Conversion Report
 
 Every conversion returns a `ConversionReport` with:
@@ -157,10 +166,10 @@ report.target_version     # SourceVersion — requested output version
 report.source_phase       # ExchangePhase — original phase
 report.target_phase       # ExchangePhase — output phase
 report.items_converted    # int — total items written
-report.fields_dropped     # list[str] — fields dropped for target version
+report.fields_dropped     # list[str] — dropped for the target version or not written for its phase
 report.warnings           # list[str] — all warnings
 report.is_upgrade         # bool — target > source version
 report.is_downgrade       # bool — target < source version
 report.is_same_family     # bool — both in 3.x or both in 2.x
-report.has_data_loss       # bool — True if any fields were dropped
+report.has_data_loss       # bool — True if the output lacks anything the source had
 ```

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import re
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from pygaeb.models._binary import BinaryData
+from pygaeb.models._money import product_in_cents
 from pygaeb.models.catalog import CtlgAssign
 from pygaeb.models.enums import (
     AlternativeDecision,
@@ -380,16 +381,17 @@ class Item(BaseModel):
 
     @property
     def computed_total(self) -> Decimal | None:
-        """qty x unit_price (a markup: base x rate %), rounded to cents (ROUND_HALF_UP)."""
+        """qty x unit_price (a markup: base x rate %), rounded to cents (ROUND_HALF_UP).
+
+        Computed in a context of its own, so the caller's decimal precision cannot
+        change the amount; None when an operand is not a finite number.
+        """
         if self.item_type is ItemType.MARKUP:
             if self.markup_base is None or self.unit_price is None:
                 return None
-            amount = self.markup_base * self.unit_price / Decimal(100)
-            return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            return product_in_cents(self.markup_base, self.unit_price, divisor=Decimal(100))
         if self.qty is not None and self.unit_price is not None:
-            return (self.qty * self.unit_price).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
+            return product_in_cents(self.qty, self.unit_price)
         return None
 
     @property

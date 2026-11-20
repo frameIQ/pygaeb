@@ -103,10 +103,10 @@ class TestParserIntegration:
     def test_skip_message_names_version_and_phase(self, sample_v33_file, tmp_path: Path) -> None:
         doc = GAEBParser.parse(sample_v33_file, xsd_dir=str(tmp_path))
         infos = [r.message for r in doc.validation_results if "XSD" in r.message]
-        assert infos and "3.3" in infos[0] and "X83" in infos[0]
+        assert infos and "3.3" in infos[0] and "X86" in infos[0]
 
     def test_schema_violations_become_warnings(self, sample_v33_file, tmp_path: Path) -> None:
-        _touch(tmp_path / "GAEB_DA_XML_83_3.3_test.xsd")
+        _touch(tmp_path / "GAEB_DA_XML_86_3.3_test.xsd")
         doc = GAEBParser.parse(sample_v33_file, xsd_dir=str(tmp_path))
         msgs = [
             r.message for r in doc.validation_results

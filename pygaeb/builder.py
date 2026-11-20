@@ -17,13 +17,15 @@ Usage::
 from __future__ import annotations
 
 import difflib
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from pygaeb.models._money import product_in_cents
 from pygaeb.models.boq import BoQ, BoQBkdn, BoQBody, BoQCtgy, BoQInfo, Lot, Totals
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
 from pygaeb.models.enums import (
     BkdnType,
+    DocumentKind,
     ExchangePhase,
     ItemType,
     SourceVersion,
@@ -179,7 +181,7 @@ class CategoryBuilder:
         dec_tp = _to_decimal(total_price)
 
         if dec_tp is None and dec_qty is not None and dec_up is not None:
-            dec_tp = (dec_qty * dec_up).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            dec_tp = product_in_cents(dec_qty, dec_up)
 
         item = Item(
             oz=oz,
@@ -254,7 +256,13 @@ class BoQBuilder:
         phase: str | ExchangePhase = "X83",
         version: str | SourceVersion = "3.3",
     ) -> None:
-        self._phase = ExchangePhase(phase) if isinstance(phase, str) else phase
+        # A GAEB 90 phase ("D83") builds its DA XML phase: the document is DA XML.
+        self._phase = ExchangePhase(phase).normalized()
+        if self._phase.document_kind is not DocumentKind.PROCUREMENT:
+            raise ValueError(
+                f"BoQBuilder builds bills of quantities; {self._phase.value} is a "
+                f"{self._phase.document_kind.value} phase"
+            )
         self._version = SourceVersion(version) if isinstance(version, str) else version
         self._lots: list[LotBuilder] = []
         self._implicit_lot: LotBuilder | None = None

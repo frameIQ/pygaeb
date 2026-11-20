@@ -10,7 +10,7 @@ pyGAEB auto-detects the version and format — one method handles everything:
 from pygaeb import GAEBParser
 
 doc = GAEBParser.parse("tender.X83")    # DA XML 3.x
-legacy_doc = GAEBParser.parse("old.D83")  # DA XML 2.x — same call
+legacy_doc = GAEBParser.parse("tender_2005.X83")  # DA XML 2.x — same call
 
 print(doc.source_version)               # SourceVersion.DA_XML_33
 print(doc.exchange_phase)               # ExchangePhase.X83
@@ -20,11 +20,11 @@ print(doc.grand_total)                  # Sum of item totals; 0 for an unpriced 
 You can also parse from bytes or strings (useful for web uploads, S3, etc.):
 
 ```python
-doc = GAEBParser.parse_bytes(raw_bytes, filename="tender.X83")
-doc = GAEBParser.parse_string(xml_text, filename="tender.X83")
+doc = GAEBParser.parse_bytes(raw_bytes)
+doc = GAEBParser.parse_string(xml_text)
 ```
 
-The `filename` hint is used for version/phase detection from the extension.
+The version and exchange phase come from the file itself (its namespace, `<Version>` and `<DP>`). Pass `filename=` to set `doc.source_file`; its extension only fills in what the file does not declare.
 
 ## Iterate Items
 
@@ -203,8 +203,8 @@ Convert GAEB files between any DA XML version:
 ```python
 from pygaeb import GAEBConverter, SourceVersion
 
-# Upgrade 2.x → 3.3
-report = GAEBConverter.convert("old.D83", "modern.X83")
+# Upgrade 2.x → 3.3 (the version is read from the file)
+report = GAEBConverter.convert("tender_2005.X83", "tender_33.X83")
 
 # Downgrade 3.3 → 3.2 for compatibility
 report = GAEBConverter.convert(

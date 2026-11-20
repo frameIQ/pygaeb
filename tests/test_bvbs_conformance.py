@@ -18,8 +18,9 @@ from pathlib import Path
 import pytest
 from lxml import etree
 
-from pygaeb import ExchangePhase, GAEBParser, GAEBWriter, SourceVersion, __version__
+from pygaeb import ExchangePhase, GAEBParser, GAEBWriter, Item, SourceVersion, __version__
 from pygaeb.parser.gaeb_parser import validate_xml
+from pygaeb.writer.phase_profiles import profile_for
 
 _FIXTURES = os.environ.get("PYGAEB_BVBS_FIXTURES")
 _XSD_DIR = os.environ.get("PYGAEB_XSD_DIR")
@@ -94,7 +95,13 @@ def test_bvbs_export_validates(source: str, phase: ExchangePhase) -> None:
     assert len(ids) == len(set(ids)) and all(ids)
 
     again = GAEBParser.parse_bytes(xml, filename=f"again.{phase.value}")
-    assert again.item_count == doc.item_count
+    # A tender or a bid has no NotAppl: a dropped position is simply not in it.
+    carried = [
+        i for i in doc.iter_items()
+        if profile_for(phase).item.allows("NotAppl")
+        or not (isinstance(i, Item) and i.not_applicable)
+    ]
+    assert again.item_count == len(carried)
 
     key = lambda b: (b.bkdn_type, b.length, b.label, b.num, b.alignment)  # noqa: E731
     assert [key(b) for b in again.award.boq.boq_info.bkdn] == [
@@ -102,7 +109,7 @@ def test_bvbs_export_validates(source: str, phase: ExchangePhase) -> None:
     ]
 
     if phase != ExchangePhase.X84:
-        assert [i.provis for i in again.iter_items()] == [i.provis for i in doc.iter_items()]
+        assert [i.provis for i in again.iter_items()] == [i.provis for i in carried]
     if phase == doc.exchange_phase:
         source_ids = {
             i.id for i in doc.iter_items() if i.id

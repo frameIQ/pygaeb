@@ -7,10 +7,15 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import ExchangePhase, SourceVersion
 from pygaeb.writer.version_registry import WRITABLE_VERSIONS
 
 logger = logging.getLogger("pygaeb.converter")
+
+#: How the writer words a warning about data the output lacks: no schema has a
+#: place for it ("dropped"), or the target phase has none ("not written").
+_LOSS_MARKERS = ("dropped", "not written")
 
 # Oldest first. The enum's string values cannot be compared directly: "90"
 # sorts above "3.3".
@@ -62,7 +67,35 @@ class ConversionReport(BaseModel):
 
     @property
     def has_data_loss(self) -> bool:
+        """True when the output lacks data the source had, including what the
+        target phase has no place for (prices in a tender)."""
         return len(self.fields_dropped) > 0
+
+
+def _losses(writer_warnings: list[str]) -> list[str]:
+    return [w for w in writer_warnings if any(m in w.lower() for m in _LOSS_MARKERS)]
+
+
+def _parse_source(source: str | Path | bytes, source_filename: str | None) -> GAEBDocument:
+    from pygaeb.parser import GAEBParser
+
+    if isinstance(source, bytes):
+        return GAEBParser.parse_bytes(source, filename=source_filename)
+    return GAEBParser.parse(source)
+
+
+def _name_disagrees(output: Path, phase: ExchangePhase) -> str | None:
+    """A warning when *output*'s extension names another phase than the one written."""
+    try:
+        named = ExchangePhase(output.suffix[1:].upper()).normalized()
+    except ValueError:
+        return None
+    if named is phase:
+        return None
+    return (
+        f"{output.name} is named as {named.value} but holds {phase.value}; "
+        f"pass target_phase=ExchangePhase.{named.value} to write a {named.value}"
+    )
 
 
 class GAEBConverter:
@@ -71,10 +104,13 @@ class GAEBConverter:
     Wraps ``GAEBParser.parse()`` + ``GAEBWriter.write()`` with conversion
     semantics and a detailed :class:`ConversionReport`.
 
+    The phase stays the source's unless *target_phase* says otherwise; a GAEB 90
+    phase becomes its DA XML phase (``D83`` → ``X83``).
+
     Usage::
 
         report = GAEBConverter.convert(
-            "old.D83", "new.X83",
+            "tender_2005.X83", "tender_33.X83",
             target_version=SourceVersion.DA_XML_33,
         )
         print(f"Converted {report.items_converted} items")
@@ -90,6 +126,8 @@ class GAEBConverter:
         target_version: SourceVersion = SourceVersion.DA_XML_33,
         target_phase: ExchangePhase | None = None,
         encoding: str = "utf-8",
+        *,
+        source_filename: str | None = None,
     ) -> ConversionReport:
         """Convert a GAEB file to a different DA XML version.
 
@@ -98,17 +136,22 @@ class GAEBConverter:
             output: Output file path.
             target_version: Target DA XML version (default: 3.3).
             target_phase: Override exchange phase (default: keep original).
+                Converting to another phase writes only what that phase holds:
+                a tender (X83) has no prices. The report counts what is left out.
             encoding: XML encoding (default: utf-8).
+            source_filename: For bytes, the file's name: its extension gives the
+                phase of a GAEB 90 file, which the content does not declare.
 
         Returns:
             A :class:`ConversionReport` with conversion details and any warnings.
 
         Raises:
-            ValueError: If target_version is not writable (e.g. GAEB_90).
+            ValueError: If target_version is not writable (e.g. GAEB_90), or
+                target_phase belongs to another kind of document.
             GAEBParseError: If the source file cannot be parsed.
         """
-        from pygaeb.parser import GAEBParser
         from pygaeb.writer import GAEBWriter
+        from pygaeb.writer.gaeb_writer import target_phase_for
 
         if target_version not in WRITABLE_VERSIONS:
             supported = ", ".join(
@@ -118,12 +161,8 @@ class GAEBConverter:
                 f"Cannot convert to {target_version.value}. Supported: {supported}"
             )
 
-        if isinstance(source, bytes):
-            doc = GAEBParser.parse_bytes(source)
-        else:
-            doc = GAEBParser.parse(source)
-
-        effective_phase = target_phase or doc.exchange_phase
+        doc = _parse_source(source, source_filename)
+        effective_phase = target_phase_for(doc, target_phase)
 
         writer_warnings = GAEBWriter.write(
             doc, output,
@@ -131,6 +170,9 @@ class GAEBConverter:
             target_version=target_version,
             encoding=encoding,
         )
+        mismatch = _name_disagrees(Path(output), effective_phase)
+        if mismatch:
+            writer_warnings.append(mismatch)
 
         report = ConversionReport(
             source_version=doc.source_version,
@@ -138,7 +180,7 @@ class GAEBConverter:
             source_phase=doc.exchange_phase,
             target_phase=effective_phase,
             items_converted=doc.item_count,
-            fields_dropped=[w for w in writer_warnings if "dropped" in w.lower()],
+            fields_dropped=_losses(writer_warnings),
             warnings=writer_warnings,
         )
 
@@ -155,6 +197,8 @@ class GAEBConverter:
         target_version: SourceVersion = SourceVersion.DA_XML_33,
         target_phase: ExchangePhase | None = None,
         encoding: str = "utf-8",
+        *,
+        source_filename: str | None = None,
     ) -> tuple[bytes, ConversionReport]:
         """Convert a GAEB file and return the result as bytes.
 
@@ -163,22 +207,19 @@ class GAEBConverter:
             target_version: Target DA XML version (default: 3.3).
             target_phase: Override exchange phase (default: keep original).
             encoding: XML encoding (default: utf-8).
+            source_filename: For bytes, the file's name, as in :meth:`convert`.
 
         Returns:
             Tuple of (converted_xml_bytes, ConversionReport).
         """
-        from pygaeb.parser import GAEBParser
         from pygaeb.writer import GAEBWriter
+        from pygaeb.writer.gaeb_writer import target_phase_for
 
         if target_version not in WRITABLE_VERSIONS:
             raise ValueError(f"Cannot convert to {target_version.value}.")
 
-        if isinstance(source, bytes):
-            doc = GAEBParser.parse_bytes(source)
-        else:
-            doc = GAEBParser.parse(source)
-
-        effective_phase = target_phase or doc.exchange_phase
+        doc = _parse_source(source, source_filename)
+        effective_phase = target_phase_for(doc, target_phase)
 
         xml_bytes, writer_warnings = GAEBWriter.to_bytes(
             doc,
@@ -193,7 +234,7 @@ class GAEBConverter:
             source_phase=doc.exchange_phase,
             target_phase=effective_phase,
             items_converted=doc.item_count,
-            fields_dropped=[w for w in writer_warnings if "dropped" in w.lower()],
+            fields_dropped=_losses(writer_warnings),
             warnings=writer_warnings,
         )
 

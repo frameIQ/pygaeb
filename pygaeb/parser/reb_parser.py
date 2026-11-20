@@ -18,9 +18,10 @@ notation (comma as decimal separator).
 from __future__ import annotations
 
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from pygaeb.models.quantity import ParsedTakeoff
+from pygaeb.parser._decimal import parse_decimal
 
 # Matches a number with optional German comma decimal (e.g., "5,00" or "5.00").
 # The decimal-fraction part is required when a separator is present, so "5."
@@ -36,12 +37,11 @@ _KNOWN_UNITS = ("m3", "m2", "lfm", "Stk", "psch", "kg", "m")
 
 
 def _to_decimal(s: str) -> Decimal | None:
-    """Convert a string with optional German comma notation to Decimal."""
-    s = s.strip().replace(",", ".")
-    try:
-        return Decimal(s)
-    except InvalidOperation:
-        return None
+    """Convert a string with optional German comma notation to Decimal.
+
+    Takeoff rows are free text, so a part that is no number is not reported.
+    """
+    return parse_decimal(s, report=False)
 
 
 def _split_result(text: str) -> tuple[str, str, str] | None:

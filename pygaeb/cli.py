@@ -4,7 +4,7 @@ Usage::
 
     pygaeb info tender.X83
     pygaeb validate tender.X83 --strict
-    pygaeb convert old.D83 new.X83 --version 3.3
+    pygaeb convert tender_2005.X83 tender_33.X83 --version 3.3
     pygaeb diff v1.X83 v2.X83
     pygaeb export tender.X83 -f xlsx -o report.xlsx
     pygaeb export tender.X83 -f pdf

@@ -65,13 +65,27 @@ class TestVersionDetector:
         assert route.version == SourceVersion.DA_XML_20
         assert route.track == ParserTrack.TRACK_A
 
-    def test_phase_from_extension(self, sample_v33_file):
+    def test_phase_from_the_namespace(self, sample_v33_file):
         route = detect_version(sample_v33_file)
-        assert route.exchange_phase == ExchangePhase.X83
+        assert route.exchange_phase == ExchangePhase.X86
+        assert route.warnings == []
 
-    def test_d83_extension_phase(self, sample_v20_file):
+    def test_a_wrong_file_name_loses_to_the_content(self, tmp_path):
+        # The award used to be read as a tender because of its name, and a
+        # conversion then wrote it without prices.
+        f = tmp_path / "tender.X83"
+        f.write_text(SAMPLE_V33_XML, encoding="utf-8")
+        route = detect_version(f)
+        assert route.exchange_phase == ExchangePhase.X86
+        assert route.warnings == [
+            "The file name says X83, the file itself X86; read as X86",
+        ]
+
+    def test_a_d83_name_gives_xml_its_da_xml_phase(self, sample_v20_file):
+        # The 2.0 sample declares no phase, so its name gives one; it is XML,
+        # so the phase is the DA XML one (.D8x is the GAEB 90 extension).
         route = detect_version(sample_v20_file)
-        assert route.exchange_phase == ExchangePhase.D83
+        assert route.exchange_phase == ExchangePhase.X83
 
 
 class TestEncodingRepair:
@@ -140,7 +154,7 @@ class TestDetectorStopsAfterHeader:
 
     The corruption itself only surfaces under a debug allocator, so the reliable
     guard is the number of iterparse events the detector consumes: it must stop
-    right after the header (root, GAEBInfo, first phase element) no matter
+    right after the header (root, GAEBInfo, the payload's <DP>) no matter
     whether the namespace is known.
     """
 
@@ -168,17 +182,19 @@ class TestDetectorStopsAfterHeader:
         seen = self._count_events(monkeypatch)
         route = detect_version(f)
 
-        # root + GAEBInfo + its six children + Order: the loop must not go on
-        # into the 400 OrderItems.
-        assert len(seen) == 9
-        assert seen[-1].endswith("}Order")
+        # Start and end of root, GAEBInfo and its six children, then Order and
+        # its <DP>: the loop must not go on into the 400 OrderItems.
+        assert len(seen) == 18
+        assert seen[-1].endswith("}DP")
+        assert not any(tag.endswith("}OrderItem") for tag in seen)
         assert route.namespace == "http://www.gaeb.de/GAEB_DA_XML/209912"
-        # Unknown namespace: either the extension fallback (3.3) or, once the
-        # detector reads <Version>, the declared 3.1. The event count is the guard.
-        assert route.version in (SourceVersion.DA_XML_31, SourceVersion.DA_XML_33)
+        assert route.version == SourceVersion.DA_XML_31  # <Version> declares it
         assert route.exchange_phase == ExchangePhase.X93
 
-    def test_known_namespace_stops_at_root(self, tmp_path, monkeypatch):
+    def test_known_namespace_reads_the_header_too(self, tmp_path, monkeypatch):
+        # A known namespace used to end detection at the root, before <Version>
+        # and <DP>: the namespace alone cannot tell 2.0 from 3.1 (BVBS's 3.1
+        # files carry 200407) or give the phase.
         xml = _synthetic_order_document("http://www.gaeb.de/GAEB_DA_XML/200706", 400)
         f = tmp_path / "known.X93"
         f.write_text(xml, encoding="utf-8")
@@ -186,7 +202,8 @@ class TestDetectorStopsAfterHeader:
         seen = self._count_events(monkeypatch)
         route = detect_version(f)
 
-        assert len(seen) == 1
+        assert len(seen) == 18
+        assert not any(tag.endswith("}OrderItem") for tag in seen)
         assert route.version == SourceVersion.DA_XML_31
 
     def test_no_gaeb_header_hits_event_cap(self, tmp_path, monkeypatch):
@@ -220,7 +237,8 @@ class TestNamespace200706:
         assert route.namespace == "http://www.gaeb.de/GAEB_DA_XML/200706"
         assert route.warnings == []
 
-    def test_x94_extension(self, tmp_path):
+    def test_dp_outranks_the_extension(self, tmp_path):
+        # The document says <DP>93</DP>; the name says X94.
         f = tmp_path / "invoice.X94"
         f.write_text(
             _synthetic_order_document("http://www.gaeb.de/GAEB_DA_XML/200706", 1),
@@ -228,4 +246,7 @@ class TestNamespace200706:
         )
         route = detect_version(f)
         assert route.version == SourceVersion.DA_XML_31
-        assert route.exchange_phase == ExchangePhase.X94
+        assert route.exchange_phase == ExchangePhase.X93
+        assert route.warnings == [
+            "The file name says X94, the file itself X93; read as X93",
+        ]

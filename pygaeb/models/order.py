@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from pygaeb.models._money import product_in_cents
 from pygaeb.models.catalog import CtlgAssign
 from pygaeb.models.item import (
     ClassificationResult,
@@ -92,8 +93,7 @@ class OrderItem(BaseModel):
         price = self.display_price
         if price is None or self.qty is None:
             return None
-        basis = self.price_basis or Decimal("1")
-        return (price * self.qty / basis).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return product_in_cents(price, self.qty, divisor=self.price_basis or Decimal("1"))
 
     def __repr__(self) -> str:
         parts: list[str] = []

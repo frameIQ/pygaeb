@@ -31,3 +31,6 @@ Thumbs.db
 
 # Claude Code
 .claude/
+
+# Internal audit reports (they describe unfixed security findings)
+/audit/

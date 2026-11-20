@@ -13,7 +13,7 @@ doc = GAEBParser.parse("tender.X83")
 This single call handles:
 
 1. **Format detection** — determines if the file is DA XML (2.x or 3.x) or GAEB 90
-2. **Version detection** — reads the XML namespace and `<Version>` element
+2. **Version and phase detection** — reads the namespace, `<Version>` and `<DP>`; the file name only fills gaps
 3. **Encoding repair** — reads any encoding the file is saved in, survives a wrong declaration, repairs mojibake
 4. **XML recovery** — handles bare ampersands, control characters, unclosed tags, and other real-world damage
 5. **Structural parsing** — builds the full BoQ hierarchy
@@ -24,25 +24,30 @@ This single call handles:
 For web uploads, S3 objects, or database blobs:
 
 ```python
-doc = GAEBParser.parse_bytes(raw_bytes, filename="tender.X83")
-doc = GAEBParser.parse_string(xml_text, filename="input.X84")
+doc = GAEBParser.parse_bytes(raw_bytes)
+doc = GAEBParser.parse_string(xml_text, filename="bid.X84")
 ```
 
-The `filename` parameter provides the extension hint used for phase detection (`.X83` = tender, `.X84` = bid, etc.).
+The data says what it is, as a file on disk does (see below). `filename` is optional: it becomes `doc.source_file` (without it, `source_file` is `None`), and its extension fills in only what the data leaves out, such as the phase of a GAEB 90 file.
 
-## Version Detection
+## Version and Phase Detection
 
-pyGAEB detects the version from multiple signals in priority order:
+A GAEB file declares its version and exchange phase, and pyGAEB reads them from the file:
 
-1. **XML namespace** — most reliable (e.g., `http://www.gaeb.de/GAEB_DA_XML/DA86/3.3`)
-2. **`<Version>` element** — explicit version tag in `<GAEBInfo>`
-3. **File extension** — fallback for phase detection (`.X83`, `.D83`, etc.)
+1. **Namespace** — from DA XML 3.2 on, it names both: `http://www.gaeb.de/GAEB_DA_XML/DA86/3.3` is an X86 in 3.3.
+2. **`<GAEBInfo><Version>`** — the version, where the namespace does not give one. Older files share a dated namespace: BVBS's 3.1 test files carry `…/200407`, the namespace of 2.0, so only `<Version>3.1</Version>` tells them apart.
+3. **`<DP>`** — the phase, the first element of `<Award>` (`<DP>86</DP>`) and of the trade, cost and quantity payloads. It may refine the namespace's phase (`83Z` in a DA83 file).
+4. **File extension** — a fallback for what the file does not declare (`.X86`; `.D86` for GAEB 90).
+
+Where these disagree, the file wins over its name and the namespace over `<DP>` and `<Version>`. Each disagreement, and each guess, is a warning in `doc.validation_results`, for example "The file name says X83, the file itself X86; read as X86".
 
 ```python
-doc = GAEBParser.parse("tender.X83")
+doc = GAEBParser.parse("award.X86")
 print(doc.source_version)    # SourceVersion.DA_XML_33
-print(doc.exchange_phase)    # ExchangePhase.X83
+print(doc.exchange_phase)    # ExchangePhase.X86
 ```
+
+A file that declares no phase and comes without a name is read as a tender (X83), with a warning saying so. Phase 87 (Auftragsbestätigung) has no model yet and is read as the X86 award it confirms.
 
 ### Parser Tracks
 
@@ -126,7 +131,7 @@ X50 and X51 use a different XML structure (`<ElementalCosting>/<ECBody>/<CostEle
 
 X31 uses a different XML structure (`<QtyDeterm>/<BoQ>/<QtyItem>` with REB 23.003 measurement rows instead of procurement items), introducing `DocumentKind.QUANTITY`. Items carry no descriptions or prices — only OZ numbers and measurement data. See the [Quantity Determination Guide](quantity-phases.md) for details.
 
-DA XML 2.x uses `D`-prefixed phases (D83, D84, etc.) which are automatically normalized to `X`-prefixed canonical form:
+GAEB 90 files (`.D81` to `.D86`) do not declare their phase in a way pyGAEB reads yet, so it comes from the name and keeps its `D` (DA XML files use `.X81` to `.X89`). `normalized()` gives the DA XML phase, the one a GAEB 90 file is written and validated as:
 
 ```python
 doc = GAEBParser.parse("old.D83")

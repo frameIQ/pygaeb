@@ -206,10 +206,15 @@ class TestGAEBConverterFile:
         assert report.is_upgrade
         assert not report.is_downgrade
         assert report.items_converted == 1
-        assert not report.has_data_loss
+        # old.D83 is a tender, and a tender has no place for the sample's prices:
+        # written as X83 they are lost, which the report used to keep quiet.
+        assert report.target_phase == ExchangePhase.X83
+        assert report.has_data_loss
+        assert [w.split(" ")[0] for w in report.fields_dropped] == ["UP", "IT"]
 
         doc2 = GAEBParser.parse(output)
         assert doc2.source_version == SourceVersion.DA_XML_33
+        assert doc2.exchange_phase == ExchangePhase.X83
         assert doc2.item_count == 1
 
     def test_convert_v33_to_v32_downgrade(self, sample_v33_file, tmp_path):
@@ -261,9 +266,12 @@ class TestGAEBConverterFile:
 
 class TestGAEBConverterBytes:
     def test_convert_bytes_v33(self, sample_v33_file):
+        # The award stays an award: its phase is read from the file.
         xml_bytes, report = GAEBConverter.convert_bytes(sample_v33_file)
-        assert b"DA83/3.3" in xml_bytes
+        assert b"DA86/3.3" in xml_bytes
+        assert b"<UP>45.50</UP>" in xml_bytes
         assert report.items_converted == 3
+        assert not report.has_data_loss
 
     def test_convert_bytes_v20(self, sample_v33_file):
         xml_bytes, report = GAEBConverter.convert_bytes(
@@ -274,13 +282,18 @@ class TestGAEBConverterBytes:
         assert report.target_version == SourceVersion.DA_XML_20
 
     def test_convert_bytes_from_raw(self):
+        # Bytes have no file name: the namespace gives the phase. They used to be
+        # read as a tender (input.X83), which wrote the award without its prices.
         from tests.conftest import SAMPLE_V33_XML
         xml_bytes, report = GAEBConverter.convert_bytes(
             SAMPLE_V33_XML.encode("utf-8"),
             target_version=SourceVersion.DA_XML_32,
         )
-        assert b"DA83/3.2" in xml_bytes
+        assert b"DA86/3.2" in xml_bytes
+        assert b"<UP>45.50</UP>" in xml_bytes
+        assert report.source_phase == report.target_phase == ExchangePhase.X86
         assert report.items_converted == 3
+        assert not report.has_data_loss
 
 
 class TestConversionReport:

@@ -25,8 +25,9 @@ def validate_numerics(doc: GAEBDocument) -> list[ValidationResult]:
     warning = ValidationSeverity.WARNING
 
     for item in doc.award.boq.iter_items():
-        # §5.2 rounding discrepancy check
-        if item.total_price is not None and item.computed_total is not None:
+        # §5.2 rounding discrepancy check (computed_total is None for non-finite input)
+        if (item.total_price is not None and item.total_price.is_finite()
+                and item.computed_total is not None):
             diff = abs(item.total_price - item.computed_total)
             if diff > _ROUNDING_TOLERANCE:
                 results.append(item_finding(
@@ -96,16 +97,15 @@ def validate_numerics(doc: GAEBDocument) -> list[ValidationResult]:
 
 
 def _pre_decimal_digits(value: Decimal) -> int:
-    """Count pre-decimal (integer part) digits of a Decimal value."""
-    abs_val = abs(value)
-    int_part = int(abs_val)
-    if int_part == 0:
-        return 1
-    count = 0
-    while int_part > 0:
-        int_part //= 10
-        count += 1
-    return count
+    """Count pre-decimal (integer part) digits of a Decimal value, in constant time.
+
+    ``adjusted()`` is the exponent of the most significant digit. Counting by
+    repeated division instead took time quadratic in the digits, so a value such
+    as 1E+999999 held validation for minutes. A non-finite value has no digits.
+    """
+    if not value.is_finite():
+        return 0
+    return max(value.adjusted() + 1, 1)
 
 
 def _decimal_places(value: Decimal) -> int:

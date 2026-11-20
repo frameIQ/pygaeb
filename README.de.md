@@ -59,7 +59,7 @@ Python 3.10+.
 from pygaeb import GAEBParser
 
 doc = GAEBParser.parse("ausschreibung.X83")    # DA XML 3.x
-legacy_doc = GAEBParser.parse("altformat.D83")  # DA XML 2.x — gleicher Aufruf
+legacy_doc = GAEBParser.parse("ausschreibung_2005.X83")  # DA XML 2.x — gleicher Aufruf
 
 print(doc.source_version)                       # SourceVersion.DA_XML_33
 print(doc.exchange_phase)                       # ExchangePhase.X83
@@ -146,8 +146,8 @@ GAEBWriter.write(doc, "angebot.X84", phase=ExchangePhase.X84)
 ```python
 from pygaeb import GAEBConverter, SourceVersion
 
-# Upgrade 2.x → 3.3
-report = GAEBConverter.convert("altformat.D83", "modern.X83")
+# Upgrade 2.x → 3.3 (die Version steht in der Datei)
+report = GAEBConverter.convert("ausschreibung_2005.X83", "ausschreibung_33.X83")
 
 # Downgrade 3.3 → 3.2 für Kompatibilität mit älterer AVA-Software
 report = GAEBConverter.convert(
