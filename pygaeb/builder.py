@@ -36,12 +36,18 @@ _CTGY_FIELDS = set(BoQCtgy.model_fields.keys())
 _LOT_FIELDS = set(Lot.model_fields.keys())
 _AWARD_FIELDS = set(AwardInfo.model_fields.keys())
 
+# Field names are tuples, not sets: the first one found is the one the warning
+# names, so the order must not depend on string hashing.
 _PHASE_RULES: dict[str, dict[str, Any]] = {
-    "X80": {"warn_if_present": {"unit_price", "total_price"}, "label": "blank BoQ"},
-    "X82": {"warn_if_missing": {"unit_price"}, "label": "cost estimate/Preisspiegel"},
-    "X83": {"warn_if_missing": {"unit_price"}, "label": "tender with prices"},
-    "X84": {"warn_if_missing": {"unit_price"}, "label": "award"},
-    "X88": {"warn_if_missing": {"unit_price", "change_order_number"}, "label": "addendum/Nachtrag"},
+    "X80": {"warn_if_present": ("unit_price", "total_price"), "label": "blank BoQ"},
+    "X82": {"warn_if_missing": ("unit_price",), "label": "cost estimate/Preisspiegel"},
+    # A tender is written without prices: the X83 schema has no UP or IT.
+    "X83": {
+        "warn_if_present": ("unit_price", "total_price"),
+        "label": "tender, written without prices",
+    },
+    "X84": {"warn_if_missing": ("unit_price",), "label": "bid"},
+    "X88": {"warn_if_missing": ("unit_price", "change_order_number"), "label": "addendum/Nachtrag"},
 }
 
 _VERSION_COMPAT: dict[str, dict[str, Any]] = {
@@ -419,8 +425,8 @@ class BoQBuilder:
         if not rules:
             return
 
-        warn_present = rules.get("warn_if_present", set())
-        warn_missing = rules.get("warn_if_missing", set())
+        warn_present = rules.get("warn_if_present", ())
+        warn_missing = rules.get("warn_if_missing", ())
         label = rules.get("label", phase_key)
 
         for item in doc.award.boq.iter_items():

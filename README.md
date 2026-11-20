@@ -293,15 +293,15 @@ result = BoQDiff.compare(doc_a, doc_b, mode=DiffMode.STRICT)
 ```python
 from pygaeb import BoQBuilder, GAEBWriter
 
-builder = BoQBuilder(phase="X83", version="3.3")
+builder = BoQBuilder(phase="X83", version="3.3")  # a tender: quantities, no prices
 builder.project(no="PRJ-001", name="School Renovation", currency="EUR")
 
 lot = builder.add_lot("1", "Structural Work")
 concrete = lot.add_category("01", "Concrete")
-concrete.add_item("01.0010", "Foundation", qty=120, unit="m3", unit_price=85)
-concrete.add_item("01.0020", "Columns",   qty=40,  unit="m3", unit_price=95)
+concrete.add_item("01.0010", "Foundation", qty=120, unit="m3")
+concrete.add_item("01.0020", "Columns",   qty=40,  unit="m3")
 
-doc = builder.build()               # GAEBDocument with auto totals
+doc = builder.build()               # GAEBDocument
 GAEBWriter.write(doc, "output.X83") # Write to GAEB XML
 ```
 

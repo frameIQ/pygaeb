@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -14,6 +15,7 @@ from pygaeb.config import get_settings
 from pygaeb.detector.encoding_repair import declare_utf8, decode_xml_as_written, repair_encoding
 from pygaeb.detector.format_detector import FormatFamily, ParserTrack
 from pygaeb.detector.version_detector import ParseRoute, detect_version
+from pygaeb.events import EventType, emit
 from pygaeb.exceptions import GAEBParseError, GAEBValidationError
 from pygaeb.models.document import GAEBDocument
 from pygaeb.models.enums import ExchangePhase, SourceVersion, ValidationMode, ValidationSeverity
@@ -74,21 +76,22 @@ class GAEBParser:
         after the built-in and globally-registered validators.
         """
         path = Path(path)
-        if not path.exists():
-            raise GAEBParseError(f"File not found: {path}")
+        with _announced(str(path)):
+            if not path.exists():
+                raise GAEBParseError(f"File not found: {path}")
 
-        _enforce_size_limit(path.stat().st_size, max_file_size)
+            _enforce_size_limit(path.stat().st_size, max_file_size)
 
-        raw = path.read_bytes()
-        route = detect_version(path)
-        return _parse_core(
-            raw, route, path, validation, xsd_dir, keep_xml,
-            post_parse_hook=post_parse_hook,
-            collect_raw_data=collect_raw_data,
-            extra_validators=extra_validators,
-            suppress=suppress,
-            positions=positions,
-        )
+            raw = path.read_bytes()
+            route = detect_version(path)
+            return _parse_core(
+                raw, route, path, validation, xsd_dir, keep_xml,
+                post_parse_hook=post_parse_hook,
+                collect_raw_data=collect_raw_data,
+                extra_validators=extra_validators,
+                suppress=suppress,
+                positions=positions,
+            )
 
     @staticmethod
     def parse_bytes(
@@ -164,24 +167,39 @@ def _parse_bytes(
     positions: bool,
     positions_text: str | None = None,
 ) -> GAEBDocument:
-    _enforce_size_limit(len(data), max_file_size)
-    hint_path = Path(filename)
-    with tempfile.NamedTemporaryFile(suffix=hint_path.suffix, delete=False) as tmp:
-        tmp.write(data)
-        tmp_path = Path(tmp.name)
+    with _announced(filename):
+        _enforce_size_limit(len(data), max_file_size)
+        hint_path = Path(filename)
+        with tempfile.NamedTemporaryFile(suffix=hint_path.suffix, delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = Path(tmp.name)
+        try:
+            route = detect_version(tmp_path)
+            return _parse_core(
+                data, route, hint_path, validation, xsd_dir, keep_xml,
+                post_parse_hook=post_parse_hook,
+                collect_raw_data=collect_raw_data,
+                extra_validators=extra_validators,
+                suppress=suppress,
+                positions=positions,
+                positions_text=positions_text,
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+
+@contextmanager
+def _announced(file: str) -> Iterator[None]:
+    """Emit PARSE_STARTED, and PARSE_FAILED when the parse raises.
+
+    PARSE_COMPLETED is emitted by ``_parse_core`` once the document is built.
+    """
+    emit(EventType.PARSE_STARTED, file=file)
     try:
-        route = detect_version(tmp_path)
-        return _parse_core(
-            data, route, hint_path, validation, xsd_dir, keep_xml,
-            post_parse_hook=post_parse_hook,
-            collect_raw_data=collect_raw_data,
-            extra_validators=extra_validators,
-            suppress=suppress,
-            positions=positions,
-            positions_text=positions_text,
-        )
-    finally:
-        tmp_path.unlink(missing_ok=True)
+        yield
+    except Exception as e:
+        emit(EventType.PARSE_FAILED, file=file, error=type(e).__name__, message=str(e))
+        raise
 
 
 def _enforce_size_limit(size_bytes: int, explicit_limit: int | None) -> None:
@@ -232,7 +250,7 @@ def _parse_core(
     needs_xml_temporarily = (post_parse_hook is not None or collect_raw_data) and not keep_xml
     effective_keep_xml = keep_xml or post_parse_hook is not None or collect_raw_data
 
-    is_xml = route.format_family != FormatFamily.GAEB_90
+    is_xml = route.format_family not in (FormatFamily.GAEB_90, FormatFamily.GAEB_2000)
     text, encoding_info = repair_encoding(raw, is_xml=is_xml)
     route.encoding_info = encoding_info
 
@@ -281,23 +299,27 @@ def _parse_core(
             if not _suppress_matches(r.message, compiled)
         ]
 
-    if validation == ValidationMode.STRICT:
-        errors = [
-            r for r in doc.validation_results
-            if r.severity == ValidationSeverity.ERROR
-        ]
-        if errors:
-            raise GAEBValidationError(
-                f"Strict validation failed with {len(errors)} error(s): "
-                f"{errors[0].message}"
-            )
+    errors = [r for r in doc.validation_results if r.severity == ValidationSeverity.ERROR]
+    if errors:
+        # Before a strict parse raises, so subscribers hear of it in both modes.
+        emit(
+            EventType.VALIDATION_FAILED,
+            file=str(source_path),
+            error_count=len(errors),
+            first_error=errors[0].message,
+            mode=validation.value,
+        )
+    if validation == ValidationMode.STRICT and errors:
+        raise GAEBValidationError(
+            f"Strict validation failed with {len(errors)} error(s): "
+            f"{errors[0].message}"
+        )
 
     logger.debug(
         "Parsed %s: %d items, %d validation results",
         source_path.name, doc.item_count, len(doc.validation_results),
     )
 
-    from pygaeb.events import EventType, emit
     emit(
         EventType.PARSE_COMPLETED,
         file=str(source_path),
@@ -346,6 +368,13 @@ def _dispatch_parser(
             "ÖNORM B 2063 (Austrian standard) files are not supported. "
             "pyGAEB only handles German GAEB DA XML files. "
             "Please use an Austrian AVA tool to convert to GAEB format."
+        )
+
+    if route.format_family == FormatFamily.GAEB_2000:
+        raise GAEBParseError(
+            "GAEB 2000 (.P8x) files are not supported. pyGAEB reads GAEB DA XML "
+            "and GAEB 90. Export the file as GAEB DA XML (.X8x) from the AVA "
+            "program that wrote it."
         )
 
     if route.track == ParserTrack.TRACK_C:

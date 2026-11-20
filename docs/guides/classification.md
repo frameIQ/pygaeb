@@ -91,8 +91,8 @@ Each classification result carries a `flag` indicating the confidence level:
 |------|-----------|---------|
 | `auto-classified` | >= 0.85 | High confidence — safe to use automatically |
 | `needs-spot-check` | 0.60–0.84 | Medium confidence — spot-check recommended |
-| `needs-review` | < 0.60 | Low confidence — manual review needed |
-| `llm-error` | N/A | LLM call failed — item was not classified |
+| `needs-review` | < 0.60, or outside the taxonomy | Low confidence, or an answer the prompt did not offer (see Custom Taxonomy & Prompt below) — manual review needed |
+| `llm-error` | N/A | LLM call failed — item was not classified. Never cached, so the next run asks again |
 | `manual-override` | N/A | Manually set by user (preserved across re-runs) |
 
 ```python
@@ -121,7 +121,15 @@ item.classification = ClassificationResult(
 )
 ```
 
-Manual overrides are preserved when re-running classification — the classifier skips items flagged as `MANUAL_OVERRIDE`.
+Manual overrides are preserved when re-running classification — the classifier skips items flagged as `MANUAL_OVERRIDE`, even with `force_reclassify=True`.
+
+To apply a decision to every item with the same text, now and in later runs, save it:
+
+```python
+classifier.cache.save_override(item)
+```
+
+A saved override is stored apart from model answers and keyed on the item alone, so it applies whichever model, prompt or taxonomy classifies the item, and it wins even with `force_reclassify=True`. Use a persistent cache (`SQLiteCache`) to keep it across sessions.
 
 ## Supported LLM Providers
 
@@ -154,11 +162,13 @@ await classifier.enrich(doc, on_progress=on_progress)
 
 ## Re-classification
 
-By default, items with existing classification results are skipped (pulled from cache). To force re-classification:
+By default, an answer cached for the same item under the same model, prompt and taxonomy is reused. To ask the model again:
 
 ```python
 await classifier.enrich(doc, force_reclassify=True)
 ```
+
+`force_reclassify` bypasses cached model answers only; manual and saved overrides still win.
 
 ## Fallback Models
 
@@ -189,6 +199,8 @@ classifier = LLMClassifier(
     prompt_template="You are a specialist classifying MEP items...",
 )
 ```
+
+An answer outside the taxonomy the prompt offered is flagged `needs-review`. With a custom taxonomy, the trade, element type and sub-type are checked against it. With the built-in prompt, only the trade is checked, because its element types are examples. A custom prompt without a taxonomy sets its own rules and is not checked.
 
 You can also register reusable prompt templates:
 

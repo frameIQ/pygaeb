@@ -285,21 +285,30 @@ class TestPhaseRules:
         warnings = [r.message for r in doc.validation_results]
         assert any("X80" in w for w in warnings)
 
-    def test_x83_warns_on_missing_price(self):
-        builder = BoQBuilder(phase="X83")
-        cat = builder.add_category("01", "A")
-        cat.add_item("01.0010", "Item", qty=10, unit="m2")
-        doc = builder.build()
-        warnings = [r.message for r in doc.validation_results]
-        assert any("unit_price" in w and "missing" in w for w in warnings)
-
-    def test_x83_no_warning_when_price_present(self):
+    def test_x83_warns_on_prices(self):
+        # A tender is written without prices, so a price set here would be lost.
         builder = BoQBuilder(phase="X83")
         cat = builder.add_category("01", "A")
         cat.add_item("01.0010", "Item", qty=10, unit="m2", unit_price=50)
         doc = builder.build()
         warnings = [r.message for r in doc.validation_results]
+        assert any("unit_price" in w and "X83" in w for w in warnings)
+
+    def test_x83_no_price_warning_without_prices(self):
+        builder = BoQBuilder(phase="X83")
+        cat = builder.add_category("01", "A")
+        cat.add_item("01.0010", "Item", qty=10, unit="m2")
+        doc = builder.build()
+        warnings = [r.message for r in doc.validation_results]
         assert not any("unit_price" in w for w in warnings)
+
+    def test_x84_is_a_bid_that_needs_prices(self):
+        builder = BoQBuilder(phase="X84")
+        cat = builder.add_category("01", "A")
+        cat.add_item("01.0010", "Item", qty=10, unit="m2")
+        doc = builder.build()
+        warnings = [r.message for r in doc.validation_results]
+        assert any("unit_price" in w and "missing" in w and "bid" in w for w in warnings)
 
     def test_strict_mode_raises_on_phase_violation(self):
         builder = BoQBuilder(phase="X80")
@@ -331,7 +340,8 @@ class TestVersionCompat:
     def test_strict_mode_raises_on_version_violation(self):
         builder = BoQBuilder(version="3.0")
         cat = builder.add_category("01", "A")
-        cat.add_item("01.0010", "Item", unit_price=10, bim_guid="abc-123")
+        # No price: on the default X83 one would trip the phase rule first.
+        cat.add_item("01.0010", "Item", bim_guid="abc-123")
         with pytest.raises(ValueError, match=r"bim_guid.*3\.3"):
             builder.build(strict=True)
 

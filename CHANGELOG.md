@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrade notes
+
+No public function, class or argument was removed or changed in an incompatible way. Five corrections change behaviour that existing code may rely on:
+
+- **A priced X83 now warns in the builder, and raises with `strict=True`.** A tender is written without prices: the X83 schema has no `UP` or `IT`, so the writer always left them out. The builder warned when prices were *missing*, so `BoQBuilder(phase="X83", strict=True)` with prices now raises `ValueError`. Build priced documents as X84 (a bid) or X86 (a contract).
+- **Bidder prices are no longer written by default.** No GAEB schema defines the `<BidderUP>` element pyGAEB wrote for them, so the output failed schema validation. They are now reported as dropped; pass `keep_bidder_prices=True` to keep the old round trip within pyGAEB.
+- **More conversions report data loss.** GUIDs, bidder prices, trade and cost fields the writers cannot write yet, and attachment bytes the schema cannot embed are now reported as dropped, so `ConversionReport.has_data_loss` is true where the loss used to be silent.
+- **Not-applicable positions leave the sums.** Positions marked `<NotAppl>` were counted like any other; `grand_total`, the subtotals and everything built on them now leave them out.
+- **Cached classifications are asked once more.** Answers cached by 1.21 and earlier were keyed on too little to be trusted and are not reused, so each unique item is classified once again after upgrading. Saved manual overrides are kept.
+
+### Added
+
+- **Lifecycle events fire.** Six of the seven `EventType`s were declared but never emitted. `PARSE_STARTED`, `PARSE_FAILED`, `VALIDATION_FAILED`, `WRITE_STARTED`, `WRITE_COMPLETED` and `CLASSIFICATION_COMPLETED` now fire beside `PARSE_COMPLETED`; the extensibility guide lists every payload.
+  - `PARSE_FAILED` fires for any exception before it propagates, with the exception class and message. A strict parse that fails validation emits `VALIDATION_FAILED`, then `PARSE_FAILED`.
+  - `WRITE_COMPLETED` carries the warning count and whether data was dropped. `validate_against_xsd` serializes without write events.
+  - `CLASSIFICATION_COMPLETED` carries the model, unique texts, cache hits, LLM calls and errors.
+- **`Item.not_applicable`**, read from `<NotAppl>` ("Position entfällt"); see Fixed.
+- **`GAEBWriter.write(..., keep_bidder_prices=True)`**, also on `to_bytes` and `validate_against_xsd`; see Changed.
+- **`ClassificationCache.get_override()`** looks up a saved manual override; see Fixed.
+
+### Changed
+
+- **Bidder prices are written only on request.** `bidder_prices` were written as `<BidderUP>`, which round-trips within pyGAEB but which no GAEB schema defines, so every X82 with a price comparison failed validation. By default they are now reported as dropped, and an X82 with bidder prices validates against the 3.3 schema. `keep_bidder_prices=True` restores the old output.
+- **The builder's phase rules follow the writer.** X83 warns when `unit_price` or `total_price` is set, because the writer drops them, instead of when they are missing. X84 is labelled a bid, not an award. The warning names the same field on every run; it depended on string hashing. The README and guide examples now build tenders without prices and priced documents as X84.
+- **Classification answers outside the taxonomy are flagged `needs-review`.** The taxonomy was only appended to the prompt; nothing checked the answer against it. With a custom taxonomy, trade, element type and sub-type are checked. With the built-in prompt only the trade is, because its element types are examples. A custom prompt without a taxonomy is not checked.
+
+### Fixed
+
+- **A GAEB file that names ÖNORM is read as GAEB.** The format detector looked for "ÖNORM" and "B 2063" in the first 512 bytes before it looked for the GAEB root, so a German file whose program name or project text mentioned ÖNORM, as a tool that exports both standards may write, was rejected as Austrian. The GAEB root now decides first.
+- **GAEB 2000 files get a clear error.** A `.P8x` file that is neither XML nor fixed-width went to the XML parser and failed as malformed XML. It is now recognised (`FormatFamily.GAEB_2000`) and refused with "GAEB 2000 (.P8x) files are not supported", which says to export DA XML instead. Comments and docstrings that called `.D8x` DA XML 2.x and `.P8x` GAEB 90 are corrected: `.D8x` is GAEB 90, and the 3.3 specification (section 11.2.1) gives DA XML the `.Xnn` extensions.
+- **Flags in 2.x files are read.** The German-to-English tag rename missed self-closing tags without attributes, so `<Pauschalposition/>` stayed German and a 2.x lump-sum position read as normal.
+- **Not-applicable positions no longer count.** `<NotAppl>`, which the schema documents as "Position oder Bereich entfällt", was never read, so a dropped position was summed like any other.
+  - The new `Item.not_applicable` holds it, and `Item.affects_total` is false for such a position, so the sums, the totals validator and the missing-price and missing-quantity checks leave it out.
+  - The writer emits `<NotAppl>Yes</NotAppl>` where the phase schema has it (X80 to X82, X86, X87), in schema order.
+  - A tender, bid or alternative bid (X83, X84, X85) has no such element, and an invoice (X89, X89B) must not carry the position (GAEB DA XML 3.3, section 8.1.3.7), so those outputs leave it out and report it once per phase. X85 gets its own writer profile for this.
+  - Only positions are covered; a not-applicable category is not read yet.
+- **Attachments added in code reach the file.** For DA XML 3.1 to 3.3 the writer relied on the long text's own markup, which carries a parsed file's attachments, and wrote nothing from `Item.attachments`. An attachment added with the builder's `add_attachment`, or by an application, was dropped without a warning.
+  - JPEG, GIF and PNG are written as `<image>` inside a paragraph of the long text, and any other file as an `<attachment>` reference by name. The schema embeds only those three image types, so other bytes are reported as dropped.
+  - Attachments already in the markup are not written twice, and a bid (X84) still carries none. Checked against the 3.3 schemas.
+- **A discount without its discounted total is kept.** The schema accepts `DiscountPcnt` or `DiscountAmt` only together with `TotAfterDisc`, so `Totals` without one lost the discount silently. The discounted total is now derived, rounded to the cent half-up. When there is no total, or `TotalLSUM` takes the slot, the discount is reported as dropped.
+- **Data the writer cannot carry is reported as dropped,** one summary line per field, so `ConversionReport.has_data_loss` sees it:
+  - GUIDs: the 3.3 procurement schemas have no `GUID` or `BIMRef` element.
+  - Trade items: long text, `ItemChara`, `ItemType`, `DeliveryChara` and `Service`.
+  - Cost documents: `DateOfInformation`, catalogue assignments (`CtlgAssign`, including DIN 276 cost groups) and element long texts.
+  - Bidder prices, and attachment bytes the schema cannot embed (above).
+- **`ConversionReport` orders versions properly.** Versions were compared as strings, and "90" sorts above "3.3", so a GAEB 90 → 3.3 conversion counted as a downgrade and GAEB 90 as the same family as 3.x. `is_upgrade`, `is_downgrade` and `is_same_family` now use the real order.
+- **MCP rows name trade items and cost elements.** `list_items` rows for trade and cost documents had an empty `oz` and `id`; they now carry the item's `item_id` or the element's `ele_no`.
+- **Classification serves no stale or failed answer, and keeps what people decided.**
+  - The cache key held the short text, the first 300 characters of the long text and the prompt version, so a changed model, prompt text, taxonomy, unit or section reused an answer given under other conditions. It now covers the item as the prompt sends it (section, short text, the first 300 characters of the long text, unit) and the model, prompt text and taxonomy.
+  - A failed call (`llm-error`) was cached, so a passing outage left items unclassified until the cache was cleared. Failures are no longer cached.
+  - Manual overrides were overwritten on every re-run, despite the documentation: a cached answer replaced them, and `force_reclassify` overwrote saved ones. Items flagged `manual-override` are now skipped, even with `force_reclassify`.
+  - Overrides saved with `save_override` have their own key on the item alone, so they apply under any model, prompt or taxonomy and win even with `force_reclassify`. Overrides saved by 1.21 are still found.
+  - Quantity documents crashed the classifier, which read `short_text` from items that have none. Items without text are now skipped.
+  - Items sharing an answer shared one result object, so editing one item's classification changed all of them. Each item now gets its own copy.
+  - `estimate_cost` counts what `enrich` will do, with the same keys, skipping manual overrides and items without text.
+- **Structured extraction serves no stale or failed answer.** The cache key covered the short text and the first 300 characters of the long text, while the prompt sends the full long text, the unit, the quantity and the item's classification, so two doors that differed after character 300 shared one answer. The key is now the exact request (model, system prompt and item message) plus the schema. A failed extraction still returns an empty result but is no longer cached.
+
 ## [1.21.0] - 2026-10-29
 
 ### Fixed

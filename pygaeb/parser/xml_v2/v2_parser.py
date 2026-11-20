@@ -31,17 +31,20 @@ class V2Parser(BaseV3Parser):
 def _translate_elements(xml_text: str) -> str:
     """Replace German element names with their English equivalents.
 
-    Handles both opening and closing tags, preserving attributes.
+    Handles opening, closing and self-closing tags, preserving attributes.
     """
     def _replace_tag(match: re.Match[str]) -> str:
         slash = match.group(1) or ""
         tag_name = match.group(2)
         rest = match.group(3) or ""
+        self_closing = match.group(4) or ""
         english = GERMAN_TO_ENGLISH.get(tag_name, tag_name)
-        return f"<{slash}{english}{rest}>"
+        return f"<{slash}{english}{rest}{self_closing}>"
 
+    # The trailing "/?" catches <Tag/>: with no whitespace after the name, the
+    # attribute group cannot take the slash, and the flag stayed German.
     result = re.sub(
-        r"<(/?)(\w+)((?:\s[^>]*)?)>",
+        r"<(/?)(\w+)((?:\s[^>]*)?)(/?)>",
         _replace_tag,
         xml_text,
     )

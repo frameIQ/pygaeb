@@ -1,7 +1,7 @@
 """GAEB 90 fixed-width parser (Track C).
 
 Minimal implementation supporting the most common record types found in
-legacy ``.P83``/``.P84`` files. The format uses 80-character lines where
+legacy ``.D8x`` files. The format uses 80-character lines where
 the first 2 characters identify the line type.
 
 Common line types handled:

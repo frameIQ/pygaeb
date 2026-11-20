@@ -317,6 +317,9 @@ class Item(BaseModel):
     #: positions carry it. Declared by the issuer in X81/X82/X83/X85/X86; X84 has
     #: no such element, because a bid does not restate the demand.
     up_breakdown_required: bool = False
+    #: GAEB ``<NotAppl>``, "Position entfällt": the position is dropped. It never
+    #: enters the sums, and an invoice must not carry it (DA XML 3.3, §8.1.3.7).
+    not_applicable: bool = False
     up_components: list[Decimal] = Field(default_factory=list)
     discount_pct: Decimal | None = None
     vat: Decimal | None = None
@@ -350,9 +353,12 @@ class Item(BaseModel):
     def affects_total(self) -> bool:
         """Whether this position's total enters the sums.
 
-        A Bedarfsposition counts only when marked *mit GB* (``Provis.WITH_TOTAL``);
-        otherwise the item type decides (:attr:`ItemType.affects_total`).
+        A dropped position (``not_applicable``) never counts. A Bedarfsposition
+        counts only when marked *mit GB* (``Provis.WITH_TOTAL``); otherwise the
+        item type decides (:attr:`ItemType.affects_total`).
         """
+        if self.not_applicable:
+            return False
         if self.item_type is ItemType.EVENTUAL:
             return self.provis is Provis.WITH_TOTAL
         return self.item_type.affects_total

@@ -111,6 +111,33 @@ register_prompt("mep-v1", "You are classifying MEP items...")
 classifier = LLMClassifier(prompt_version="mep-v1")
 ```
 
+## Lifecycle Events
+
+Subscribe to events for audit trails, metrics or webhooks. A callback receives one `dict` payload; an exception in a callback is logged and never breaks the parse or write.
+
+```python
+from pygaeb import EventType, on_event
+
+def audit(payload):
+    print(f"wrote {payload['file']}: {payload['warning_count']} warnings")
+
+on_event(EventType.WRITE_COMPLETED, audit)
+```
+
+| Event | Fires | Payload |
+|-------|-------|---------|
+| `PARSE_STARTED` | Before a parse reads anything | `file` |
+| `PARSE_COMPLETED` | After the document is built and validated | `file`, `item_count`, `version`, `phase`, `validation_count` |
+| `PARSE_FAILED` | When a parse raises, before the exception propagates | `file`, `error` (exception class), `message` |
+| `VALIDATION_FAILED` | When validation finds errors, in lenient and strict mode | `file`, `error_count`, `first_error`, `mode` |
+| `WRITE_STARTED` | Before `GAEBWriter.write` or `to_bytes` builds the XML | `file` (`None` for `to_bytes`), `phase`, `version`, `item_count` |
+| `WRITE_COMPLETED` | After the file or bytes are produced | as `WRITE_STARTED`, plus `warning_count`, `data_loss`, and `size` for `to_bytes` |
+| `CLASSIFICATION_COMPLETED` | When `LLMClassifier.enrich` finishes | `model`, `item_count`, `unique_texts`, `cache_hits`, `llm_calls`, `errors` |
+
+`file` for `parse_bytes` and `parse_string` is the filename hint. A strict parse that fails validation emits `VALIDATION_FAILED`, then `PARSE_FAILED`. `cache_hits` and `llm_calls` count unique texts, not items. `validate_against_xsd` emits no write events.
+
+Subscribers are process-wide: in a multi-tenant application, a callback hears every tenant's parses and writes. Remove them with `off_event` or `clear_subscribers`.
+
 ## Configuring Log Level
 
 The `log_level` setting is now applied to the `pygaeb` logger automatically:

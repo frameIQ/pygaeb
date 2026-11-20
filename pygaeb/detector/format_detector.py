@@ -1,4 +1,5 @@
-"""Format detection: DA XML (2.x/3.x) vs GAEB 90 fixed-width routing."""
+"""Format detection: DA XML (2.x/3.x), GAEB 90 fixed-width, and the formats
+pyGAEB refuses with a clear error (GAEB 2000, ÖNORM)."""
 
 from __future__ import annotations
 
@@ -10,10 +11,14 @@ from pygaeb.detector.encoding_repair import sniff_unicode
 
 logger = logging.getLogger("pygaeb.detector")
 
+# .P8x is GAEB 2000, a format pyGAEB does not read.
+_GAEB_2000_EXTENSIONS = frozenset({".P81", ".P82", ".P83", ".P84", ".P85", ".P86"})
+
 
 class FormatFamily(str, Enum):
     DA_XML = "DA_XML"
     GAEB_90 = "GAEB_90"
+    GAEB_2000 = "GAEB_2000"
     ONORM_B2063 = "ONORM_B2063"
     UNKNOWN = "UNKNOWN"
 
@@ -38,6 +43,12 @@ def detect_format(path: str | Path) -> FormatFamily:
     view = body.decode(encoding, errors="ignore").encode("utf-8") if encoding else header
     header_lower = view.lower()
 
+    # The GAEB root decides first: AVA tools that export both standards name
+    # ÖNORM in ProgSystem or project texts, inside these 512 bytes.
+    if b"<gaeb" in header_lower:
+        logger.debug("Detected DA XML family for %s", path.name)
+        return FormatFamily.DA_XML
+
     # ÖNORM B 2063 (Austrian standard) — distinct from German GAEB
     if b"onorm" in header_lower or b"\xc3\x96norm" in header_lower or b"b 2063" in header_lower:
         logger.debug("Detected ÖNORM B 2063 for %s", path.name)
@@ -46,7 +57,7 @@ def detect_format(path: str | Path) -> FormatFamily:
         logger.debug("Detected ÖNORM B 2063 from extension for %s", path.name)
         return FormatFamily.ONORM_B2063
 
-    if b"<?xml" in header_lower or b"<gaeb" in header_lower:
+    if b"<?xml" in header_lower:
         logger.debug("Detected DA XML family for %s", path.name)
         return FormatFamily.DA_XML
 
@@ -55,9 +66,14 @@ def detect_format(path: str | Path) -> FormatFamily:
         return FormatFamily.GAEB_90
 
     ext = path.suffix.upper()
+    if ext in _GAEB_2000_EXTENSIONS:
+        # Neither XML nor fixed-width, under a GAEB 2000 extension: refused
+        # clearly instead of failing later as malformed XML.
+        logger.debug("Detected GAEB 2000 from extension %s", ext)
+        return FormatFamily.GAEB_2000
     if ext in (".X83", ".X84", ".X86", ".X89", ".X80", ".X81", ".X82", ".X85",
                ".X31", ".D83", ".D84", ".D86", ".D89", ".D80", ".D81", ".D82",
-               ".D85", ".D31", ".P83", ".P84"):
+               ".D85", ".D31"):
         logger.debug("Detected DA XML from extension %s", ext)
         return FormatFamily.DA_XML
 

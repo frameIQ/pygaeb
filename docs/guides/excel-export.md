@@ -154,7 +154,7 @@ Documents created with `BoQBuilder` export directly:
 from pygaeb import BoQBuilder
 from pygaeb.convert import to_excel
 
-builder = BoQBuilder(phase="X83", version="3.3")
+builder = BoQBuilder(phase="X84", version="3.3")  # a priced bid
 builder.project(no="PRJ-001", name="Office Building", currency="EUR")
 cat = builder.add_category("01", "Concrete")
 cat.add_item("01.0010", "Foundation", qty=120, unit="m3", unit_price=85)

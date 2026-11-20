@@ -323,6 +323,12 @@ def item_row(item: Any) -> dict[str, Any]:
         "attachment_count": len(attachments),
         "has_classification": _attr(item, "classification") is not None,
     }
+    # Trade items and cost elements have no OZ: give the number they carry
+    # instead, so an agent can tell the rows apart and cite them.
+    for key in ("item_id", "ele_no"):
+        value = _attr(item, key)
+        if value:
+            row[key] = value
     if is_markup:
         row["markup"] = markup_info(item)
     return row
