@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from collections.abc import Callable
 from typing import Any, TypeVar, cast
@@ -11,7 +13,6 @@ from typing import Any, TypeVar, cast
 from pydantic import BaseModel
 
 from pygaeb.cache import CacheBackend
-from pygaeb.classifier.cache import compute_hash as compute_item_hash
 from pygaeb.config import get_settings
 from pygaeb.extractor.extraction_cache import ExtractionCache
 from pygaeb.extractor.extraction_prompt import (
@@ -110,13 +111,7 @@ class StructuredExtractor:
             )
             return []
 
-        inferred_trade = trade or ""
-        inferred_element = element_type or ""
-        if not inferred_trade and not inferred_element and items:
-            first_cls = items[0].classification
-            if first_cls:
-                inferred_trade = first_cls.trade
-                inferred_element = first_cls.element_type
+        inferred_trade, inferred_element = _infer_contexts(items, trade, element_type)
 
         return await self._extract_batch(
             items=items,
@@ -197,12 +192,15 @@ class StructuredExtractor:
         items = _filter_items(doc, trade, element_type, sub_type)
         s_hash = compute_schema_hash(schema)
         num_fields = len(schema.model_fields)
+        trade_context, element_context = _infer_contexts(items, trade, element_type)
+        system_prompt = build_extraction_prompt(schema, element_context, trade_context)
 
         cached_count = 0
         to_extract: list[Any] = []
         for item in items:
-            item_hash = compute_item_hash(item.short_text, item.long_text_plain[:300])
-            cache_key = compute_extraction_cache_key(item_hash, s_hash)
+            cache_key = compute_extraction_cache_key(
+                _request_hash(self.model, system_prompt, _user_message(item)), s_hash,
+            )
             if self.cache.get(cache_key) is not None:
                 cached_count += 1
             else:
@@ -260,8 +258,12 @@ class StructuredExtractor:
                 or getattr(item, "item_id", "")
             )
 
-            item_hash = compute_item_hash(item.short_text, item.long_text_plain[:300])
-            cache_key = compute_extraction_cache_key(item_hash, s_hash)
+            # Keyed on the request itself: the full long text, unit, quantity,
+            # classification, model and prompt all change the answer.
+            user_message = _user_message(item)
+            cache_key = compute_extraction_cache_key(
+                _request_hash(self.model, system_prompt, user_message), s_hash,
+            )
 
             if not force_reextract:
                 cached = self.cache.get(cache_key)
@@ -282,12 +284,15 @@ class StructuredExtractor:
                     return item, instance
 
             async with semaphore:
-                instance = await self._call_llm(item, schema, system_prompt)
+                answer = await self._call_llm(schema, system_prompt, user_message)
 
+            # A failure yields an empty result, never cached, so the next run asks again.
+            instance = answer if answer is not None else schema()
             data_dict = instance.model_dump()
             completeness = compute_completeness(instance)
 
-            self.cache.put(cache_key, s_name, s_hash, data_dict, completeness)
+            if answer is not None:
+                self.cache.put(cache_key, s_name, s_hash, data_dict, completeness)
 
             if attach:
                 item.extractions[s_name] = ExtractionResult(
@@ -319,11 +324,11 @@ class StructuredExtractor:
 
     async def _call_llm(
         self,
-        item: Any,
         schema: type[T],
         system_prompt: str,
-    ) -> T:
-        """Call LLM via LiteLLM + instructor to extract structured data."""
+        user_message: str,
+    ) -> T | None:
+        """Call LLM via LiteLLM + instructor; None when every model fails."""
         try:
             import instructor
             import litellm
@@ -334,25 +339,6 @@ class StructuredExtractor:
 
         # acompletion makes an async client; litellm's decorator hides that from type checkers.
         client = cast("instructor.AsyncInstructor", instructor.from_litellm(litellm.acompletion))
-
-        element_context = ""
-        if item.classification:
-            element_context = (
-                f"\nClassification: {item.classification.trade} > "
-                f"{item.classification.element_type} > "
-                f"{item.classification.sub_type}"
-            )
-
-        hierarchy = getattr(item, "hierarchy_path_str", "")
-        user_message = build_extraction_user_message(
-            hierarchy_path=hierarchy,
-            short_text=item.short_text,
-            long_text=item.long_text_plain,
-            unit=item.unit or "",
-            qty=str(item.qty) if item.qty else "",
-        )
-        if element_context:
-            user_message += element_context
 
         models_to_try = [self.model, *self.fallbacks]
         last_error: Exception | None = None
@@ -375,7 +361,45 @@ class StructuredExtractor:
                 continue
 
         logger.error("All extraction models failed: %s", last_error)
-        return schema()
+        return None
+
+
+def _user_message(item: Any) -> str:
+    """What the extraction prompt sends about *item*."""
+    message = build_extraction_user_message(
+        hierarchy_path=getattr(item, "hierarchy_path_str", ""),
+        short_text=item.short_text,
+        long_text=item.long_text_plain,
+        unit=item.unit or "",
+        qty=str(item.qty) if item.qty else "",
+    )
+    if item.classification:
+        message += (
+            f"\nClassification: {item.classification.trade} > "
+            f"{item.classification.element_type} > "
+            f"{item.classification.sub_type}"
+        )
+    return message
+
+
+def _request_hash(model: str, system_prompt: str, user_message: str) -> str:
+    """SHA-256 of exactly what goes to the model, so a cached answer cannot go stale."""
+    content = json.dumps([model, system_prompt, user_message])
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _infer_contexts(
+    items: list[Any], trade: str | None, element_type: str | None,
+) -> tuple[str, str]:
+    """Trade and element context for the system prompt: the filter, else the first item's."""
+    inferred_trade = trade or ""
+    inferred_element = element_type or ""
+    if not inferred_trade and not inferred_element and items:
+        first_cls = items[0].classification
+        if first_cls:
+            inferred_trade = first_cls.trade
+            inferred_element = first_cls.element_type
+    return inferred_trade, inferred_element
 
 
 def _filter_items(

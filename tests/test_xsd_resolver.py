@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from pygaeb import ExchangePhase, GAEBParser, GAEBWriter, SourceVersion
 from pygaeb.config import reset_settings
 from pygaeb.parser.gaeb_parser import XsdResult, resolve_schema, validate_xml
@@ -76,13 +78,25 @@ class TestValidateXml:
         assert bad.errors and "B" in bad.errors[0].message
         assert bad.errors[0].line == 1
 
-    def test_none_when_nothing_configured(self) -> None:
+    # "Nothing configured" includes the environment, where a developer may keep
+    # PYGAEB_XSD_DIR set; the finally drops the cached settings again.
+    def test_none_when_nothing_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("PYGAEB_XSD_DIR", raising=False)
         reset_settings()
-        assert validate_xml(b"<GAEB/>", SourceVersion.DA_XML_33, ExchangePhase.X83) is None
+        try:
+            assert validate_xml(b"<GAEB/>", SourceVersion.DA_XML_33, ExchangePhase.X83) is None
+        finally:
+            reset_settings()
 
-    def test_writer_helper_returns_none_without_schema(self, sample_document) -> None:
+    def test_writer_helper_returns_none_without_schema(
+        self, sample_document, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("PYGAEB_XSD_DIR", raising=False)
         reset_settings()
-        assert GAEBWriter.validate_against_xsd(sample_document) is None
+        try:
+            assert GAEBWriter.validate_against_xsd(sample_document) is None
+        finally:
+            reset_settings()
 
 
 class TestParserIntegration:

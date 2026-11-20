@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import pytest
 
-from pygaeb.converter import ConversionReport, GAEBConverter
+from pygaeb.converter import _VERSION_ORDER, ConversionReport, GAEBConverter
 from pygaeb.models.boq import BoQ, BoQBody, BoQCtgy, Lot
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
 from pygaeb.models.enums import ExchangePhase, SourceVersion
@@ -323,6 +323,22 @@ class TestConversionReport:
             target_phase=ExchangePhase.D83,
         )
         assert not report.is_same_family
+
+    def test_gaeb90_to_v33_is_an_upgrade_into_another_family(self):
+        # The version values are strings, and "90" sorts above "3.3".
+        report = ConversionReport(
+            source_version=SourceVersion.GAEB_90,
+            target_version=SourceVersion.DA_XML_33,
+            source_phase=ExchangePhase.D83,
+            target_phase=ExchangePhase.X83,
+        )
+        assert report.is_upgrade
+        assert not report.is_downgrade
+        assert not report.is_same_family
+
+    def test_version_order_covers_every_version(self):
+        # A version added to the enum but not to the order would raise on compare.
+        assert set(_VERSION_ORDER) == set(SourceVersion)
 
     def test_has_data_loss(self):
         report = ConversionReport(

@@ -25,8 +25,10 @@ from pygaeb.config import configure, get_settings, reset_settings
 from pygaeb.mcp.handles import DocumentCache
 from pygaeb.mcp.safety import resolve_roots, resolve_within_roots
 from pygaeb.mcp.tools import ToolContext, build_tools
-from pygaeb.mcp.views import LONG_TEXT_PREVIEW_CHARS, SHORT_TEXT_CHARS, bound, paginate
+from pygaeb.mcp.views import LONG_TEXT_PREVIEW_CHARS, SHORT_TEXT_CHARS, bound, item_row, paginate
 from pygaeb.models.boq import BoQ, BoQBody, BoQCtgy, Lot
+from pygaeb.models.cost import CostElement
+from pygaeb.models.order import OrderItem
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
 from pygaeb.models.enums import ExchangePhase, ItemType, SourceVersion, ValidationMode
 from pygaeb.models.item import Attachment, BidderPrice, Item, RichText
@@ -1470,3 +1472,21 @@ class TestWholeWordSearch:
         )
         assert [m["oz"] for m in strict["matches"]] == ["01.0020"]
         assert strict["matches"][0]["match_count"] == 1
+
+
+class TestItemRowIdentifiers:
+    """Trade items and cost elements have no OZ; their rows name them anyway."""
+
+    def test_trade_row_names_the_item(self) -> None:
+        row = item_row(OrderItem(item_id="A-100", short_text="Schrauben"))
+        assert row["item_id"] == "A-100"
+
+    def test_cost_row_names_the_element(self) -> None:
+        row = item_row(CostElement(ele_no="310", short_text="Baugrube"))
+        assert row["ele_no"] == "310"
+
+    def test_procurement_row_keeps_its_shape(self) -> None:
+        row = item_row(Item(oz="01.0010", short_text="Mauerwerk"))
+        assert row["oz"] == "01.0010"
+        assert "item_id" not in row
+        assert "ele_no" not in row

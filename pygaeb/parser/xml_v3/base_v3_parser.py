@@ -1,6 +1,7 @@
 """Base parser for DA XML 3.x (Track B) — handles BoQ, BoQCtgy, Item, AwardInfo.
 
-Supports iterparse for large files and two-pass recovery on malformed XML.
+Supports two-pass recovery on malformed XML. The whole tree is built in
+memory: there is no iterparse path for large files yet.
 """
 
 from __future__ import annotations
@@ -629,6 +630,12 @@ class BaseV3Parser:
         if bkdn_el is not None:
             item.up_breakdown_required = (
                 _own_text(bkdn_el).strip().lower() in ("yes", "true", "1")
+            )
+
+        not_appl_el = self._find(item_el, "NotAppl")
+        if not_appl_el is not None:
+            item.not_applicable = (
+                _own_text(not_appl_el).strip().lower() in ("yes", "true", "1")
             )
 
         qu_el = self._find(item_el, "QU")

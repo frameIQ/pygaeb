@@ -328,8 +328,12 @@ class TestPhaseProfiles:
         item.bim_guid = "abc"
         root, warnings = _write(bare_doc, ExchangePhase.X86)
         assert not _find_all(root, "Attachment") and not _find_all(root, "GUID")
-        assert any("Item.attachments not written" in w for w in warnings)
-        assert any("GUID not written" in w for w in warnings)
+        # The PDF goes into the schema's own <attachment>, by name: only JPEG,
+        # GIF and PNG can be embedded, so its bytes are reported as dropped.
+        assert [el.text for el in _find_all(root, "attachment")] == ["a.pdf"]
+        assert any("'a.pdf' dropped" in w for w in warnings)
+        # No 3.x procurement schema has a GUID element: reported as data loss.
+        assert any("bim_guid dropped" in w for w in warnings)
 
     def test_multi_lot_wrappers(self, multi_lot_document):
         root, _ = _write(multi_lot_document, ExchangePhase.X86)

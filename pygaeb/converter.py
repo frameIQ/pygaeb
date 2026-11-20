@@ -12,6 +12,25 @@ from pygaeb.writer.version_registry import WRITABLE_VERSIONS
 
 logger = logging.getLogger("pygaeb.converter")
 
+# Oldest first. The enum's string values cannot be compared directly: "90"
+# sorts above "3.3".
+_VERSION_ORDER: tuple[SourceVersion, ...] = (
+    SourceVersion.GAEB_90,
+    SourceVersion.DA_XML_20,
+    SourceVersion.DA_XML_21,
+    SourceVersion.DA_XML_30,
+    SourceVersion.DA_XML_31,
+    SourceVersion.DA_XML_32,
+    SourceVersion.DA_XML_33,
+)
+
+
+def _family(version: SourceVersion) -> str:
+    """``"90"`` for GAEB 90, else the major DA XML version (``"2"`` or ``"3"``)."""
+    if version is SourceVersion.GAEB_90:
+        return "90"
+    return str(version.value).split(".")[0]
+
 
 class ConversionReport(BaseModel):
     """Report generated after a GAEB version conversion."""
@@ -26,18 +45,20 @@ class ConversionReport(BaseModel):
 
     @property
     def is_upgrade(self) -> bool:
-        return self.target_version.value > self.source_version.value
+        return _VERSION_ORDER.index(self.target_version) > _VERSION_ORDER.index(
+            self.source_version
+        )
 
     @property
     def is_downgrade(self) -> bool:
-        return self.target_version.value < self.source_version.value
+        return _VERSION_ORDER.index(self.target_version) < _VERSION_ORDER.index(
+            self.source_version
+        )
 
     @property
     def is_same_family(self) -> bool:
-        """True when both versions are in the same language family (both 3.x or both 2.x)."""
-        src = self.source_version.value
-        tgt = self.target_version.value
-        return (src >= "3" and tgt >= "3") or (src < "3" and tgt < "3")
+        """True when both versions are in the same family: GAEB 90, DA XML 2.x or 3.x."""
+        return _family(self.source_version) == _family(self.target_version)
 
     @property
     def has_data_loss(self) -> bool:

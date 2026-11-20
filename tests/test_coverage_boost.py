@@ -30,7 +30,7 @@ from pygaeb import (
 )
 from pygaeb.cache import InMemoryCache
 from pygaeb.classifier.batch_classifier import LLMClassifier, _item_label
-from pygaeb.classifier.cache import compute_hash
+from pygaeb.classifier.cache import item_input_hash
 from pygaeb.models.base_item import BaseItem
 from pygaeb.models.boq import BoQ, BoQBody, BoQCtgy, Lot, Totals
 from pygaeb.models.document import AwardInfo, GAEBDocument, GAEBInfo
@@ -187,11 +187,10 @@ class TestLLMClassifierEnrich:
         doc = _make_doc()
         clf = LLMClassifier(model="test/mock")
 
-        # Pre-populate cache
+        # Pre-populate cache under the key the classifier uses
         item = next(iter(doc.iter_items()))
-        h = compute_hash(item.short_text, item.long_text_plain[:300])
         cached = _mock_classify_result(trade="Cached")
-        clf.cache.put(h, clf.prompt_version, cached)
+        clf.cache.put(item_input_hash(item), clf._cache_version(), cached)
 
         call_count = 0
 
@@ -213,10 +212,11 @@ class TestLLMClassifierEnrich:
         doc = _make_doc()
         clf = LLMClassifier(model="test/mock")
 
-        # Pre-populate cache
+        # Pre-populate cache under the key the classifier uses
         item = next(iter(doc.iter_items()))
-        h = compute_hash(item.short_text, item.long_text_plain[:300])
-        clf.cache.put(h, clf.prompt_version, _mock_classify_result(trade="Old"))
+        clf.cache.put(
+            item_input_hash(item), clf._cache_version(), _mock_classify_result(trade="Old"),
+        )
 
         with patch(
             "pygaeb.classifier.batch_classifier.LLMClassifier._classify_item",
@@ -282,8 +282,7 @@ class TestLLMClassifierEstimateCost:
         clf = LLMClassifier(model="test/mock")
 
         item = next(iter(doc.iter_items()))
-        h = compute_hash(item.short_text, item.long_text_plain[:300])
-        clf.cache.put(h, clf.prompt_version, _mock_classify_result())
+        clf.cache.put(item_input_hash(item), clf._cache_version(), _mock_classify_result())
 
         with patch(
             "pygaeb.classifier.llm_backend.estimate_tokens",

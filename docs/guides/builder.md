@@ -7,7 +7,7 @@ Build GAEB procurement documents from scratch using a fluent, Pythonic API. The 
 ```python
 from pygaeb import BoQBuilder
 
-builder = BoQBuilder(phase="X83", version="3.3")
+builder = BoQBuilder(phase="X84", version="3.3")
 builder.project(no="PRJ-001", name="School Renovation", currency="EUR")
 
 cat = builder.add_category("01", "Concrete Work")
@@ -19,6 +19,8 @@ doc = builder.build()
 
 The result is a standard `GAEBDocument` — you can inspect it, serialize it, or write it to XML with `GAEBWriter`.
 
+The default phase, X83, is a tender: its file carries no prices. A document with prices names a priced phase, such as X84 (a bid) above or X86 (a contract).
+
 ## Single vs Multi-Lot
 
 ### Implicit lot (most common)
@@ -26,7 +28,7 @@ The result is a standard `GAEBDocument` — you can inspect it, serialize it, or
 If your document has only one lot, use `builder.add_category()` directly. An implicit lot with `rno="1"` is created automatically:
 
 ```python
-builder = BoQBuilder()
+builder = BoQBuilder(phase="X84")
 cat = builder.add_category("01", "Structural")
 cat.add_item("01.0010", "Foundation", qty=120, unit="m3", unit_price=85)
 ```
@@ -34,7 +36,7 @@ cat.add_item("01.0010", "Foundation", qty=120, unit="m3", unit_price=85)
 ### Explicit lots
 
 ```python
-builder = BoQBuilder()
+builder = BoQBuilder(phase="X84")
 lot1 = builder.add_lot("1", "Structural Work")
 lot1.add_category("01", "Concrete").add_item("01.0010", "Foundation", qty=120, unit="m3", unit_price=85)
 
@@ -129,8 +131,8 @@ The builder understands GAEB exchange phase semantics:
 | Phase | Rule |
 |-------|------|
 | X80 (blank BoQ) | Warns if `unit_price` or `total_price` is set |
-| X83 (tender with prices) | Warns if `unit_price` is missing |
-| X84 (award) | Warns if `unit_price` is missing |
+| X83 (tender) | Warns if `unit_price` or `total_price` is set: a tender is written without prices |
+| X84 (bid) | Warns if `unit_price` is missing |
 
 Warnings are attached to the document's `validation_results`:
 
@@ -216,22 +218,22 @@ xml_bytes, warnings = GAEBWriter.to_bytes(doc)
 ```python
 from pygaeb import BoQBuilder, GAEBWriter
 
-builder = BoQBuilder(phase="X83", version="3.3")
+builder = BoQBuilder(phase="X83", version="3.3")  # a tender: quantities, no prices
 builder.project(no="PRJ-2026-001", name="Office Building", currency="EUR")
 
 # Lot 1 — Structural
 lot1 = builder.add_lot("1", "Structural Work")
 concrete = lot1.add_category("01", "Concrete")
-concrete.add_item("01.0010", "Foundation",  qty=120, unit="m3", unit_price=85)
-concrete.add_item("01.0020", "Floor slabs", qty=800, unit="m2", unit_price=45)
+concrete.add_item("01.0010", "Foundation",  qty=120, unit="m3")
+concrete.add_item("01.0020", "Floor slabs", qty=800, unit="m2")
 
 masonry = lot1.add_category("02", "Masonry")
-masonry.add_item("02.0010", "Exterior walls", qty=600, unit="m2", unit_price=68)
+masonry.add_item("02.0010", "Exterior walls", qty=600, unit="m2")
 
 # Lot 2 — MEP
 lot2 = builder.add_lot("2", "MEP")
 elec = lot2.add_category("01", "Electrical")
-elec.add_item("01.0010", "Cable tray", qty=200, unit="m", unit_price=15)
+elec.add_item("01.0010", "Cable tray", qty=200, unit="m")
 (
     elec.add_item("01.0020", "Distribution board")
     .set_long_text("Main distribution board 400A, 3-phase, with surge protection.")

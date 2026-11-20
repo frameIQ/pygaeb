@@ -65,8 +65,8 @@ _BOQ_INFO_LIB = (
 )
 _BOQ_INFO_REQUIRED = frozenset({"Name", "LblBoQ", "OutlCompl", "BoQBkdn"})
 _ITEM_LIB = (
-    "TypeMarker", "UPBkdn", "CONo", "COStatus", "QtyTBD", "Qty", "QtySplit", "QU", "CtlgAssign",
-    "UP", "UPComp", "DiscountPcnt", "IT", "VAT", "Description", "CostApproach",
+    "TypeMarker", "NotAppl", "UPBkdn", "CONo", "COStatus", "QtyTBD", "Qty", "QtySplit", "QU",
+    "CtlgAssign", "UP", "UPComp", "DiscountPcnt", "IT", "VAT", "Description", "CostApproach",
 )
 _MARKUP_LIB = (
     "MarkupType", "MarkupSubQty", "ITMarkup", "Markup", "DiscountPcnt", "IT",
@@ -141,11 +141,24 @@ GENERIC = PhaseProfile(
     markup_item=LIB.markup_item,
 )
 
+#: An alternative bid: the generic shape, but like the tender and the bid its
+#: schema has no NotAppl (a dropped position is simply not in the file).
+X85 = PhaseProfile(
+    award=GENERIC.award,
+    award_info=GENERIC.award_info,
+    prj_info=GENERIC.prj_info,
+    boq_info=GENERIC.boq_info,
+    boq_ctgy=GENERIC.boq_ctgy,
+    item=Slots(tuple(s for s in _ITEM_LIB if s != "NotAppl")),
+    markup_item=GENERIC.markup_item,
+)
+
 PROFILES: dict[ExchangePhase, PhaseProfile] = {
     ExchangePhase.X81: LIB,
     ExchangePhase.X82: LIB,
     ExchangePhase.X83: X83,
     ExchangePhase.X84: X84,
+    ExchangePhase.X85: X85,
     ExchangePhase.X86: X86,
 }
 

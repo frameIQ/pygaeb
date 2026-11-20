@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import re
 from collections import defaultdict
@@ -14,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from lxml import etree
 
+from pygaeb.events import EventType, emit
 from pygaeb.models.boq import BoQ, BoQBkdn, BoQCtgy, BoQInfo, Totals
 from pygaeb.models.catalog import Catalog, CtlgAssign
 from pygaeb.models.cost import (
@@ -146,6 +148,16 @@ def _assign_ids(boq: BoQ) -> _IdAllocator:
     return ids
 
 
+#: Why each kind of model data cannot reach the file (see ``_Ctx.drop``).
+_DROP_REASONS: dict[str, str] = {
+    "bim_guid": "no DA XML 3.x procurement schema has a GUID element",
+    "bidder_prices": (
+        "no GAEB schema has a place for them; pass keep_bidder_prices=True to "
+        "write pyGAEB's own <BidderUP>, which fails schema validation"
+    ),
+}
+
+
 @dataclass
 class _Ctx:
     """Everything the procurement emitters need to know about one write."""
@@ -156,8 +168,12 @@ class _Ctx:
     warnings: list[str]
     ids: _IdAllocator
     up_frac_dig: int | None = None
+    #: Write ``bidder_prices`` as pyGAEB's own ``<BidderUP>``, invalid under any schema.
+    keep_bidder_prices: bool = False
     #: Elements the target phase's schema has no place for, keyed by what → where.
     omitted: dict[str, list[str]] = dc_field(default_factory=lambda: defaultdict(list))
+    #: Data no schema can carry, keyed by what → where; reported as dropped.
+    dropped: dict[str, list[str]] = dc_field(default_factory=lambda: defaultdict(list))
     bad_rnoparts: list[str] = dc_field(default_factory=list)
 
     @property
@@ -171,6 +187,9 @@ class _Ctx:
     def omit(self, what: str, where: str) -> None:
         self.omitted[what].append(where)
 
+    def drop(self, what: str, where: str) -> None:
+        self.dropped[what].append(where)
+
     def flush(self) -> None:
         # One summary line per element kind rather than one per item: these
         # omissions are inherent to the phase, not data loss the caller can fix.
@@ -179,6 +198,13 @@ class _Ctx:
             self.warnings.append(
                 f"{what} not written for {len(places)} element(s): not part of "
                 f"{self.phase_name} in DA XML 3.x ({sample})"
+            )
+        # These are data loss: "dropped" is what ConversionReport counts.
+        for what, places in self.dropped.items():
+            sample = ", ".join(places[:3]) + (", …" if len(places) > 3 else "")
+            self.warnings.append(
+                f"{what} dropped for {len(places)} element(s): "
+                f"{_DROP_REASONS.get(what, 'no schema has a place for it')} ({sample})"
             )
         if self.bad_rnoparts:
             sample = ", ".join(repr(o) for o in self.bad_rnoparts[:3])
@@ -208,6 +234,7 @@ class GAEBWriter:
         *,
         prog_system: str | None = None,
         prog_name: str | None = None,
+        keep_bidder_prices: bool = False,
     ) -> list[str]:
         """Serialize a GAEBDocument to a GAEB DA XML file.
 
@@ -222,6 +249,10 @@ class GAEBWriter:
                 application's name when embedding pyGAEB.
             prog_name: ``<ProgName>`` (default: the source document's, else
                 ``"pyGAEB"``).
+            keep_bidder_prices: Write items' ``bidder_prices`` as pyGAEB's own
+                ``<BidderUP>`` so they survive a round trip through pyGAEB. No
+                GAEB schema defines that element, so the file then fails schema
+                validation. Off by default: the prices are reported as dropped.
 
         Returns:
             List of warnings about fields dropped or not written for the target
@@ -239,8 +270,10 @@ class GAEBWriter:
         target_phase = phase or doc.exchange_phase
         meta = VERSION_REGISTRY[target_version]
 
+        _announce_write(EventType.WRITE_STARTED, str(path), doc, target_phase, target_version)
         root, warnings = _build_xml(
             doc, target_phase, meta, prog_system=prog_system, prog_name=prog_name,
+            keep_bidder_prices=keep_bidder_prices,
         )
 
         if meta.lang == "de":
@@ -263,6 +296,10 @@ class GAEBWriter:
             "Wrote %s (%d items, version %s)",
             path.name, doc.item_count, target_version.value,
         )
+        _announce_write(
+            EventType.WRITE_COMPLETED, str(path), doc, target_phase, target_version,
+            warnings=warnings,
+        )
         return warnings
 
     @staticmethod
@@ -274,8 +311,11 @@ class GAEBWriter:
         *,
         prog_system: str | None = None,
         prog_name: str | None = None,
+        keep_bidder_prices: bool = False,
     ) -> tuple[bytes, list[str]]:
         """Serialize a GAEBDocument to bytes.
+
+        Takes the same arguments as :meth:`write`, without ``path``.
 
         Returns:
             Tuple of (xml_bytes, warnings).
@@ -284,20 +324,16 @@ class GAEBWriter:
             raise ValueError(f"Cannot write to {target_version.value}.")
 
         target_phase = phase or doc.exchange_phase
-        meta = VERSION_REGISTRY[target_version]
-
-        root, warnings = _build_xml(
-            doc, target_phase, meta, prog_system=prog_system, prog_name=prog_name,
+        _announce_write(EventType.WRITE_STARTED, None, doc, target_phase, target_version)
+        xml_bytes, warnings = _serialize(
+            doc, target_phase, target_version, encoding,
+            prog_system=prog_system, prog_name=prog_name,
+            keep_bidder_prices=keep_bidder_prices,
         )
-        raw = etree.tostring(
-            root, xml_declaration=True, encoding=encoding, pretty_print=True,
+        _announce_write(
+            EventType.WRITE_COMPLETED, None, doc, target_phase, target_version,
+            warnings=warnings, size=len(xml_bytes),
         )
-        xml_bytes: bytes = raw if isinstance(raw, bytes) else raw.encode(encoding)
-
-        if meta.lang == "de":
-            translated = _translate_to_german(xml_bytes.decode(encoding))
-            return translated.encode(encoding), warnings
-
         return xml_bytes, warnings
 
     @staticmethod
@@ -309,6 +345,7 @@ class GAEBWriter:
         *,
         prog_system: str | None = None,
         prog_name: str | None = None,
+        keep_bidder_prices: bool = False,
     ) -> XsdResult | None:
         """Serialize *doc* and validate the result against the phase's XSD.
 
@@ -319,24 +356,79 @@ class GAEBWriter:
             xsd_dir: Schema directory; defaults to the ``PYGAEB_XSD_DIR`` setting.
             prog_system: See :meth:`write`.
             prog_name: See :meth:`write`.
+            keep_bidder_prices: See :meth:`write`.
 
         Returns:
             The validation result, or ``None`` when no schema is available.
         """
         from pygaeb.parser.gaeb_parser import validate_xml
 
-        xml_bytes, _ = GAEBWriter.to_bytes(
-            doc, phase=phase, target_version=target_version,
+        if target_version not in WRITABLE_VERSIONS:
+            raise ValueError(f"Cannot write to {target_version.value}.")
+        # Serialized without write events: checking a document is not writing it.
+        xml_bytes, _ = _serialize(
+            doc, phase or doc.exchange_phase, target_version, "utf-8",
             prog_system=prog_system, prog_name=prog_name,
+            keep_bidder_prices=keep_bidder_prices,
         )
         return validate_xml(
             xml_bytes, target_version, phase or doc.exchange_phase, xsd_dir,
         )
 
 
+def _serialize(
+    doc: GAEBDocument,
+    phase: ExchangePhase,
+    target_version: SourceVersion,
+    encoding: str,
+    *,
+    prog_system: str | None,
+    prog_name: str | None,
+    keep_bidder_prices: bool,
+) -> tuple[bytes, list[str]]:
+    """The document as bytes plus the writer's warnings. Emits no events."""
+    meta = VERSION_REGISTRY[target_version]
+    root, warnings = _build_xml(
+        doc, phase, meta, prog_system=prog_system, prog_name=prog_name,
+        keep_bidder_prices=keep_bidder_prices,
+    )
+    raw = etree.tostring(root, xml_declaration=True, encoding=encoding, pretty_print=True)
+    xml_bytes: bytes = raw if isinstance(raw, bytes) else raw.encode(encoding)
+    if meta.lang == "de":
+        return _translate_to_german(xml_bytes.decode(encoding)).encode(encoding), warnings
+    return xml_bytes, warnings
+
+
+def _announce_write(
+    event: EventType,
+    file: str | None,
+    doc: GAEBDocument,
+    phase: ExchangePhase,
+    version: SourceVersion,
+    *,
+    warnings: list[str] | None = None,
+    size: int | None = None,
+) -> None:
+    """Emit WRITE_STARTED or WRITE_COMPLETED; *file* is None for in-memory writes."""
+    payload: dict[str, Any] = {
+        "file": file,
+        "phase": phase.value,
+        "version": version.value,
+        "item_count": doc.item_count,
+    }
+    if warnings is not None:
+        payload["warning_count"] = len(warnings)
+        # The same test ConversionReport applies for has_data_loss.
+        payload["data_loss"] = any("dropped" in w.lower() for w in warnings)
+    if size is not None:
+        payload["size"] = size
+    emit(event, **payload)
+
+
 def _build_xml(
     doc: GAEBDocument, phase: ExchangePhase, meta: VersionMeta,
     prog_system: str | None = None, prog_name: str | None = None,
+    *, keep_bidder_prices: bool = False,
 ) -> tuple[etree._Element, list[str]]:
     warnings: list[str] = []
 
@@ -357,6 +449,7 @@ def _build_xml(
         root.set("xmlns", ns)
         _add_gaeb_info(root, doc.gaeb_info, meta, prog_system, prog_name)
         _add_elemental_costing(root, doc.elemental_costing, warnings)
+        warnings.extend(_cost_losses(doc.elemental_costing))
         return root, warnings
 
     if doc.is_trade and doc.order is not None:
@@ -365,6 +458,7 @@ def _build_xml(
         root.set("xmlns", ns)
         _add_gaeb_info(root, doc.gaeb_info, meta, prog_system, prog_name)
         _add_order(root, doc.order, phase, warnings)
+        warnings.extend(_trade_losses(doc.order))
         return root, warnings
 
     ns = procurement_namespace(phase, SourceVersion(meta.version_tag))
@@ -378,6 +472,7 @@ def _build_xml(
         warnings=warnings,
         ids=_assign_ids(doc.award.boq),
         up_frac_dig=doc.award.up_frac_dig,
+        keep_bidder_prices=keep_bidder_prices,
     )
     _add_gaeb_info(root, doc.gaeb_info, meta, prog_system, prog_name)
     _add_prj_info(root, doc.award, ctx)
@@ -772,7 +867,7 @@ def _add_boq_info(parent: etree._Element, info: BoQInfo, ctx: _Ctx) -> None:
 
     if slots.allows("Totals"):
         if info.totals is not None:
-            _add_totals(info_el, info.totals)
+            _add_totals(info_el, info.totals, ctx.warnings)
     elif info.totals is not None:
         ctx.omit("Totals", "BoQInfo")
 
@@ -829,14 +924,32 @@ def _add_body_categories(
 
 
 def _add_itemlist(parent: etree._Element, items: list[Item], ctx: _Ctx) -> None:
-    if not items:
+    carries_not_appl = _carries_not_appl(ctx)
+    kept = []
+    for item in items:
+        if item.not_applicable and not carries_not_appl:
+            # A tender or bid has no NotAppl: a dropped position is simply not in
+            # it. An invoice must not carry one at all (DA XML 3.3, §8.1.3.7).
+            ctx.omit("not-applicable position", f"Item {item.full_oz or item.oz}")
+            continue
+        kept.append(item)
+    if not kept:
         return
     itemlist = etree.SubElement(parent, "Itemlist")
-    for item in items:
+    for item in kept:
         if item.item_type == ItemType.MARKUP:
             _add_markup_item(itemlist, item, ctx)
         else:
             _add_item(itemlist, item, ctx)
+
+
+def _carries_not_appl(ctx: _Ctx) -> bool:
+    """Whether the target can mark a position as dropped (``<NotAppl>``)."""
+    if ctx.de:  # the 2.x dialect has no NotAppl in pyGAEB's element map
+        return False
+    if ctx.phase.normalized() in (ExchangePhase.X89, ExchangePhase.X89B):
+        return False
+    return ctx.profile.item.allows("NotAppl")
 
 
 def _add_ctgy(
@@ -886,7 +999,7 @@ def _add_ctgy(
         if totals is None and slots.requires("Totals") and not ctx.de:
             totals = Totals(total=ctgy.subtotal)
         if totals is not None:
-            _add_totals(ctgy_el, totals)
+            _add_totals(ctgy_el, totals, ctx.warnings)
     elif totals is not None:
         ctx.omit("Totals", where)
 
@@ -1051,6 +1164,8 @@ def _add_item_text(
         return
 
     has_long = _has_long_text(item)
+    # Attachments live in the long text (tgBoQText), so they need one too.
+    has_attachments = bool(item.attachments) and meta.supports_attachments
 
     # X84: Description is CompleteText/DetailTxt holding only the bidder's
     # text complements — no outline text, no tender text.
@@ -1065,21 +1180,92 @@ def _add_item_text(
             parent.remove(desc_el)
         return
 
-    if not item.short_text and not has_long and not required:
+    if not item.short_text and not has_long and not has_attachments and not required:
         return
 
     desc_el = etree.SubElement(parent, "Description")
-    if has_long and item.long_text is not None:
+    if has_long or has_attachments:
         # tgCompleteText requires DetailTxt, so CompleteText only exists with one.
         complete_el = etree.SubElement(desc_el, "CompleteText")
         detail_el = etree.SubElement(complete_el, "DetailTxt")
-        if _add_richtext(detail_el, item.long_text):
+        wrote_text = (
+            has_long and item.long_text is not None and _add_richtext(detail_el, item.long_text)
+        )
+        wrote_attachments = has_attachments and _add_attachments(detail_el, item, ctx)
+        if wrote_text or wrote_attachments:
             if item.short_text:
                 _add_outline(complete_el, item.short_text)
             return
         desc_el.remove(complete_el)
 
     _add_outline(desc_el, item.short_text)
+
+
+#: What ``tgImage/@Type`` allows; "image/jpg" is a common misspelling of JPEG.
+_EMBEDDABLE_IMAGES: dict[str, str] = {
+    "image/jpeg": "image/jpeg",
+    "image/jpg": "image/jpeg",
+    "image/gif": "image/gif",
+    "image/png": "image/png",
+}
+
+
+def _add_attachments(detail_el: etree._Element, item: Item, ctx: _Ctx) -> bool:
+    """Write the item's attachments that the copied long-text markup lacks.
+
+    The schema embeds only JPEG, GIF and PNG, as ``<image>`` inside a paragraph;
+    any other file is referenced by name with ``<attachment>``, and its bytes are
+    lost. A parsed item's attachments are already in its markup and are skipped.
+    True when anything was written.
+    """
+    images, refs = _attachments_in(detail_el)
+    where = f"Item {item.full_oz or item.oz}"
+    text_el: etree._Element | None = None
+    wrote = False
+    for att in item.attachments:
+        image_type = _EMBEDDABLE_IMAGES.get(att.mime_type.strip().lower())
+        if att.data and image_type is not None:
+            if att.data in images:
+                continue
+            if text_el is None:
+                text_el = etree.SubElement(detail_el, "Text")
+            image_el = etree.SubElement(etree.SubElement(text_el, "p"), "image")
+            image_el.set("Type", image_type)
+            if att.filename:
+                image_el.set("Name", att.filename)
+            image_el.text = base64.b64encode(att.data).decode("ascii")
+            images.add(att.data)
+            wrote = True
+            continue
+        if not att.filename or att.filename in refs:
+            continue
+        etree.SubElement(detail_el, "attachment").text = att.filename
+        refs.add(att.filename)
+        wrote = True
+        if att.data:
+            ctx.warnings.append(
+                f"{where}: bytes of attachment {att.filename!r} dropped — DA XML embeds "
+                f"only JPEG, GIF and PNG, so it is written as a reference to its name"
+            )
+    return wrote
+
+
+def _attachments_in(detail_el: etree._Element) -> tuple[set[bytes], set[str]]:
+    """Image bytes and attachment references already in the copied markup."""
+    images: set[bytes] = set()
+    refs: set[str] = set()
+    for el in detail_el.iter():
+        if callable(el.tag):
+            continue
+        local = etree.QName(el).localname
+        if local == "image" and el.text and el.text.strip():
+            try:
+                images.add(base64.b64decode(el.text.strip()))
+            except ValueError:  # binascii.Error: not base64, so nothing to match
+                continue
+        elif local == "attachment" and el.text and el.text.strip():
+            refs.add(el.text.strip())
+    return images, refs
 
 
 def _add_item(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
@@ -1120,6 +1306,11 @@ def _add_item(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
         else:
             # X84 has no position-type markers: the bid inherits them from the tender.
             ctx.omit(f"{item.item_type.value} position marker", where)
+
+    # Position entfällt: after the type markers, before UPBkdn. Phases without
+    # the element never get here: _add_itemlist leaves dropped positions out.
+    if item.not_applicable and slots.allows("NotAppl"):
+        _add_text_el(item_el, "NotAppl", "Yes")
 
     # The issuer's demand for a broken-down unit price. Sits between the type
     # markers and MarkupIt/CONo in every phase that has it; X84 has no such
@@ -1216,26 +1407,30 @@ def _add_item(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
     elif item.cost_approaches:
         ctx.omit("CostApproach", where)
 
-    # Not part of any 3.x procurement schema: pyGAEB-only serialisations.
+    # GUID: not part of any 3.x procurement schema, a pyGAEB-only field.
     if item.bim_guid:
         if not meta.supports_bim_guid:
             ctx.warnings.append(
                 f"{where}: bim_guid dropped (not supported in DA XML {meta.version_tag})"
             )
         else:
-            ctx.omit("GUID", where)
+            ctx.drop("bim_guid", where)
+    # Attachments go into the long text (_add_item_text), except in a bid,
+    # which restates none of the tender's text.
     if item.attachments:
         if not meta.supports_attachments:
             ctx.warnings.append(
                 f"{where}: {len(item.attachments)} attachment(s) dropped "
                 f"(not supported in DA XML {meta.version_tag})"
             )
-        else:
-            # Embedded images survive inside the long text's own markup.
+        elif ctx.profile.description == "detail_only":
             ctx.omit("Item.attachments", where)
-    if item.bidder_prices:
-        # Preisspiegel data has no GAEB home; kept as a pyGAEB extension so it
-        # round-trips, at the cost of schema validity for such documents.
+    if item.bidder_prices and not ctx.keep_bidder_prices:
+        # Preisspiegel data has no GAEB home: valid output by default.
+        ctx.drop("bidder_prices", where)
+    elif item.bidder_prices:
+        # Opted in: kept as a pyGAEB extension so it round-trips, at the cost
+        # of schema validity for such documents.
         for bp in item.bidder_prices:
             bp_el = etree.SubElement(item_el, "BidderUP")
             if bp.bidder_name:
@@ -1531,6 +1726,35 @@ def _add_order_item(
         _add_ctlg_assign(item_el, ctlg)
 
 
+def _trade_losses(order: TradeOrder) -> list[str]:
+    """What the trade parser reads on order items but this writer cannot write yet.
+
+    One line per field, worded "dropped" so ConversionReport counts it as loss.
+    """
+    lost: dict[str, list[str]] = defaultdict(list)
+    for item in order.items:
+        name = item.item_id or item.art_no or "?"
+        if item.long_text_plain:
+            lost["long text"].append(name)
+        if item.item_chara:
+            lost["ItemChara"].append(name)
+        if item.item_type_tag:
+            lost["ItemType"].append(name)
+        if item.delivery_chara:
+            lost["DeliveryChara"].append(name)
+        if item.is_service:
+            lost["Service"].append(name)
+    return [_loss_line(what, names, "order item") for what, names in lost.items()]
+
+
+def _loss_line(what: str, names: list[str], kind: str) -> str:
+    sample = ", ".join(names[:3]) + (", …" if len(names) > 3 else "")
+    return (
+        f"{what} dropped for {len(names)} {kind}(s): the writer does not write it "
+        f"yet ({sample})"
+    )
+
+
 def _add_cost_approach(parent: etree._Element, ca: CostApproach) -> None:
     ca_el = etree.SubElement(parent, "CostApproach")
     if ca.cost_type:
@@ -1550,7 +1774,9 @@ def _add_boq_info_cost_types(parent: etree._Element, info: BoQInfo) -> None:
             _add_text_el(ct_el, "Label", ct.label)
 
 
-def _add_totals(parent: etree._Element, totals: Totals) -> None:
+def _add_totals(
+    parent: etree._Element, totals: Totals, warnings: list[str] | None = None,
+) -> None:
     """Serialize a ``Totals`` model to a ``<Totals>`` XML element."""
     t_el = etree.SubElement(parent, "Totals")
 
@@ -1559,17 +1785,28 @@ def _add_totals(parent: etree._Element, totals: Totals) -> None:
     _add_text_el(t_el, "Total", _fmt_decimal(total))
 
     # tgTotals: ((DiscountPcnt | DiscountAmt) TotAfterDisc) | TotalLSUM — a
-    # discount is only expressible together with the discounted total.
-    if totals.tot_after_disc is not None and (
-        totals.discount_pcnt is not None or totals.discount_amt is not None
-    ):
+    # discount is only expressible together with the discounted total. A model
+    # that lacks the discounted total gets it derived rather than losing the
+    # discount; a lump-sum total keeps its old precedence.
+    has_discount = totals.discount_pcnt is not None or totals.discount_amt is not None
+    tot_after_disc = totals.tot_after_disc
+    if has_discount and tot_after_disc is None and totals.total_lsum is None:
+        tot_after_disc = _discounted_total(totals)
+    if has_discount and tot_after_disc is not None:
         if totals.discount_pcnt is not None:
             _add_text_el(t_el, "DiscountPcnt", _fmt_decimal(totals.discount_pcnt))
         else:
             _add_text_el(t_el, "DiscountAmt", _fmt_decimal(totals.discount_amt or Decimal("0")))
-        _add_text_el(t_el, "TotAfterDisc", _fmt_decimal(totals.tot_after_disc))
-    elif totals.total_lsum is not None:
-        _add_text_el(t_el, "TotalLSUM", _fmt_decimal(totals.total_lsum))
+        _add_text_el(t_el, "TotAfterDisc", _fmt_decimal(tot_after_disc))
+    else:
+        if has_discount and warnings is not None:
+            reason = (
+                "TotalLSUM takes its place" if totals.total_lsum is not None
+                else "there is no total to apply it to"
+            )
+            warnings.append(f"Totals: discount dropped — {reason}")
+        if totals.total_lsum is not None:
+            _add_text_el(t_el, "TotalLSUM", _fmt_decimal(totals.total_lsum))
 
     if totals.vat is not None:
         _add_text_el(t_el, "VAT", _fmt_decimal(totals.vat))
@@ -1595,6 +1832,16 @@ def _add_totals(parent: etree._Element, totals: Totals) -> None:
 
     if totals.total_gross is not None:
         _add_text_el(t_el, "TotalGross", _fmt_decimal(totals.total_gross))
+
+
+def _discounted_total(totals: Totals) -> Decimal | None:
+    """The total after its discount, to the cent half-up; None without a total."""
+    if totals.total is None:
+        return None
+    if totals.discount_pcnt is not None:
+        factor = (Decimal(100) - totals.discount_pcnt) / Decimal(100)
+        return (totals.total * factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return totals.total - (totals.discount_amt or Decimal(0))
 
 
 # ------------------------------------------------------------------
@@ -1750,6 +1997,27 @@ def _add_cost_element(
 
     for child in ce.children:
         _add_cost_element(ce_el, child, warnings)
+
+
+def _cost_losses(ec: ElementalCosting) -> list[str]:
+    """What the cost parser reads but this writer cannot write yet.
+
+    One line per field, worded "dropped" so ConversionReport counts it as loss.
+    """
+    lines: list[str] = []
+    if ec.ec_info.date_of_information is not None:
+        lines.append(_loss_line("DateOfInformation", ["ECInfo"], "element"))
+    lost: dict[str, list[str]] = defaultdict(list)
+    for _depth, _label, ctgy in ec.iter_hierarchy():
+        if ctgy is not None and ctgy.ctlg_assigns:
+            lost["CtlgAssign"].append(ctgy.ele_no or "?")
+    for ce in ec.iter_items():
+        if ce.ctlg_assigns:
+            lost["CtlgAssign"].append(ce.ele_no or "?")
+        if ce.long_text_plain:
+            lost["long text"].append(ce.ele_no or "?")
+    lines.extend(_loss_line(what, names, "cost element") for what, names in lost.items())
+    return lines
 
 
 def _add_cost_property(parent: etree._Element, prop: CostProperty) -> None:

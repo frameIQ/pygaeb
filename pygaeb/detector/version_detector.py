@@ -58,7 +58,8 @@ _PHASE_FROM_EXT: dict[str, ExchangePhase] = {
     ".X50": ExchangePhase.X50,
     ".X51": ExchangePhase.X51,
     ".X52": ExchangePhase.X52,
-    # DA XML 2.x D-prefixed aliases
+    # .D8x is the GAEB 90 extension. Content decides the format, so a .D8x
+    # file holding XML is still read as DA XML.
     ".D80": ExchangePhase.D80,
     ".D81": ExchangePhase.D81,
     ".D82": ExchangePhase.D82,
@@ -109,6 +110,18 @@ def detect_version(path: str | Path, text: str | None = None) -> ParseRoute:
                 "pyGAEB only handles German GAEB DA XML files. "
                 "Please convert ÖNORM files to GAEB format using "
                 "an Austrian AVA tool such as ABK or California.pro."
+            ],
+        )
+
+    if fmt == FormatFamily.GAEB_2000:
+        return ParseRoute(
+            format_family=FormatFamily.GAEB_2000,
+            track=ParserTrack.TRACK_B,
+            version=SourceVersion.DA_XML_33,
+            exchange_phase=_phase_from_extension(path),
+            warnings=[
+                "GAEB 2000 (.P8x) is not supported. "
+                "pyGAEB reads GAEB DA XML and GAEB 90."
             ],
         )
 

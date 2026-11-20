@@ -327,7 +327,7 @@ class TestBidderPricesRoundTrip:
         doc = _make_tender(items=items)
         doc.exchange_phase = ExchangePhase.X82
         out = tmp_path / "out.X82"
-        GAEBWriter.write(doc, out, phase=ExchangePhase.X82)
+        GAEBWriter.write(doc, out, phase=ExchangePhase.X82, keep_bidder_prices=True)
         doc2 = GAEBParser.parse(str(out))
         items2 = list(doc2.iter_items())
         assert len(items2[0].bidder_prices) == 2
@@ -335,6 +335,19 @@ class TestBidderPricesRoundTrip:
         assert items2[0].bidder_prices[0].bidder_id == "A001"
         assert items2[0].bidder_prices[0].unit_price == Decimal("45.00")
         assert items2[0].bidder_prices[1].bidder_name == "Bidder B"
+
+    def test_writer_drops_them_by_default(self) -> None:
+        # No GAEB schema defines <BidderUP>: valid output unless the caller opts in.
+        items = [
+            Item(
+                oz="0010", short_text="A", qty=Decimal("1"), unit="m2",
+                bidder_prices=[BidderPrice(bidder_name="Bidder A", unit_price=Decimal("45.00"))],
+            ),
+        ]
+        doc = _make_tender(items=items)
+        xml, warnings = GAEBWriter.to_bytes(doc, phase=ExchangePhase.X82)
+        assert b"BidderUP" not in xml
+        assert any("bidder_prices dropped" in w for w in warnings)
 
     def test_parser_with_attribute_form(self, tmp_path: Path) -> None:
         """Some vendors use attributes instead of child elements."""

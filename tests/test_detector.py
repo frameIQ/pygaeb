@@ -2,15 +2,46 @@
 
 
 
+import pytest
+
+from pygaeb import GAEBParseError, GAEBParser
 from pygaeb.detector.encoding_repair import repair_encoding
 from pygaeb.detector.format_detector import FormatFamily, detect_format
 from pygaeb.detector.version_detector import ParserTrack, detect_version
 from pygaeb.models.enums import ExchangePhase, SourceVersion
+from tests.conftest import SAMPLE_V33_XML
 
 
 class TestFormatDetector:
     def test_detects_xml(self, sample_v33_file):
         assert detect_format(sample_v33_file) == FormatFamily.DA_XML
+
+    def test_gaeb_file_naming_onorm_is_still_gaeb(self, tmp_path):
+        # AVA tools that export both standards put ÖNORM in ProgSystem, inside
+        # the 512 bytes the detector reads; the GAEB root must decide.
+        xml = SAMPLE_V33_XML.replace(
+            "<ProgSystem>TestSuite</ProgSystem>",
+            "<ProgSystem>AVA-Tool für GAEB und ÖNORM B 2063</ProgSystem>",
+        )
+        f = tmp_path / "tender.X86"
+        f.write_text(xml, encoding="utf-8")
+        assert detect_format(f) == FormatFamily.DA_XML
+        assert GAEBParser.parse(f).item_count > 0
+
+    def test_gaeb_2000_is_refused_clearly(self, tmp_path):
+        # Neither XML nor fixed-width under a .P8x name: GAEB 2000, which used
+        # to reach the XML parser and fail as malformed XML.
+        f = tmp_path / "tender.P83"
+        f.write_text("#begin[GAEB]\n#begin[GAEBInfo]\n#end[GAEBInfo]\n#end[GAEB]\n")
+        assert detect_format(f) == FormatFamily.GAEB_2000
+        with pytest.raises(GAEBParseError, match="GAEB 2000"):
+            GAEBParser.parse(f)
+
+    def test_p83_holding_xml_is_read_as_da_xml(self, tmp_path):
+        # Content decides before the extension does.
+        f = tmp_path / "tender.P83"
+        f.write_text(SAMPLE_V33_XML, encoding="utf-8")
+        assert detect_format(f) == FormatFamily.DA_XML
 
     def test_detects_xml_from_extension(self, tmp_path):
         f = tmp_path / "test.X83"

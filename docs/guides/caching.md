@@ -132,9 +132,9 @@ extractor.cache.clear(schema_name="DoorSpec")
 
 ## How Cache Keys Work
 
-Cache keys are deterministic hashes of the input data:
+Cache keys are deterministic hashes of everything that shapes the answer:
 
-- **Classification:** hash of `(short_text, long_text, unit, hierarchy_path, prompt_version)`
-- **Extraction:** hash of `(item_content_hash, schema_json_hash)`
+- **Classification:** the item as the prompt sends it (hierarchy path, short text, first 300 characters of the long text, unit), plus the model, the prompt text and the taxonomy. Overrides saved with `save_override` are keyed on the item alone, so they apply under any model.
+- **Extraction:** the exact request (model, system prompt, and the item message with its full long text, quantity and classification), plus the schema's JSON hash.
 
-This means identical items always hit the cache, even across different documents.
+Identical requests hit the cache, even across different documents; a change of model, prompt or taxonomy asks the model again. Failed LLM calls are never cached. Answers cached by pyGAEB 1.21 and earlier were keyed on less, so they are not reused: each is asked once more.

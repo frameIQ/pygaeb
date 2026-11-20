@@ -57,7 +57,8 @@ class ExchangePhase(str, Enum):
     X96 = "X96"
     X97 = "X97"
 
-    # DA XML 2.x D-prefixed aliases
+    # .D8x phases. .D8x is the GAEB 90 extension; a .D8x file holding XML is
+    # still read as DA XML.
     D80 = "D80"
     D81 = "D81"
     D82 = "D82"
