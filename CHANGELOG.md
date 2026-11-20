@@ -9,12 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade notes
 
-No public function, class or argument was removed or changed in an incompatible way. Five corrections change behaviour that existing code may rely on:
+No public function, class or argument was removed or changed in an incompatible way. Six corrections change behaviour that existing code may rely on:
 
 - **A priced X83 now warns in the builder, and raises with `strict=True`.** A tender is written without prices: the X83 schema has no `UP` or `IT`, so the writer always left them out. The builder warned when prices were *missing*, so `BoQBuilder(phase="X83", strict=True)` with prices now raises `ValueError`. Build priced documents as X84 (a bid) or X86 (a contract).
 - **Bidder prices are no longer written by default.** No GAEB schema defines the `<BidderUP>` element pyGAEB wrote for them, so the output failed schema validation. They are now reported as dropped; pass `keep_bidder_prices=True` to keep the old round trip within pyGAEB.
 - **More conversions report data loss.** GUIDs, bidder prices, trade and cost fields the writers cannot write yet, and attachment bytes the schema cannot embed are now reported as dropped, so `ConversionReport.has_data_loss` is true where the loss used to be silent.
 - **Not-applicable positions leave the sums.** Positions marked `<NotAppl>` were counted like any other; `grand_total`, the subtotals and everything built on them now leave them out.
+- **Alternatives leave the sums, and base positions count.** The Zuordnungszahl was not read, so a file's alternative positions were summed like normal ones; now only the base position counts, or the alternative the award accepted. Parsed base and alternative positions get `ItemType.BASE_SURCHARGE` and `ItemType.ALTERNATIVE` instead of `NORMAL`, and `BASE_SURCHARGE` positions, which did not count before, now do.
 - **Cached classifications are asked once more.** Answers cached by 1.21 and earlier were keyed on too little to be trusted and are not reused, so each unique item is classified once again after upgrading. Saved manual overrides are kept.
 
 ### Added
@@ -26,6 +27,8 @@ No public function, class or argument was removed or changed in an incompatible 
 - **`Item.not_applicable`**, read from `<NotAppl>` ("Position entfällt"); see Fixed.
 - **`GAEBWriter.write(..., keep_bidder_prices=True)`**, also on `to_bytes` and `validate_against_xsd`; see Changed.
 - **`ClassificationCache.get_override()`** looks up a saved manual override; see Fixed.
+- **`InvoiceParty` and `PaymentDetails`** carry what an XRechnung needs beyond the GAEB file; see Fixed.
+- **`Item.alternative_group`** (`AlternativeGroup`, `AlternativeDecision`): the Zuordnungszahl that ties base and alternative positions together; see Fixed.
 
 ### Changed
 
@@ -43,6 +46,13 @@ No public function, class or argument was removed or changed in an incompatible 
   - The writer emits `<NotAppl>Yes</NotAppl>` where the phase schema has it (X80 to X82, X86, X87), in schema order.
   - A tender, bid or alternative bid (X83, X84, X85) has no such element, and an invoice (X89, X89B) must not carry the position (GAEB DA XML 3.3, section 8.1.3.7), so those outputs leave it out and report it once per phase. X85 gets its own writer profile for this.
   - Only positions are covered; a not-applicable category is not read yet.
+- **Alternative positions are read, summed and written as GAEB defines them.** The Zuordnungszahl (`ALNGroupNo`, `ALNSerNo`) was never read, so alternatives counted as normal positions, and the writer marked them with pyGAEB's own `<AlternativeItem>` and `<SurchargeItem>` elements, which no other software reads.
+  - The parser reads it on items and markup items into `Item.alternative_group`: serial 0 is the base position, 1 to 9 are its alternatives. `Accepted` gives the award's decision: `AltAccept` on the alternative taken, `BasReject` on the base it replaces.
+  - `Item.affects_total` counts the base and leaves the alternatives out until the award decides otherwise, so the sums, exports, XRechnung lines and bid analysis follow.
+  - The writer puts the three elements first in each item and markup, as the schema requires, in the phases that have them: all three from the award on, no `Accepted` in X83 and X85, and none in X84, which inherits them from the tender. The output validates against the 3.3 schemas for X81 to X86.
+  - Only DA XML 3.3 is written this way, because only its schemas were checked. For 3.0 to 3.2 and 2.x the Zuordnungszahl is reported as dropped and the old markers stay.
+  - Validation warns when a group counts twice (an accepted alternative next to a base not rejected, or two accepted alternatives), counts nothing (a rejected base with nothing accepted), has no base, or carries a decision on the wrong position.
+  - Whole categories as base or alternative areas (`ALNBGroupNo`) are not supported yet; the parser warns.
 - **Attachments added in code reach the file.** For DA XML 3.1 to 3.3 the writer relied on the long text's own markup, which carries a parsed file's attachments, and wrote nothing from `Item.attachments`. An attachment added with the builder's `add_attachment`, or by an application, was dropped without a warning.
   - JPEG, GIF and PNG are written as `<image>` inside a paragraph of the long text, and any other file as an `<attachment>` reference by name. The schema embeds only those three image types, so other bytes are reported as dropped.
   - Attachments already in the markup are not written twice, and a bid (X84) still carries none. Checked against the 3.3 schemas.
@@ -63,6 +73,15 @@ No public function, class or argument was removed or changed in an incompatible 
   - Items sharing an answer shared one result object, so editing one item's classification changed all of them. Each item now gets its own copy.
   - `estimate_cost` counts what `enrich` will do, with the same keys, skipping manual overrides and items without text.
 - **Structured extraction serves no stale or failed answer.** The cache key covered the short text and the first 300 characters of the long text, while the prompt sends the full long text, the unit, the quantity and the item's classification, so two doors that differed after character 300 shared one answer. The key is now the exact request (model, system prompt and item message) plus the schema. A failed extraction still returns an empty result but is no longer cached.
+- **`to_xrechnung` writes XRechnung 3.0 invoices that pass the KoSIT validator.** It declared XRechnung 2.0, which is no longer valid (2.3.1 expired on 1 February 2024). It fixed VAT at 19 % and the currency at EUR. It also left out fields XRechnung requires: the business process (BT-23), both electronic addresses (BT-34, BT-49), addresses, contact details, VAT IDs and payment instructions. Invoices with reverse charge, a discount, a prepayment, markups and mixed VAT rates now pass KoSIT validator 1.6.3 with XRechnung configuration 3.0.2 without errors or warnings.
+  - VAT rates come from each position, then the BoQ totals, then the new `vat_rate`; when none gives one, 19 % stands in and is reported. Tax is computed per rate, rounded half-up to the cent. `reverse_charge=True` writes category AE for construction services under § 13b UStG.
+  - The currency is the document's, with `€` read as `EUR`.
+  - Only positions that count become lines. Units map to UN/ECE codes, and `unit_codes` adds more. A negative amount keeps a positive price, as the rules require.
+  - Parties come from the GAEB file's contractor and owner addresses, overridden field by field by the new `seller` and `buyer` arguments. `payment`, `due_date`, `payment_terms` and `prepaid_amount` are new too.
+  - The time of the service goes in as the new `service_period` (BG-14) or `delivery_date` (BT-72). § 14 UStG requires it, and XRechnung warns without it (BR-DE-TMP-32).
+  - A BoQ discount becomes a document-level allowance.
+  - It returns every problem that makes the invoice invalid or leaves out what § 14 UStG requires, each naming the business term and the argument that fills it. `strict=True` raises before writing; existing calls still write a file.
+  - With `PYGAEB_KOSIT_JAR` and `PYGAEB_KOSIT_CONFIG` set to the validator jar and its unpacked XRechnung configuration, the test suite runs eight kinds of invoice through the validator.
 
 ## [1.21.0] - 2026-10-29
 

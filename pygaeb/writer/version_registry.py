@@ -24,6 +24,9 @@ class VersionMeta:
     supports_attachments: bool = True
     supports_change_order: bool = True
     supports_long_text_cdata: bool = True
+    #: The Zuordnungszahl (ALNGroupNo/ALNSerNo/Accepted), written only where it was
+    #: checked against the official schema: 3.3. Older versions are unverified.
+    supports_alternative_groups: bool = True
     unsupported_fields: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -42,7 +45,8 @@ VERSION_REGISTRY: dict[SourceVersion, VersionMeta] = {
         bkdn_sibling_form=True,
         vers_date="2013-10",
         supports_bim_guid=False,
-        unsupported_fields=("bim_guid",),
+        supports_alternative_groups=False,
+        unsupported_fields=("bim_guid", "alternative_group"),
     ),
     SourceVersion.DA_XML_31: VersionMeta(
         namespace="http://www.gaeb.de/GAEB_DA_XML/DA86/3.1",
@@ -50,7 +54,8 @@ VERSION_REGISTRY: dict[SourceVersion, VersionMeta] = {
         lang="en",
         bkdn_sibling_form=True,
         supports_bim_guid=False,
-        unsupported_fields=("bim_guid",),
+        supports_alternative_groups=False,
+        unsupported_fields=("bim_guid", "alternative_group"),
     ),
     SourceVersion.DA_XML_30: VersionMeta(
         namespace="http://www.gaeb.de/GAEB_DA_XML/200407",
@@ -60,7 +65,10 @@ VERSION_REGISTRY: dict[SourceVersion, VersionMeta] = {
         supports_bim_guid=False,
         supports_attachments=False,
         supports_change_order=False,
-        unsupported_fields=("bim_guid", "attachments", "change_order_number"),
+        supports_alternative_groups=False,
+        unsupported_fields=(
+            "bim_guid", "attachments", "change_order_number", "alternative_group",
+        ),
     ),
     SourceVersion.DA_XML_21: VersionMeta(
         namespace="http://www.gaeb.de/GAEB_DA_XML/200407",
@@ -69,7 +77,10 @@ VERSION_REGISTRY: dict[SourceVersion, VersionMeta] = {
         supports_bim_guid=False,
         supports_attachments=False,
         supports_change_order=False,
-        unsupported_fields=("bim_guid", "attachments", "change_order_number"),
+        supports_alternative_groups=False,
+        unsupported_fields=(
+            "bim_guid", "attachments", "change_order_number", "alternative_group",
+        ),
     ),
     SourceVersion.DA_XML_20: VersionMeta(
         namespace="http://www.gaeb.de/GAEB_DA_XML/200407",
@@ -78,7 +89,10 @@ VERSION_REGISTRY: dict[SourceVersion, VersionMeta] = {
         supports_bim_guid=False,
         supports_attachments=False,
         supports_change_order=False,
-        unsupported_fields=("bim_guid", "attachments", "change_order_number"),
+        supports_alternative_groups=False,
+        unsupported_fields=(
+            "bim_guid", "attachments", "change_order_number", "alternative_group",
+        ),
     ),
 }
 

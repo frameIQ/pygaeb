@@ -70,6 +70,8 @@ def __getattr__(name: str) -> object:
         "Party": ("pygaeb.models.document", "Party"),
         "ConstructionSite": ("pygaeb.models.document", "ConstructionSite"),
         "Provis": ("pygaeb.models.enums", "Provis"),
+        "AlternativeDecision": ("pygaeb.models.enums", "AlternativeDecision"),
+        "AlternativeGroup": ("pygaeb.models.item", "AlternativeGroup"),
         "Attachment": ("pygaeb.models.item", "Attachment"),
         "ClassificationResult": ("pygaeb.models.item", "ClassificationResult"),
         "CostEstimate": ("pygaeb.models.item", "CostEstimate"),
@@ -156,6 +158,8 @@ def __getattr__(name: str) -> object:
         "PdfTextRun": ("pygaeb.convert.to_pdf", "PdfTextRun"),
         "to_database": ("pygaeb.convert.to_database", "to_database"),
         "to_xrechnung": ("pygaeb.convert.to_xrechnung", "to_xrechnung"),
+        "InvoiceParty": ("pygaeb.convert.to_xrechnung", "InvoiceParty"),
+        "PaymentDetails": ("pygaeb.convert.to_xrechnung", "PaymentDetails"),
         # Quantity determination models (X31)
         "QtyDetermination": ("pygaeb.models.quantity", "QtyDetermination"),
         "QtyDetermInfo": ("pygaeb.models.quantity", "QtyDetermInfo"),
@@ -217,6 +221,8 @@ def __getattr__(name: str) -> object:
 
 __all__ = [
     "Address",
+    "AlternativeDecision",
+    "AlternativeGroup",
     "Attachment",
     "AwardInfo",
     "BidAnalysis",
@@ -282,6 +288,7 @@ __all__ = [
     "GAEBWriter",
     "InMemoryCache",
     "InvoiceInfo",
+    "InvoiceParty",
     "Item",
     "ItemAdded",
     "ItemDiffSummary",
@@ -298,6 +305,7 @@ __all__ = [
     "OrderItem",
     "ParsedTakeoff",
     "Party",
+    "PaymentDetails",
     "PdfStyle",
     "PdfTextRole",
     "PdfTextRun",

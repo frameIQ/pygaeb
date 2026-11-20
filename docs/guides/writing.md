@@ -108,8 +108,8 @@ of the shared schema, so the writer applies a per-phase profile
 | Phase | Not written (no place in the schema) | Required and synthesised when missing |
 |-------|--------------------------------------|---------------------------------------|
 | X81/X82 | — | `BoQInfo/Name`, `LblBoQ`, `OutlCompl`, `LblTx` |
-| X83 (tender) | unit prices, item totals, `Totals`, contractor | `QU` on every item |
-| X84 (bid) | category labels, catalog assignments, position-type markers, outline text, owner, the tender's prose and the issuer's own fields | `CTR` (empty-address placeholder), `Totals` per category |
+| X83 (tender) | unit prices, item totals, `Totals`, contractor, the award's decision on alternatives (`Accepted`) | `QU` on every item |
+| X84 (bid) | category labels, catalog assignments, position-type markers, the Zuordnungszahl, outline text, owner, the tender's prose and the issuer's own fields | `CTR` (empty-address placeholder), `Totals` per category |
 | X86 (contract) | — | `OWN`, `CTR`, `Totals` per category |
 
 Everything left out is reported once per element kind in the returned warnings
@@ -117,9 +117,14 @@ as `… not written … not part of X84 in DA XML 3.x`. The word `dropped` is
 reserved for real data loss (a field the target *version* does not support),
 which is what `ConversionReport.has_data_loss` looks for.
 
-Two pyGAEB-only serialisations remain by design: `<BidderUP>` (Preisspiegel
-prices, written with a warning) and the legacy synthetic markers for
-`ItemType.ALTERNATIVE` and friends.
+One pyGAEB-only serialisation remains by design: the legacy synthetic markers
+for position types without a real element, such as `ItemType.SUPPLEMENT`, and
+for base and alternative positions without an `alternative_group`. With one, the
+writer emits the real Zuordnungszahl (`ALNGroupNo`, `ALNSerNo`, `Accepted`)
+instead. Bidder prices (Preisspiegel) have no
+place in any GAEB schema, so they are reported as dropped. Pass
+`keep_bidder_prices=True` to write them as pyGAEB's own `<BidderUP>`, which
+survives a round trip through pyGAEB but fails schema validation.
 
 `ProgSystem` must name the generating software for BVBS certification, so it is
 stamped with `pyGAEB <version>`. Name your own application instead:
@@ -231,3 +236,46 @@ df.loc[df["affects_total"], "total_price"].sum()        # Decimal('1755.00')
 ```
 
 Amount columns stay numeric and date columns stay dates even when no item has a value. pandas is optional: `pip install pyGAEB[pandas]`.
+
+## Export an Invoice as XRechnung
+
+`to_xrechnung` turns an X89 invoice into an XRechnung 3.0 invoice (UBL 2.1), the German e-invoice format. The GAEB file gives the positions, quantities, prices, VAT rates and the parties' addresses. An e-invoice needs more, which you pass in:
+
+```python
+from datetime import date
+
+from pygaeb.convert.to_xrechnung import InvoiceParty, PaymentDetails, to_xrechnung
+
+problems = to_xrechnung(
+    invoice, "invoice.xml",
+    invoice_number="R-2026-0042",
+    leitweg_id="04011000-12345-03",          # buyer reference; a public client's Leitweg-ID
+    seller=InvoiceParty(
+        vat_id="DE123456789", contact_name="Anna Bau",
+        phone="+49 30 23125 000", email="rechnung@bau.example",
+    ),
+    buyer=InvoiceParty(email="rechnungseingang@stadt.example"),
+    payment=PaymentDetails(iban="DE89370400440532013000"),
+    payment_terms="Zahlbar innerhalb von 30 Tagen ohne Abzug",
+    service_period=(date(2026, 10, 1), date(2026, 10, 31)),  # the work this invoice bills
+)
+```
+
+- **Parties:** `seller` and `buyer` fill or override the GAEB file's contractor and owner addresses field by field. The electronic addresses XRechnung requires fall back to the e-mail address, and the buyer's to `leitweg_id` first.
+- **Service date:** `service_period=(start, end)` is the period the invoice bills (BG-14), such as the month of a progress invoice. For work done on one day, pass `delivery_date` instead (BT-72). § 14 UStG requires the time of the service, and XRechnung warns without it (BR-DE-TMP-32).
+- **Lines:** only positions that count become invoice lines: alternatives the award did not accept, the base positions it rejected, Bedarfspositionen ohne GB and positions marked not applicable stay off. A markup is one line of its own amount.
+- **Units:** GAEB units map to UN/ECE codes (`m2` → `MTK`, `Stk` → `H87`, `psch` → `LS`). Pass `unit_codes={"Fass": "BA"}` for units pyGAEB does not know.
+- **VAT:** each position's own rate, else the BoQ totals' rate, else `vat_rate`; if none gives one, 19 % stands in and is reported as a problem. `reverse_charge=True` writes category AE at 0 % for construction services under § 13b UStG and needs both VAT IDs.
+- **Amounts:** a BoQ discount becomes an allowance; `prepaid_amount` deducts earlier progress payments from the amount due.
+
+The function returns the problems that would make the invoice invalid or leave out what § 14 UStG requires, each naming the business term and the argument that fills it (`"BT-34 seller electronic address (seller.electronic_address or seller.email) is missing"`). It writes the file anyway unless you pass `strict=True`, which raises before writing.
+
+### Check an Invoice with the KoSIT Validator
+
+pyGAEB's tests write invoices with reverse charge, a discount, a prepayment, markups and mixed VAT rates, and the KoSIT validator 1.6.3 with XRechnung configuration 3.0.2 accepts every one without errors or warnings. Check your own invoices the same way before you send them: download the [validator](https://github.com/itplr-kosit/validator/releases) and the [XRechnung configuration](https://github.com/itplr-kosit/validator-configuration-xrechnung/releases), unpack the configuration into `config/`, and run:
+
+```bash
+java -jar validator-1.6.3-standalone.jar -s config/scenarios.xml -r config -o reports invoice.xml
+```
+
+It prints a verdict for each file with the rules the file breaks, and writes the full report to `reports/invoice-report.xml`. An invoice can be accepted and still carry warnings, so read the rules as well as the verdict.

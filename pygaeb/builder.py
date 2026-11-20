@@ -60,6 +60,7 @@ _VERSION_COMPAT: dict[str, dict[str, Any]] = {
     "up_components": {"min_version": "3.0"},
     "discount_pct": {"min_version": "3.0"},
     "ctlg_assigns": {"min_version": "3.1"},
+    "alternative_group": {"min_version": "3.3"},
 }
 
 _VERSION_ORDER = ["2.0", "2.1", "3.0", "3.1", "3.2", "3.3"]

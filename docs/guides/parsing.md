@@ -228,6 +228,18 @@ for item in doc.award.boq.iter_items():
         print(f"{item.full_oz}: {item.vat}%")
 ```
 
+**Which positions count.** `item.affects_total` says whether a position's total enters `grand_total` and every subtotal, by the GAEB rules. A position marked not applicable never counts, a Bedarfsposition only *mit GB*, and of a group of base and alternative positions only the base, until the award takes an alternative instead. The group is `item.alternative_group`, GAEB's Zuordnungszahl:
+
+```python
+for item in doc.award.boq.iter_items():
+    group = item.alternative_group
+    if group is not None:
+        role = "base" if group.is_base else f"alternative {group.serial}"
+        print(f"{item.full_oz}: group {group.number}, {role}, counts: {item.affects_total}")
+```
+
+From the award (X86) on, `group.decision` records the choice: `AlternativeDecision.ALTERNATIVE_ACCEPTED` on the alternative taken, `AlternativeDecision.BASE_REJECTED` on the base it replaces. A bid (X84) does not repeat the Zuordnungszahl, so read it from the tender. Whole categories marked as base or alternative areas (`ALNBGroupNo`) are not supported yet: the parser warns and sums their positions like any others.
+
 ### Trade documents (X93–X97)
 
 ```python

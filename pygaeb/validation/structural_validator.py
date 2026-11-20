@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 
 from pygaeb.models.document import GAEBDocument
-from pygaeb.models.enums import BkdnType, ValidationSeverity
-from pygaeb.models.item import Item, ValidationResult
-from pygaeb.validation._common import item_finding
+from pygaeb.models.enums import AlternativeDecision, BkdnType, ValidationSeverity
+from pygaeb.models.item import AlternativeGroup, Item, ValidationResult
+from pygaeb.validation._common import item_finding, item_ref
 
 
 def validate_structure(doc: GAEBDocument) -> list[ValidationResult]:
@@ -27,6 +28,7 @@ def validate_structure(doc: GAEBDocument) -> list[ValidationResult]:
         if lot.boq_info:
             results.extend(_validate_bkdn(lot.boq_info.bkdn, lot.rno))
         results.extend(_validate_unique_oz(lot))
+        results.extend(_validate_alternative_groups(lot))
 
     if boq.boq_info:
         results.extend(_validate_bkdn(boq.boq_info.bkdn, "root"))
@@ -52,6 +54,66 @@ def _validate_unique_oz(lot: Any) -> list[ValidationResult]:
                 repeats[(oz, index)], ValidationSeverity.ERROR,
                 f"Duplicate OZ {shown} ({count}x) in lot {lot.rno!r}",
                 rno_part=oz.rsplit(".", 1)[-1],
+            ))
+    return results
+
+
+def _validate_alternative_groups(lot: Any) -> list[ValidationResult]:
+    """Each group of base and alternative positions should leave one execution counting.
+
+    Unmarked, the base counts. An award that accepts an alternative (AltAccept)
+    rejects the base it replaces (BasReject); anything else counts the work twice
+    or not at all.
+    """
+    groups: dict[int, list[tuple[Item, AlternativeGroup]]] = defaultdict(list)
+    for item in lot.iter_items():
+        if item.alternative_group is not None:
+            groups[item.alternative_group.number].append((item, item.alternative_group))
+
+    warn = ValidationSeverity.WARNING
+    results: list[ValidationResult] = []
+    for number, members in sorted(groups.items()):
+        bases = [(i, g) for i, g in members if g.is_base]
+        alternatives = [(i, g) for i, g in members if not g.is_base]
+        for item, group in members:
+            if group.is_base and group.decision is AlternativeDecision.ALTERNATIVE_ACCEPTED:
+                results.append(item_finding(
+                    item, warn, f"{item_ref(item)}: AltAccept accepts an alternative, but "
+                    f"this is the base position of alternative group {number}", "Accepted",
+                ))
+            elif not group.is_base and group.decision is AlternativeDecision.BASE_REJECTED:
+                results.append(item_finding(
+                    item, warn, f"{item_ref(item)}: BasReject rejects a base position, but "
+                    f"this is alternative {group.serial} of group {number}", "Accepted",
+                ))
+        if not bases:
+            results.append(item_finding(
+                alternatives[0][0], warn,
+                f"Alternative group {number} has alternatives but no base position "
+                f"(ALNSerNo 0)",
+            ))
+            continue
+        accepted = [(i, g) for i, g in alternatives if g.counts]
+        open_bases = [i for i, g in bases if g.counts]
+        if accepted and open_bases:
+            results.append(item_finding(
+                open_bases[0], warn,
+                f"Alternative group {number}: an alternative is accepted (AltAccept), "
+                f"but base position {open_bases[0].full_oz} is not rejected (BasReject), "
+                f"so both count",
+            ))
+        accepted_serials = sorted({g.serial for _, g in accepted})
+        if len(accepted_serials) > 1:
+            results.append(item_finding(
+                accepted[0][0], warn,
+                f"Alternative group {number}: more than one alternative is accepted "
+                f"({', '.join(map(str, accepted_serials))}), so each of them counts",
+            ))
+        if not accepted and not open_bases:
+            results.append(item_finding(
+                bases[0][0], warn,
+                f"Alternative group {number}: the base is rejected (BasReject) but no "
+                f"alternative is accepted (AltAccept), so the group adds nothing to the total",
             ))
     return results
 

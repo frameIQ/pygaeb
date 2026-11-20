@@ -131,9 +131,12 @@ class ItemType(str, Enum):
 
     NORMAL = "Normal"
     LUMP_SUM = "LumpSum"
+    #: Alternativposition: priced, but summed only when the award accepts it.
     ALTERNATIVE = "Alternative"
     EVENTUAL = "Eventual"
     TEXT_ONLY = "TextOnly"
+    #: Grundposition: the base position an alternative can replace. Despite the
+    #: name it is no surcharge; it counts unless the award rejects it.
     BASE_SURCHARGE = "BaseSurcharge"
     INDEX = "Index"
     SUPPLEMENT = "Supplement"
@@ -143,12 +146,15 @@ class ItemType(str, Enum):
     def affects_total(self) -> bool:
         """Whether positions of this type enter the sums (the "Nur Einh.-Preis" rule).
 
-        A Bedarfsposition (``EVENTUAL``) counts only when marked *mit GB*, which the
-        type alone cannot tell: use :attr:`Item.affects_total`, which reads ``Provis``.
+        A Bedarfsposition (``EVENTUAL``) counts only when marked *mit GB*, and the
+        award can accept an alternative or reject a base position. The type alone
+        cannot tell: use :attr:`Item.affects_total`, which reads ``Provis`` and the
+        Zuordnungszahl.
         """
         return self in (
             ItemType.NORMAL,
             ItemType.LUMP_SUM,
+            ItemType.BASE_SURCHARGE,
             ItemType.SUPPLEMENT,
             ItemType.MARKUP,
         )
@@ -159,6 +165,18 @@ class Provis(str, Enum):
 
     WITH_TOTAL = "WithTotal"
     WITHOUT_TOTAL = "WithoutTotal"
+
+
+class AlternativeDecision(str, Enum):
+    """``<Accepted>``: the award's decision on a group of base and alternative positions.
+
+    Unmarked, the base position counts and its alternatives do not. Awarding an
+    alternative marks it ``AltAccept`` and the base position it replaces
+    ``BasReject``.
+    """
+
+    ALTERNATIVE_ACCEPTED = "AltAccept"
+    BASE_REJECTED = "BasReject"
 
 
 class ComplementKind(str, Enum):

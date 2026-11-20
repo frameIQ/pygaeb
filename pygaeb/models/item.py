@@ -6,11 +6,12 @@ import re
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from pygaeb.models._binary import BinaryData
 from pygaeb.models.catalog import CtlgAssign
 from pygaeb.models.enums import (
+    AlternativeDecision,
     ClassificationFlag,
     ComplementKind,
     ItemType,
@@ -265,6 +266,38 @@ class BidderPrice(BaseModel):
     source_element: Any = Field(default=None, exclude=True, repr=False)
 
 
+class AlternativeGroup(BaseModel):
+    """The Zuordnungszahl: the group of interchangeable positions an item belongs to.
+
+    Positions with the same ``number`` describe the same work done different ways:
+    ``serial`` 0 is the base position (Grundposition), 1 to 9 are the alternatives
+    (Alternativpositionen). Bidders price all of them, but only the base enters
+    the sums, until the award accepts an alternative in its place (``decision``).
+    GAEB DA XML writes it as ``ALNGroupNo``, ``ALNSerNo`` and ``Accepted``.
+    """
+
+    number: int = Field(ge=0, le=999)
+    serial: int = Field(ge=0, le=9)
+    decision: AlternativeDecision | None = None
+
+    @property
+    def is_base(self) -> bool:
+        """Whether this is the base position (serial 0) rather than an alternative."""
+        return self.serial == 0
+
+    @property
+    def counts(self) -> bool:
+        """Whether the group lets it count: a base not rejected, an accepted alternative."""
+        if self.is_base:
+            return self.decision is not AlternativeDecision.BASE_REJECTED
+        return self.decision is AlternativeDecision.ALTERNATIVE_ACCEPTED
+
+    @property
+    def item_type(self) -> ItemType:
+        """The type this makes a plain position: base or alternative position."""
+        return ItemType.BASE_SURCHARGE if self.is_base else ItemType.ALTERNATIVE
+
+
 class Item(BaseModel):
     """A single item (position) in a procurement Bill of Quantities (X80-X89).
 
@@ -320,6 +353,9 @@ class Item(BaseModel):
     #: GAEB ``<NotAppl>``, "Position entfällt": the position is dropped. It never
     #: enters the sums, and an invoice must not carry it (DA XML 3.3, §8.1.3.7).
     not_applicable: bool = False
+    #: The Zuordnungszahl: the group of base and alternative positions this one
+    #: belongs to, and the award's decision on it. None for an ordinary position.
+    alternative_group: AlternativeGroup | None = None
     up_components: list[Decimal] = Field(default_factory=list)
     discount_pct: Decimal | None = None
     vat: Decimal | None = None
@@ -334,6 +370,13 @@ class Item(BaseModel):
     #: Where the element sits in the file; needs ``positions=True``.
     source_span: SourceSpan | None = Field(default=None, exclude=True, repr=False)
     raw_data: dict[str, Any] | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def _type_from_alternative_group(self) -> Item:
+        """A plain position with a Zuordnungszahl is a base or an alternative position."""
+        if self.alternative_group is not None and self.item_type is ItemType.NORMAL:
+            self.item_type = self.alternative_group.item_type
+        return self
 
     @property
     def computed_total(self) -> Decimal | None:
@@ -353,12 +396,21 @@ class Item(BaseModel):
     def affects_total(self) -> bool:
         """Whether this position's total enters the sums.
 
-        A dropped position (``not_applicable``) never counts. A Bedarfsposition
-        counts only when marked *mit GB* (``Provis.WITH_TOTAL``); otherwise the
-        item type decides (:attr:`ItemType.affects_total`).
+        A dropped position (``not_applicable``) never counts. In a group of base
+        and alternative positions (``alternative_group``) the base counts and the
+        alternatives do not, until the award accepts an alternative in the base's
+        place. A Bedarfsposition counts only when marked *mit GB*
+        (``Provis.WITH_TOTAL``); otherwise the item type decides
+        (:attr:`ItemType.affects_total`).
         """
         if self.not_applicable:
             return False
+        group = self.alternative_group
+        if group is not None and not group.counts:
+            return False
+        if self.item_type is ItemType.ALTERNATIVE:
+            # Priced, not summed, unless its group says the award accepted it.
+            return group is not None
         if self.item_type is ItemType.EVENTUAL:
             return self.provis is Provis.WITH_TOTAL
         return self.item_type.affects_total

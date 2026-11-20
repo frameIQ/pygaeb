@@ -37,11 +37,13 @@ from pygaeb.models.document import (
     Party,
 )
 from pygaeb.models.enums import (
+    AlternativeDecision,
     BkdnType,
     ItemType,
     Provis,
 )
 from pygaeb.models.item import (
+    AlternativeGroup,
     Attachment,
     BidderPrice,
     CostApproach,
@@ -593,6 +595,13 @@ class BaseV3Parser:
         ctgy.ctlg_assigns = self._parse_ctlg_assigns(ctgy_el)
         ctgy.totals = self._parse_totals(ctgy_el)
 
+        if self._find(ctgy_el, "ALNBGroupNo") is not None:
+            doc.add_warning(
+                f"BoQCtgy {rno or label!r}: base/alternative areas (ALNBGroupNo) are not "
+                f"supported yet; the area's positions are summed like any other, and "
+                f"the area is not written back"
+            )
+
         if self._keep_xml:
             ctgy.source_element = ctgy_el
 
@@ -652,6 +661,11 @@ class BaseV3Parser:
             item.total_price = _parse_decimal(_own_text(it_el))
 
         item.item_type = self._detect_item_type(item_el)
+        group = self._parse_alternative_group(item_el, doc, item)
+        if group is not None:
+            item.alternative_group = group
+            if item.item_type is ItemType.NORMAL:
+                item.item_type = group.item_type
         provis_text = self._text(item_el, "Provis")
         if provis_text in (Provis.WITH_TOTAL.value, Provis.WITHOUT_TOTAL.value):
             item.provis = Provis(provis_text)
@@ -752,6 +766,7 @@ class BaseV3Parser:
         )
 
         self._parse_description(el, item)
+        item.alternative_group = self._parse_alternative_group(el, doc, item)
         item.markup_type = self._text(el, "MarkupType")
 
         base_str = self._text(el, "ITMarkup")
@@ -813,6 +828,30 @@ class BaseV3Parser:
                     item.long_text = parse_richtext(_inner_xml(detail_el))
 
         item.attachments = self._parse_item_attachments(el)
+
+    def _parse_alternative_group(
+        self, el: etree._Element, doc: GAEBDocument, item: Item,
+    ) -> AlternativeGroup | None:
+        """Read the Zuordnungszahl of an Item or MarkupItem: ALNGroupNo, ALNSerNo, Accepted."""
+        number = self._text(el, "ALNGroupNo")
+        serial = self._text(el, "ALNSerNo")
+        accepted = self._text(el, "Accepted")
+        if number is None and serial is None:
+            return None
+        try:
+            return AlternativeGroup(
+                number=int(number or ""),
+                serial=int(serial or ""),
+                decision=AlternativeDecision(accepted) if accepted else None,
+            )
+        except ValueError:
+            kind = "MarkupItem" if item.item_type is ItemType.MARKUP else "Item"
+            doc.add_warning(
+                f"{kind} {item.full_oz or item.oz}: Zuordnungszahl not valid "
+                f"(ALNGroupNo={number!r}, ALNSerNo={serial!r}, Accepted={accepted!r}); "
+                f"read as an ordinary position"
+            )
+            return None
 
     def _detect_item_type(self, item_el: etree._Element) -> ItemType:
         # Synthetic pyGAEB <ItemTag>Text</ItemTag> convention (kept for back-compat).

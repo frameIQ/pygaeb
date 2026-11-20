@@ -11,10 +11,12 @@ Two tiers:
   ORCA, …) reads them correctly. These carry the sum-affecting markers, i.e. the
   ones behind the "priced but not summed" (Bedarfs-/Alternativ-) rule.
 * **Legacy synthetic elements** (``LEGACY_CHILD_MARKER``) — pyGAEB-internal names for
-  position types whose real serialization is attribute-based (Grund-/Alternativ
-  Zuordnungszahl) or non-standard, and not yet implemented. Emitting them keeps
-  pyGAEB round-tripping and its totals correct, but they are **not interoperable**;
-  the writer emits a warning when it uses one.
+  position types without a real child marker. Base and alternative positions have a
+  real form, the Zuordnungszahl (``ALNGroupNo``/``ALNSerNo``, ``Item.alternative_group``),
+  which the writer emits instead whenever the item carries one in DA XML 3.3; the
+  markers stand in only for positions typed without a group and for older versions.
+  Emitting them keeps pyGAEB round-tripping and its totals correct, but they are
+  **not interoperable**; the writer emits a warning when it uses one.
 
 ``MARKUP`` is handled separately (``_add_markup_item`` → ``<MarkupItem>`` sibling in the
 ``<Itemlist>``) and ``NORMAL`` carries no marker, so neither appears here.
@@ -30,12 +32,12 @@ REAL_CHILD_MARKER: dict[ItemType, str] = {
     ItemType.EVENTUAL: "Provis",        # Bedarfsposition / Eventualposition
 }
 
-#: pyGAEB-internal fallback names for types whose real serialization is not yet
-#: implemented (Alternativ = Zuordnungszahl attribute; others non-standard). NOT
-#: interoperable — the writer warns when it emits one.
+#: pyGAEB-internal fallback names for types without a real child marker. NOT
+#: interoperable — the writer warns when it emits one. Base and alternative positions
+#: with an ``alternative_group`` get the real Zuordnungszahl instead (DA XML 3.3).
 LEGACY_CHILD_MARKER: dict[ItemType, str] = {
-    ItemType.ALTERNATIVE: "AlternativeItem",     # → real: Zuordnungszahl attr, variant 1-9
-    ItemType.BASE_SURCHARGE: "SurchargeItem",    # → real: Zuordnungszahl attr, variant 0
+    ItemType.ALTERNATIVE: "AlternativeItem",     # real: ALNGroupNo + ALNSerNo 1-9
+    ItemType.BASE_SURCHARGE: "SurchargeItem",    # real: ALNGroupNo + ALNSerNo 0
     ItemType.SUPPLEMENT: "SupplementItem",
     ItemType.INDEX: "IndexItem",
     ItemType.TEXT_ONLY: "TextItem",

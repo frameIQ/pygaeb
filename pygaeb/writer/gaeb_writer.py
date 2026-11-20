@@ -58,7 +58,7 @@ from pygaeb.models.quantity import (
     QtyItem,
 )
 from pygaeb.parser._xml_safety import SAFE_PARSER
-from pygaeb.writer.phase_profiles import PhaseProfile, profile_for
+from pygaeb.writer.phase_profiles import PhaseProfile, Slots, profile_for
 from pygaeb.writer.version_registry import (
     VERSION_REGISTRY,
     WRITABLE_VERSIONS,
@@ -155,7 +155,14 @@ _DROP_REASONS: dict[str, str] = {
         "no GAEB schema has a place for them; pass keep_bidder_prices=True to "
         "write pyGAEB's own <BidderUP>, which fails schema validation"
     ),
+    "alternative_group": (
+        "pyGAEB writes the Zuordnungszahl (ALNGroupNo/ALNSerNo/Accepted) only for "
+        "DA XML 3.3, the schema it was checked against"
+    ),
 }
+
+#: Position types the Zuordnungszahl carries; with it, no pyGAEB-internal marker.
+_GROUP_TYPES = frozenset({ItemType.ALTERNATIVE, ItemType.BASE_SURCHARGE})
 
 
 @dataclass
@@ -1285,11 +1292,16 @@ def _add_item(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
     if not _RNOPART_RE.fullmatch(item.oz or ""):
         ctx.bad_rnoparts.append(item.oz)
 
+    # Zuordnungszahl (Grund-/Alternativposition): the first children of tgItem.
+    has_group = _add_alternative_group(item_el, item, slots, ctx, where)
+
     # Position type (Bedarfs-/Alternativ-/Pauschalposition …). MARKUP is handled by
     # the _add_markup_item branch; NORMAL carries no marker. Emitting the marker keeps
     # the "priced but not summed" rule intact on re-read — without it every non-Normal
     # position silently becomes Normal and its price joins the total.
     marker = WRITER_MARKER.get(item.item_type)
+    if has_group and item.item_type in _GROUP_TYPES:
+        marker = None  # the Zuordnungszahl says it, in a form other software reads
     if marker is not None:
         if slots.allows("TypeMarker"):
             marker_el = etree.SubElement(item_el, marker)
@@ -1447,12 +1459,43 @@ def _add_item(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
         )
 
 
+def _add_alternative_group(
+    el: etree._Element, item: Item, slots: Slots, ctx: _Ctx, where: str,
+) -> bool:
+    """Write the Zuordnungszahl, the first children of an Item or MarkupItem.
+
+    Returns whether it is taken care of, so that no pyGAEB-internal type marker
+    has to stand in for it: written, or left out of a phase that inherits it.
+    """
+    group = item.alternative_group
+    if group is None:
+        return False
+    if not ctx.meta.supports_alternative_groups:
+        ctx.drop("alternative_group", where)
+        return False
+    if not slots.allows("ALNGroupNo"):
+        # A bid restates no Zuordnungszahl: it inherits it from the tender.
+        ctx.omit("Zuordnungszahl (ALNGroupNo, ALNSerNo)", where)
+        return True
+    _add_text_el(el, "ALNGroupNo", str(group.number))
+    _add_text_el(el, "ALNSerNo", str(group.serial))
+    if group.decision is not None:
+        if slots.allows("Accepted"):
+            _add_text_el(el, "Accepted", group.decision.value)
+        else:
+            # A tender or an alternative bid comes before the award.
+            ctx.omit("Accepted", where)
+    return True
+
+
 def _add_item_v2(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
     """DA XML 2.x item — the pre-1.17 shape, renamed by ``_translate_to_german``."""
     meta = ctx.meta
     warnings = ctx.warnings
     item_el = etree.SubElement(parent, "Item")
     item_el.set("RNoPart", item.oz)
+    if item.alternative_group is not None:
+        ctx.drop("alternative_group", f"Item {item.full_oz}")
 
     marker = WRITER_MARKER.get(item.item_type)
     if marker is not None:
@@ -1525,6 +1568,8 @@ def _add_markup_item(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
         mu_el.set("RNoIndex", item.rno_index)
 
     if ctx.de:
+        if item.alternative_group is not None:
+            ctx.drop("alternative_group", f"MarkupItem {item.full_oz or item.oz}")
         if item.short_text:
             _add_text_el(mu_el, "ShortText", item.short_text)
         if item.markup_type:
@@ -1549,6 +1594,9 @@ def _add_markup_item(parent: etree._Element, item: Item, ctx: _Ctx) -> None:
 
     slots = ctx.profile.markup_item
     where = f"MarkupItem {item.full_oz or item.oz}"
+
+    # A markup can belong to a base or an alternative execution, too.
+    _add_alternative_group(mu_el, item, slots, ctx, where)
 
     if slots.allows("MarkupType"):
         if item.markup_type:

@@ -64,12 +64,16 @@ _BOQ_INFO_LIB = (
     "LblTime", "CtlgAssign", "Totals", "Ctlg",
 )
 _BOQ_INFO_REQUIRED = frozenset({"Name", "LblBoQ", "OutlCompl", "BoQBkdn"})
+#: The Zuordnungszahl opens tgItem and tgMarkupItem. ALNGroupNo and ALNSerNo come
+#: as a pair; Accepted, the award's decision, exists only from the award on.
+_ALN = ("ALNGroupNo", "ALNSerNo", "Accepted")
 _ITEM_LIB = (
-    "TypeMarker", "NotAppl", "UPBkdn", "CONo", "COStatus", "QtyTBD", "Qty", "QtySplit", "QU",
-    "CtlgAssign", "UP", "UPComp", "DiscountPcnt", "IT", "VAT", "Description", "CostApproach",
+    *_ALN, "TypeMarker", "NotAppl", "UPBkdn", "CONo", "COStatus", "QtyTBD", "Qty", "QtySplit",
+    "QU", "CtlgAssign", "UP", "UPComp", "DiscountPcnt", "IT", "VAT", "Description",
+    "CostApproach",
 )
 _MARKUP_LIB = (
-    "MarkupType", "MarkupSubQty", "ITMarkup", "Markup", "DiscountPcnt", "IT",
+    *_ALN, "MarkupType", "MarkupSubQty", "ITMarkup", "Markup", "DiscountPcnt", "IT",
     "Description", "CtlgAssign",
 )
 
@@ -90,12 +94,12 @@ X83 = PhaseProfile(
     boq_info=Slots(tuple(s for s in _BOQ_INFO_LIB if s != "Totals"), _BOQ_INFO_REQUIRED),
     boq_ctgy=Slots(("LblTx", "CtlgAssign", "BoQBody"), frozenset({"LblTx"})),
     item=Slots(
-        ("TypeMarker", "UPBkdn", "CONo", "COStatus", "QtyTBD", "Qty", "QtySplit", "QU",
-         "CtlgAssign", "VAT", "Description"),
+        ("ALNGroupNo", "ALNSerNo", "TypeMarker", "UPBkdn", "CONo", "COStatus", "QtyTBD",
+         "Qty", "QtySplit", "QU", "CtlgAssign", "VAT", "Description"),
         frozenset({"QU"}),
     ),
     markup_item=Slots(
-        ("MarkupType", "MarkupSubQty", "Description", "CtlgAssign"),
+        ("ALNGroupNo", "ALNSerNo", "MarkupType", "MarkupSubQty", "Description", "CtlgAssign"),
         frozenset({"MarkupType", "Description"}),
     ),
 )
@@ -142,15 +146,19 @@ GENERIC = PhaseProfile(
 )
 
 #: An alternative bid: the generic shape, but like the tender and the bid its
-#: schema has no NotAppl (a dropped position is simply not in the file).
+#: schema has no NotAppl (a dropped position is simply not in the file), and,
+#: coming before the award, no Accepted.
 X85 = PhaseProfile(
     award=GENERIC.award,
     award_info=GENERIC.award_info,
     prj_info=GENERIC.prj_info,
     boq_info=GENERIC.boq_info,
     boq_ctgy=GENERIC.boq_ctgy,
-    item=Slots(tuple(s for s in _ITEM_LIB if s != "NotAppl")),
-    markup_item=GENERIC.markup_item,
+    item=Slots(tuple(s for s in _ITEM_LIB if s not in ("NotAppl", "Accepted"))),
+    markup_item=Slots(
+        tuple(s for s in _MARKUP_LIB if s != "Accepted"),
+        frozenset({"MarkupType", "Description"}),
+    ),
 )
 
 PROFILES: dict[ExchangePhase, PhaseProfile] = {
